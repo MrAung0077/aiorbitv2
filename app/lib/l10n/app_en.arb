@@ -1,0 +1,49 @@
+{
+  "@@locale": "en",
+
+  "appName": "AIOrbit",
+  "@appName": {
+    "description": "Application name"
+  },
+
+  "appTagline": "One Prompt. Best AI. Best Result.",
+  "@appTagline": {
+    "description": "AIOrbit application tagline"
+  },
+
+  "welcomeTitle": "Welcome to AIOrbit",
+  "welcomeSubtitle": "Your intelligent workspace for every task.",
+  "getStarted": "Get Started",
+  "continueButton": "Continue",
+  "backButton": "Back",
+  "nextButton": "Next",
+  "doneButton": "Done",
+  "cancelButton": "Cancel",
+  "saveButton": "Save",
+  "deleteButton": "Delete",
+  "retryButton": "Try Again",
+
+  "home": "Home",
+  "chat": "Chat",
+  "coach": "Coach",
+  "missions": "Missions",
+  "history": "History",
+  "settings": "Settings",
+
+  "aiChat": "AI Chat",
+  "newChat": "New Chat",
+  "askAIOrbit": "Ask AIOrbit...",
+  "startConversation": "Start a new conversation.",
+  "aiThinking": "AIOrbit is thinking...",
+  "copiedToClipboard": "Copied to clipboard",
+  "somethingWentWrong": "Something went wrong. Please try again.",
+
+  "language": "Language",
+  "systemLanguage": "System language",
+  "english": "English",
+  "myanmar": "Myanmar",
+
+  "comingSoon": "Coming soon",
+  "missionComingSoon": "Mission system is coming soon.",
+  "historyComingSoon": "Chat and AI activity history is coming soon."
+}

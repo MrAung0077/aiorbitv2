@@ -1,0 +1,42 @@
+{
+  "@@locale": "my",
+
+  "appName": "AIOrbit",
+  "appTagline": "Prompt တစ်ခု။ အကောင်းဆုံး AI။ အကောင်းဆုံးရလဒ်။",
+
+  "welcomeTitle": "AIOrbit မှ ကြိုဆိုပါတယ်",
+  "welcomeSubtitle": "အလုပ်တိုင်းအတွက် သင့်ရဲ့ ဉာဏ်ရည်မြင့် Workspace",
+  "getStarted": "စတင်မယ်",
+  "continueButton": "ဆက်သွားမယ်",
+  "backButton": "နောက်သို့",
+  "nextButton": "ရှေ့သို့",
+  "doneButton": "ပြီးပါပြီ",
+  "cancelButton": "မလုပ်တော့ပါ",
+  "saveButton": "သိမ်းမယ်",
+  "deleteButton": "ဖျက်မယ်",
+  "retryButton": "ထပ်ကြိုးစားမယ်",
+
+  "home": "ပင်မ",
+  "chat": "စကားပြော",
+  "coach": "အကြံပေး",
+  "missions": "ရည်မှန်းချက်များ",
+  "history": "မှတ်တမ်း",
+  "settings": "ဆက်တင်များ",
+
+  "aiChat": "AI နှင့် စကားပြောမယ်",
+  "newChat": "စကားဝိုင်းအသစ်",
+  "askAIOrbit": "AIOrbit ကို မေးပါ...",
+  "startConversation": "စကားဝိုင်းအသစ် စတင်ပါ။",
+  "aiThinking": "AIOrbit စဉ်းစားနေပါတယ်...",
+  "copiedToClipboard": "Clipboard သို့ ကူးယူပြီးပါပြီ",
+  "somethingWentWrong": "တစ်ခုခုမှားယွင်းသွားပါတယ်။ ထပ်ကြိုးစားပါ။",
+
+  "language": "ဘာသာစကား",
+  "systemLanguage": "စက်၏ ဘာသာစကား",
+  "english": "အင်္ဂလိပ်",
+  "myanmar": "မြန်မာ",
+
+  "comingSoon": "မကြာမီ ရရှိပါမည်",
+  "missionComingSoon": "Mission စနစ်ကို မကြာမီ ရရှိပါမည်။",
+  "historyComingSoon": "Chat နှင့် AI အသုံးပြုမှုမှတ်တမ်းကို မကြာမီ ရရှိပါမည်။"
+}
