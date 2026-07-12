@@ -1,6 +1,3 @@
-Yes—replace the screen file with this. It assumes your existing `ChatMessage`, `Conversation`, `AIChatService`, and `ConversationService` APIs match the ones in your pasted code.
-
-```dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -140,11 +137,9 @@ class _AIChatScreenState extends State<AIChatScreen> {
   void _copyMessage(String text) {
     Clipboard.setData(ClipboardData(text: text));
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Copied to clipboard'),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
   }
 
   void _newConversation() {
@@ -237,10 +232,7 @@ class _EmptyChatView extends StatelessWidget {
 }
 
 class _ChatBubble extends StatelessWidget {
-  const _ChatBubble({
-    required this.message,
-    required this.onCopy,
-  });
+  const _ChatBubble({required this.message, required this.onCopy});
 
   final ChatMessage message;
   final VoidCallback onCopy;
@@ -253,14 +245,14 @@ class _ChatBubble extends StatelessWidget {
     final backgroundColor = message.isError
         ? colorScheme.errorContainer
         : isUser
-            ? colorScheme.primaryContainer
-            : colorScheme.surfaceContainerHighest;
+        ? colorScheme.primaryContainer
+        : colorScheme.surfaceContainerHighest;
 
     final textColor = message.isError
         ? colorScheme.onErrorContainer
         : isUser
-            ? colorScheme.onPrimaryContainer
-            : colorScheme.onSurface;
+        ? colorScheme.onPrimaryContainer
+        : colorScheme.onSurface;
 
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -283,10 +275,7 @@ class _ChatBubble extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                message.content,
-                style: TextStyle(color: textColor),
-              ),
+              Text(message.content, style: TextStyle(color: textColor)),
               if (!isUser) ...[
                 const SizedBox(height: 4),
                 Align(
@@ -346,9 +335,7 @@ class _ChatInput extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         border: Border(
-          top: BorderSide(
-            color: Theme.of(context).colorScheme.outlineVariant,
-          ),
+          top: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
         ),
       ),
       child: Padding(
@@ -388,4 +375,3 @@ class _ChatInput extends StatelessWidget {
     );
   }
 }
-```
