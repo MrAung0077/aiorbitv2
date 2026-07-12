@@ -1,4 +1,4 @@
-name: aiorbit
+﻿name: aiorbit
 description: "AIOrbit - One Prompt. Best AI. Best Result."
 publish_to: "none"
 
@@ -10,17 +10,15 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
   flutter_localizations:
     sdk: flutter
-
   intl: any
+  flutter_riverpod: ^2.6.1
   cupertino_icons: ^1.0.8
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
   flutter_lints: ^6.0.0
 
 flutter:
