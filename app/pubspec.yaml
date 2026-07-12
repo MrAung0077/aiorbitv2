@@ -17,17 +17,18 @@ dependencies:
   intl: any
   flutter_riverpod: ^2.6.1
   cupertino_icons: ^1.0.8
+  path_provider: ^2.1.5
 
-  isar: ^3.1.0+1
-  isar_flutter_libs: ^3.1.0+1
+  isar_community: ^3.3.2
+  isar_community_flutter_libs: ^3.3.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
   flutter_lints: ^6.0.0
-  isar_generator: ^3.1.0+1
   build_runner: ^2.4.13
+  isar_community_generator: ^3.3.2
 
 flutter:
   uses-material-design: true
