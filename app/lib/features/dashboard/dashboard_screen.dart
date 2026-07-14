@@ -241,8 +241,6 @@ class _PromptComposer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
     return Card(
       margin: EdgeInsets.zero,
       elevation: 2,

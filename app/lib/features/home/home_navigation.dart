@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../chat/ai_chat_screen.dart';
 import '../coach/coach_screen.dart';
-import '../dashboard/dashboard_screen.dart';
+import '../settings/settings_screen.dart';
+import 'home_screen.dart';
 
 class HomeNavigation extends StatefulWidget {
   const HomeNavigation({super.key});
@@ -15,19 +15,14 @@ class _HomeNavigationState extends State<HomeNavigation> {
   int _currentIndex = 0;
 
   late final List<Widget> _screens = const [
-    DashboardScreen(),
-    AIChatScreen(),
+    HomeScreen(),
+    _ComingSoonScreen(
+      title: 'Library',
+      message: 'Your projects and conversations will live here.',
+      icon: Icons.folder_copy_outlined,
+    ),
     CoachScreen(),
-    _ComingSoonScreen(
-      title: 'Missions',
-      message: 'Mission system is coming soon.',
-      icon: Icons.flag_rounded,
-    ),
-    _ComingSoonScreen(
-      title: 'History',
-      message: 'Chat and AI activity history is coming soon.',
-      icon: Icons.history_rounded,
-    ),
+    SettingsScreen(),
   ];
 
   void _onTap(int index) {
@@ -43,14 +38,14 @@ class _HomeNavigationState extends State<HomeNavigation> {
         onDestinationSelected: _onTap,
         destinations: const [
           NavigationDestination(
-            icon: Icon(Icons.dashboard_outlined),
-            selectedIcon: Icon(Icons.dashboard_rounded),
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home_rounded),
             label: 'Home',
           ),
           NavigationDestination(
-            icon: Icon(Icons.chat_bubble_outline_rounded),
-            selectedIcon: Icon(Icons.chat_bubble_rounded),
-            label: 'Chat',
+            icon: Icon(Icons.folder_copy_outlined),
+            selectedIcon: Icon(Icons.folder_copy_rounded),
+            label: 'Library',
           ),
           NavigationDestination(
             icon: Icon(Icons.psychology_outlined),
@@ -58,14 +53,9 @@ class _HomeNavigationState extends State<HomeNavigation> {
             label: 'Coach',
           ),
           NavigationDestination(
-            icon: Icon(Icons.flag_outlined),
-            selectedIcon: Icon(Icons.flag_rounded),
-            label: 'Missions',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.history_rounded),
-            selectedIcon: Icon(Icons.history_rounded),
-            label: 'History',
+            icon: Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings_rounded),
+            label: 'Settings',
           ),
         ],
       ),
@@ -74,15 +64,15 @@ class _HomeNavigationState extends State<HomeNavigation> {
 }
 
 class _ComingSoonScreen extends StatelessWidget {
-  final String title;
-  final String message;
-  final IconData icon;
-
   const _ComingSoonScreen({
     required this.title,
     required this.message,
     required this.icon,
   });
+
+  final String title;
+  final String message;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
@@ -101,7 +91,7 @@ class _ComingSoonScreen extends StatelessWidget {
               Text(
                 title,
                 style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 8),

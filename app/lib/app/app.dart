@@ -19,7 +19,7 @@ class AIOrbitApp extends ConsumerWidget {
 
     return MaterialApp(
       onGenerateTitle: (context) {
-        return AppLocalizations.of(context)!.appName;
+        return AppLocalizations.of(context).appName;
       },
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,

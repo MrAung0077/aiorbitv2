@@ -1,9 +1,11 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/widgets/app_conversation_header.dart';
+import '../../core/widgets/app_message_bubble.dart';
+import '../../core/widgets/app_prompt_composer.dart';
+import '../../core/widgets/app_typing_indicator.dart';
 import 'models/chat_message.dart';
 import 'providers/chat_controller.dart';
 
@@ -75,18 +77,6 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     ).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
   }
 
-  void _newConversation() {
-    if (ref.read(chatControllerProvider).isSending) return;
-
-    _controller.clear();
-
-    unawaited(
-      ref.read(chatControllerProvider.notifier).createNewConversation(),
-    );
-
-    _focusNode.requestFocus();
-  }
-
   @override
   Widget build(BuildContext context) {
     ref.listen<ChatState>(chatControllerProvider, (previous, next) {
@@ -101,15 +91,8 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     final hasError = chatState.error != null;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(chatState.conversation?.title ?? 'New Chat'),
-        actions: [
-          IconButton(
-            tooltip: 'New Chat',
-            onPressed: chatState.isSending ? null : _newConversation,
-            icon: const Icon(Icons.add_comment_outlined),
-          ),
-        ],
+      appBar: AppConversationHeader(
+        title: chatState.conversation?.title ?? 'New Conversation',
       ),
       body: SafeArea(
         child: Column(
@@ -128,36 +111,44 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                         if (index < messages.length) {
                           final message = messages[index];
 
-                          return _ChatBubble(
+                          return AppMessageBubble(
                             message: message,
                             onCopy: () => _copyMessage(message.content),
                           );
                         }
 
                         if (chatState.isSending && index == messages.length) {
-                          return const _TypingBubble();
+                          return const AppTypingIndicator(
+                            label: 'AI is typing...',
+                          );
                         }
 
-                        return _ChatBubble(
+                        const errorMessage =
+                            'Something went wrong. Please try again.';
+
+                        return AppMessageBubble(
                           message: ChatMessage(
                             id: 'chat-error',
                             role: ChatRole.assistant,
-                            content: 'Something went wrong. Please try again.',
+                            content: errorMessage,
                             createdAt: DateTime.now(),
                             isError: true,
                           ),
-                          onCopy: () => _copyMessage(
-                            'Something went wrong. Please try again.',
-                          ),
+                          onCopy: () => _copyMessage(errorMessage),
                         );
                       },
                     ),
             ),
-            _ChatInput(
-              controller: _controller,
-              focusNode: _focusNode,
-              isSending: chatState.isSending,
-              onSend: _sendMessage,
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: AppPromptComposer(
+                controller: _controller,
+                focusNode: _focusNode,
+                isSending: chatState.isSending,
+                onSend: _sendMessage,
+                hintText: 'Ask AIOrbit anything...',
+                maxLines: 5,
+              ),
             ),
           ],
         ),
@@ -187,151 +178,6 @@ class _EmptyChatView extends StatelessWidget {
             const Text(
               'Start a new conversation.',
               textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ChatBubble extends StatelessWidget {
-  const _ChatBubble({required this.message, required this.onCopy});
-
-  final ChatMessage message;
-  final VoidCallback onCopy;
-
-  @override
-  Widget build(BuildContext context) {
-    final isUser = message.role == ChatRole.user;
-    final colorScheme = Theme.of(context).colorScheme;
-
-    final backgroundColor = message.isError
-        ? colorScheme.errorContainer
-        : isUser
-        ? colorScheme.primaryContainer
-        : colorScheme.surfaceContainerHighest;
-
-    final textColor = message.isError
-        ? colorScheme.onErrorContainer
-        : isUser
-        ? colorScheme.onPrimaryContainer
-        : colorScheme.onSurface;
-
-    return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width * 0.82,
-        ),
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: backgroundColor,
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(18),
-              topRight: const Radius.circular(18),
-              bottomLeft: Radius.circular(isUser ? 18 : 4),
-              bottomRight: Radius.circular(isUser ? 4 : 18),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(message.content, style: TextStyle(color: textColor)),
-              if (!isUser) ...[
-                const SizedBox(height: 4),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: IconButton(
-                    tooltip: 'Copy message',
-                    iconSize: 18,
-                    visualDensity: VisualDensity.compact,
-                    onPressed: onCopy,
-                    icon: const Icon(Icons.copy_outlined),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TypingBubble extends StatelessWidget {
-  const _TypingBubble();
-
-  @override
-  Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: const Text('AI is typing...'),
-      ),
-    );
-  }
-}
-
-class _ChatInput extends StatelessWidget {
-  const _ChatInput({
-    required this.controller,
-    required this.focusNode,
-    required this.isSending,
-    required this.onSend,
-  });
-
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final bool isSending;
-  final Future<void> Function() onSend;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(
-              child: TextField(
-                controller: controller,
-                focusNode: focusNode,
-                minLines: 1,
-                maxLines: 5,
-                enabled: !isSending,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(
-                  hintText: 'Message AIOrbit...',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            IconButton.filled(
-              tooltip: 'Send message',
-              onPressed: isSending ? null : onSend,
-              icon: isSending
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.send),
             ),
           ],
         ),
