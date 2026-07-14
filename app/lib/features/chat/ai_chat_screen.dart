@@ -1,35 +1,33 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'models/chat_message.dart';
-import 'models/conversation.dart';
-import 'services/ai_chat_service.dart';
-import 'services/conversation_service.dart';
+import 'providers/chat_controller.dart';
 
-class AIChatScreen extends StatefulWidget {
+class AIChatScreen extends ConsumerStatefulWidget {
   const AIChatScreen({super.key});
 
   @override
-  State<AIChatScreen> createState() => _AIChatScreenState();
+  ConsumerState<AIChatScreen> createState() => _AIChatScreenState();
 }
 
-class _AIChatScreenState extends State<AIChatScreen> {
-  final AIChatService _chatService = AIChatService();
-  final ConversationService _conversationService = ConversationService();
-
+class _AIChatScreenState extends ConsumerState<AIChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
 
-  late Conversation _currentConversation;
-  bool _isSending = false;
-
-  List<ChatMessage> get _messages => _currentConversation.messages;
-
   @override
   void initState() {
     super.initState();
-    _currentConversation = _conversationService.createConversation();
+    Future<void>.microtask(() async {
+      if (!mounted) return;
+      await ref
+          .read(chatControllerProvider.notifier)
+          .loadMostRecentConversation();
+    });
   }
 
   @override
@@ -42,84 +40,19 @@ class _AIChatScreenState extends State<AIChatScreen> {
 
   Future<void> _sendMessage() async {
     final text = _controller.text.trim();
+    final chatState = ref.read(chatControllerProvider);
 
-    if (text.isEmpty || _isSending) return;
+    if (text.isEmpty || chatState.isSending) return;
 
-    final now = DateTime.now();
-    final conversationId = _currentConversation.id;
-
-    final userMessage = ChatMessage(
-      id: now.microsecondsSinceEpoch.toString(),
-      role: ChatRole.user,
-      content: text,
-      createdAt: now,
-    );
-
-    setState(() {
-      _currentConversation = _conversationService.addMessage(
-        conversationId: conversationId,
-        message: userMessage,
-      );
-      _isSending = true;
-      _controller.clear();
-    });
-
+    final send = ref.read(chatControllerProvider.notifier).sendMessage(text);
+    _controller.clear();
     _scrollToBottom();
 
-    try {
-      final reply = await _chatService.sendMessage(text);
+    await send;
 
-      if (!mounted) return;
-
-      final assistantMessage = ChatMessage(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        role: ChatRole.assistant,
-        content: reply,
-        createdAt: DateTime.now(),
-      );
-
-      final updatedConversation = _conversationService.addMessage(
-        conversationId: conversationId,
-        message: assistantMessage,
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        if (_currentConversation.id == conversationId) {
-          _currentConversation = updatedConversation;
-        }
-      });
-    } catch (_) {
-      if (!mounted) return;
-
-      final errorMessage = ChatMessage(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        role: ChatRole.assistant,
-        content: 'Something went wrong. Please try again.',
-        createdAt: DateTime.now(),
-        isError: true,
-      );
-
-      final updatedConversation = _conversationService.addMessage(
-        conversationId: conversationId,
-        message: errorMessage,
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        if (_currentConversation.id == conversationId) {
-          _currentConversation = updatedConversation;
-        }
-      });
-    } finally {
-      if (!mounted) return;
-
-      setState(() => _isSending = false);
-      _scrollToBottom();
-      _focusNode.requestFocus();
-    }
+    if (!mounted) return;
+    _scrollToBottom();
+    _focusNode.requestFocus();
   }
 
   void _scrollToBottom() {
@@ -143,24 +76,37 @@ class _AIChatScreenState extends State<AIChatScreen> {
   }
 
   void _newConversation() {
-    if (_isSending) return;
+    if (ref.read(chatControllerProvider).isSending) return;
 
-    setState(() {
-      _currentConversation = _conversationService.createConversation();
-    });
+    _controller.clear();
+
+    unawaited(
+      ref.read(chatControllerProvider.notifier).createNewConversation(),
+    );
 
     _focusNode.requestFocus();
   }
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<ChatState>(chatControllerProvider, (previous, next) {
+      if (previous?.messages.length != next.messages.length ||
+          (previous?.isSending == true && !next.isSending)) {
+        _scrollToBottom();
+      }
+    });
+
+    final chatState = ref.watch(chatControllerProvider);
+    final messages = chatState.messages;
+    final hasError = chatState.error != null;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(_currentConversation.title),
+        title: Text(chatState.conversation?.title ?? 'New Chat'),
         actions: [
           IconButton(
             tooltip: 'New Chat',
-            onPressed: _isSending ? null : _newConversation,
+            onPressed: chatState.isSending ? null : _newConversation,
             icon: const Icon(Icons.add_comment_outlined),
           ),
         ],
@@ -169,22 +115,40 @@ class _AIChatScreenState extends State<AIChatScreen> {
         child: Column(
           children: [
             Expanded(
-              child: _messages.isEmpty
+              child: messages.isEmpty && !hasError
                   ? const _EmptyChatView()
                   : ListView.builder(
                       controller: _scrollController,
                       padding: const EdgeInsets.all(16),
-                      itemCount: _messages.length + (_isSending ? 1 : 0),
+                      itemCount:
+                          messages.length +
+                          (chatState.isSending ? 1 : 0) +
+                          (hasError ? 1 : 0),
                       itemBuilder: (context, index) {
-                        if (_isSending && index == _messages.length) {
+                        if (index < messages.length) {
+                          final message = messages[index];
+
+                          return _ChatBubble(
+                            message: message,
+                            onCopy: () => _copyMessage(message.content),
+                          );
+                        }
+
+                        if (chatState.isSending && index == messages.length) {
                           return const _TypingBubble();
                         }
 
-                        final message = _messages[index];
-
                         return _ChatBubble(
-                          message: message,
-                          onCopy: () => _copyMessage(message.content),
+                          message: ChatMessage(
+                            id: 'chat-error',
+                            role: ChatRole.assistant,
+                            content: 'Something went wrong. Please try again.',
+                            createdAt: DateTime.now(),
+                            isError: true,
+                          ),
+                          onCopy: () => _copyMessage(
+                            'Something went wrong. Please try again.',
+                          ),
                         );
                       },
                     ),
@@ -192,7 +156,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
             _ChatInput(
               controller: _controller,
               focusNode: _focusNode,
-              isSending: _isSending,
+              isSending: chatState.isSending,
               onSend: _sendMessage,
             ),
           ],
