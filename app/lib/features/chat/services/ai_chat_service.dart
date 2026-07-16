@@ -1,24 +1,41 @@
-import 'dart:async';
+import 'package:aiorbit/core/ai/ai.dart';
 
 class AIChatService {
-  Future<String> sendMessage(String prompt) async {
-    await Future.delayed(const Duration(milliseconds: 700));
+  AIChatService({AIService? aiService})
+    : _aiService =
+          aiService ??
+          AIService(
+            router: AIRouter(providers: AIProviderRegistry.mockProviders()),
+          );
 
+  final AIService _aiService;
+
+  /// New streaming API
+  Stream<AIChunk> sendMessage(String prompt) {
     final text = prompt.trim();
 
     if (text.isEmpty) {
-      throw Exception('Message cannot be empty.');
+      return Stream<AIChunk>.error(Exception('Message cannot be empty.'));
     }
 
-    return '''
-I understand.
+    final request = AIRequest.fromPrompt(prompt: text);
 
-For AIOrbit V2, this request should be handled by the best available AI model depending on task type.
+    return _aiService.stream(request);
+  }
 
-Your prompt:
-"$text"
+  /// Compatibility API
+  ///
+  /// Existing code can continue calling this
+  /// until ChatController is migrated.
+  Future<String> sendMessageLegacy(String prompt) async {
+    final buffer = StringBuffer();
 
-Next production step: connect this service to your real BrainService / AI router.
-''';
+    await for (final chunk in sendMessage(prompt)) {
+      if (chunk.type == AIChunkType.text) {
+        buffer.write(chunk.text);
+      }
+    }
+
+    return buffer.toString();
   }
 }

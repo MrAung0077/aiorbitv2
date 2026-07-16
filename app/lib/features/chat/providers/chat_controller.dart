@@ -1,3 +1,4 @@
+import 'package:aiorbit/core/ai/ai.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/chat_message.dart';
@@ -174,11 +175,14 @@ class ChatController extends StateNotifier<ChatState> {
       );
     }
 
+    final conversationId = conversation.id;
+    final now = DateTime.now();
+
     final userMessage = ChatMessage(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      id: now.microsecondsSinceEpoch.toString(),
       role: ChatRole.user,
       content: text,
-      createdAt: DateTime.now(),
+      createdAt: now,
     );
 
     final title = conversation.messages.isEmpty
@@ -187,8 +191,8 @@ class ChatController extends StateNotifier<ChatState> {
 
     conversation = conversation.copyWith(
       title: title,
-      messages: [...conversation.messages, userMessage],
-      updatedAt: DateTime.now(),
+      messages: <ChatMessage>[...conversation.messages, userMessage],
+      updatedAt: now,
     );
 
     state = state.copyWith(
@@ -200,32 +204,82 @@ class ChatController extends StateNotifier<ChatState> {
     try {
       await _conversationRepository.saveConversation(conversation);
 
-      final reply = await _aiChatService.sendMessage(text);
-
-      if (!mounted || state.conversation?.id != conversation.id) {
+      if (!mounted || state.conversation?.id != conversationId) {
         return;
       }
 
-      final assistantMessage = ChatMessage(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        role: ChatRole.assistant,
-        content: reply,
-        createdAt: DateTime.now(),
-      );
+      final assistantMessageId = DateTime.now().microsecondsSinceEpoch
+          .toString();
 
-      final updatedConversation = conversation.copyWith(
-        messages: [...conversation.messages, assistantMessage],
+      var assistantContent = '';
+
+      var streamingConversation = conversation.copyWith(
+        messages: <ChatMessage>[
+          ...conversation.messages,
+          ChatMessage(
+            id: assistantMessageId,
+            role: ChatRole.assistant,
+            content: assistantContent,
+            createdAt: DateTime.now(),
+          ),
+        ],
         updatedAt: DateTime.now(),
       );
 
-      await _conversationRepository.saveConversation(updatedConversation);
+      state = state.copyWith(
+        conversation: streamingConversation,
+        isSending: true,
+      );
 
-      if (!mounted || state.conversation?.id != conversation.id) {
+      await for (final chunk in _aiChatService.sendMessage(text)) {
+        if (!mounted || state.conversation?.id != conversationId) {
+          return;
+        }
+
+        switch (chunk.type) {
+          case AIChunkType.text:
+            assistantContent += chunk.text;
+
+            final assistantMessage = ChatMessage(
+              id: assistantMessageId,
+              role: ChatRole.assistant,
+              content: assistantContent,
+              createdAt: DateTime.now(),
+            );
+
+            streamingConversation = conversation.copyWith(
+              messages: <ChatMessage>[
+                ...conversation.messages,
+                assistantMessage,
+              ],
+              updatedAt: DateTime.now(),
+            );
+
+            state = state.copyWith(
+              conversation: streamingConversation,
+              isSending: true,
+            );
+
+          case AIChunkType.error:
+            throw StateError(
+              chunk.error ?? 'The AI provider returned an unknown error.',
+            );
+
+          case AIChunkType.status:
+          case AIChunkType.usage:
+          case AIChunkType.done:
+            break;
+        }
+      }
+
+      await _conversationRepository.saveConversation(streamingConversation);
+
+      if (!mounted || state.conversation?.id != conversationId) {
         return;
       }
 
       state = state.copyWith(
-        conversation: updatedConversation,
+        conversation: streamingConversation,
         isSending: false,
       );
     } catch (error, stackTrace) {
