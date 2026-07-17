@@ -22,6 +22,7 @@ dependencies:
   isar_community: ^3.3.2
   isar_community_flutter_libs: ^3.3.2
   flutter_markdown: ^0.7.7+1
+  http: ^1.5.0
 
 dev_dependencies:
   flutter_test:

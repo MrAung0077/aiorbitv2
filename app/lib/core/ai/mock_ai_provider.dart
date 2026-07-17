@@ -5,11 +5,16 @@ import 'ai_provider.dart';
 import 'ai_request.dart';
 import 'ai_response.dart';
 import 'provider_type.dart';
+import 'ai_provider_metadata.dart';
+import 'ai_capability.dart';
 
 class MockAIProvider implements AIProvider {
   const MockAIProvider({
     required this.type,
     required this.displayName,
+    this.metadata = const AIProviderMetadata(
+      supportedTasks: <AITaskType>{AITaskType.generalChat},
+    ),
     this.configured = true,
     this.wordDelay = const Duration(milliseconds: 35),
   });
@@ -19,6 +24,9 @@ class MockAIProvider implements AIProvider {
 
   @override
   final String displayName;
+
+  @override
+  final AIProviderMetadata metadata;
 
   final bool configured;
   final Duration wordDelay;

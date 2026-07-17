@@ -1,3 +1,4 @@
+import 'ai_provider_metadata.dart';
 import 'ai_chunk.dart';
 import 'ai_request.dart';
 import 'ai_response.dart';
@@ -9,6 +10,8 @@ abstract interface class AIProvider {
   String get displayName;
 
   bool get isConfigured;
+
+  AIProviderMetadata get metadata;
 
   bool supports(AIRequest request);
 

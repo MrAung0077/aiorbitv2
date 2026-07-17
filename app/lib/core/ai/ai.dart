@@ -1,6 +1,7 @@
 export 'ai_chunk.dart';
 export 'ai_message.dart';
 export 'ai_provider.dart';
+export 'ai_provider_metadata.dart';
 export 'ai_provider_registry.dart';
 export 'ai_request.dart';
 export 'ai_response.dart';
