@@ -196,18 +196,22 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
 
                               return AppMessageBubble(
                                 message: message,
-
-                                providerName: message.role == ChatRole.assistant
-                                    ? _routerDecision?.recommendedAi
-                                    : null,
-
+                                providerName: message.providerName,
                                 isStreaming:
                                     chatState.isSending &&
                                     index == messages.length - 1 &&
                                     message.role == ChatRole.assistant,
-
                                 onCopy: () {
                                   _copyMessage(message.content);
+                                },
+                                onLike: () {
+                                  debugPrint('👍 Like');
+                                },
+                                onDislike: () {
+                                  debugPrint('👎 Dislike');
+                                },
+                                onRegenerate: () {
+                                  debugPrint('🔄 Regenerate');
                                 },
                               );
                             }

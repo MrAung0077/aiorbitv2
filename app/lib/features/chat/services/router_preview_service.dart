@@ -4,58 +4,98 @@ class RouterPreviewService {
   const RouterPreviewService();
 
   RouterDecision analyze(String prompt) {
-    final text = prompt.toLowerCase();
+    final String text = prompt.trim().toLowerCase();
 
-    if (text.contains('flutter') ||
-        text.contains('dart') ||
-        text.contains('widget')) {
+    if (_containsAny(text, <String>[
+      'flutter',
+      'dart',
+      'widget',
+      'code',
+      'coding',
+      'program',
+      'debug',
+      'error',
+      'api',
+    ])) {
       return const RouterDecision(
-        task: 'Flutter Development',
-        reasoning: 'Code generation',
-        recommendedAi: 'GPT-5.5',
+        task: 'Software Development',
+        reasoning: 'Coding and technical reasoning',
+        recommendedAi: 'OpenAI',
         complexity: 'Medium',
-        confidence: 98,
+        confidence: 97,
       );
     }
 
-    if (text.contains('python')) {
-      return const RouterDecision(
-        task: 'Python Development',
-        reasoning: 'Programming',
-        recommendedAi: 'GPT-5.5',
-        complexity: 'Medium',
-        confidence: 96,
-      );
-    }
-
-    if (text.contains('image') ||
-        text.contains('logo') ||
-        text.contains('draw')) {
-      return const RouterDecision(
-        task: 'Image Generation',
-        reasoning: 'Visual creation',
-        recommendedAi: 'Image Model',
-        complexity: 'Low',
-        confidence: 99,
-      );
-    }
-
-    if (text.contains('research') || text.contains('analyze')) {
+    if (_containsAny(text, <String>[
+      'research',
+      'analyze',
+      'analysis',
+      'latest',
+      'compare',
+      'investigate',
+    ])) {
       return const RouterDecision(
         task: 'Research',
-        reasoning: 'Long-form reasoning',
-        recommendedAi: 'Reasoning Model',
+        reasoning: 'Research and information analysis',
+        recommendedAi: 'Gemini',
         complexity: 'High',
         confidence: 94,
       );
     }
 
+    if (_containsAny(text, <String>['translate', 'translation', 'ဘာသာပြန်'])) {
+      return const RouterDecision(
+        task: 'Translation',
+        reasoning: 'Multilingual language processing',
+        recommendedAi: 'Gemini',
+        complexity: 'Medium',
+        confidence: 96,
+      );
+    }
+
+    if (_containsAny(text, <String>['summarize', 'summary', 'အကျဉ်းချုပ်'])) {
+      return const RouterDecision(
+        task: 'Summarization',
+        reasoning: 'Content understanding and condensation',
+        recommendedAi: 'Gemini',
+        complexity: 'Medium',
+        confidence: 95,
+      );
+    }
+
+    if (_containsAny(text, <String>[
+      'image',
+      'logo',
+      'draw',
+      'picture',
+      'illustration',
+      'ပုံ',
+    ])) {
+      return const RouterDecision(
+        task: 'Image Generation',
+        reasoning: 'Visual content creation',
+        recommendedAi: 'OpenAI',
+        complexity: 'Medium',
+        confidence: 98,
+      );
+    }
+
     return const RouterDecision(
       task: 'General Assistant',
-      reasoning: 'Conversation',
-      recommendedAi: 'Auto',
+      reasoning: 'General conversation and assistance',
+      recommendedAi: 'OpenAI',
       complexity: 'Low',
-      confidence: 75,
+      confidence: 82,
     );
+  }
+
+  bool _containsAny(String text, List<String> keywords) {
+    for (final String keyword in keywords) {
+      if (text.contains(keyword)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 }

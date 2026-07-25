@@ -5,6 +5,7 @@ class ChatMessage {
   final ChatRole role;
   final String content;
   final DateTime createdAt;
+  final String? providerName;
   final bool isError;
 
   const ChatMessage({
@@ -12,6 +13,7 @@ class ChatMessage {
     required this.role,
     required this.content,
     required this.createdAt,
+    this.providerName,
     this.isError = false,
   });
 

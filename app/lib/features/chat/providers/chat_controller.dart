@@ -1,4 +1,5 @@
 import 'package:aiorbit/core/ai/ai.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/chat_message.dart';
@@ -59,13 +60,17 @@ class ChatController extends StateNotifier<ChatState> {
 
       state = ChatState(conversation: conversation);
     } catch (error, stackTrace) {
-      if (!mounted || revision != _operationRevision) {
+      debugPrint('AI SEND ERROR: $error');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) {
         return;
       }
 
-      state = ChatState(
+      state = state.copyWith(
+        isSending: false,
         error: ChatControllerException(
-          'Could not create a new conversation.',
+          error.toString(),
           cause: error,
           stackTrace: stackTrace,
         ),
@@ -212,6 +217,7 @@ class ChatController extends StateNotifier<ChatState> {
           .toString();
 
       var assistantContent = '';
+      String? currentProviderName;
 
       var streamingConversation = conversation.copyWith(
         messages: <ChatMessage>[
@@ -237,6 +243,33 @@ class ChatController extends StateNotifier<ChatState> {
         }
 
         switch (chunk.type) {
+          case AIChunkType.status:
+            currentProviderName = _providerDisplayName(chunk.provider);
+
+            assistantContent += '${chunk.text}\n\n';
+
+            final assistantMessage = ChatMessage(
+              id: assistantMessageId,
+              role: ChatRole.assistant,
+              content: assistantContent,
+              createdAt: DateTime.now(),
+              providerName: currentProviderName,
+            );
+
+            streamingConversation = conversation.copyWith(
+              messages: <ChatMessage>[
+                ...conversation.messages,
+                assistantMessage,
+              ],
+              updatedAt: DateTime.now(),
+            );
+
+            state = state.copyWith(
+              conversation: streamingConversation,
+              isSending: true,
+            );
+
+            break;
           case AIChunkType.text:
             assistantContent += chunk.text;
 
@@ -245,6 +278,7 @@ class ChatController extends StateNotifier<ChatState> {
               role: ChatRole.assistant,
               content: assistantContent,
               createdAt: DateTime.now(),
+              providerName: currentProviderName,
             );
 
             streamingConversation = conversation.copyWith(
@@ -265,7 +299,6 @@ class ChatController extends StateNotifier<ChatState> {
               chunk.error ?? 'The AI provider returned an unknown error.',
             );
 
-          case AIChunkType.status:
           case AIChunkType.usage:
           case AIChunkType.done:
             break;
@@ -287,15 +320,32 @@ class ChatController extends StateNotifier<ChatState> {
         return;
       }
 
+      debugPrint('====================================');
+      debugPrint(error.toString());
+      debugPrint(stackTrace.toString());
+      debugPrint('====================================');
+
       state = state.copyWith(
         isSending: false,
         error: ChatControllerException(
-          'Could not send the message. Please try again.',
+          error.toString(),
           cause: error,
           stackTrace: stackTrace,
         ),
       );
     }
+  }
+
+  String _providerDisplayName(ProviderType provider) {
+    return switch (provider) {
+      ProviderType.openAI => 'OpenAI',
+      ProviderType.gemini => 'Gemini',
+      ProviderType.claude => 'Claude',
+      ProviderType.deepSeek => 'DeepSeek',
+      ProviderType.grok => 'Grok',
+      ProviderType.mistral => 'Mistral',
+      ProviderType.ollama => 'Ollama',
+    };
   }
 
   void clearError() {

@@ -11,6 +11,9 @@ class AppMessageBubble extends StatelessWidget {
     required this.message,
     this.onCopy,
     this.onRetry,
+    this.onLike,
+    this.onDislike,
+    this.onRegenerate,
     this.providerName,
     this.isStreaming = false,
     this.showAvatar = false,
@@ -20,16 +23,12 @@ class AppMessageBubble extends StatelessWidget {
   final ChatMessage message;
   final VoidCallback? onCopy;
   final VoidCallback? onRetry;
+  final VoidCallback? onLike;
+  final VoidCallback? onDislike;
+  final VoidCallback? onRegenerate;
 
-  /// Examples: Claude, Gemini, OpenAI, DeepSeek.
-  ///
-  /// Kept outside ChatMessage for now so the database model does not need
-  /// to change during Sprint 10.
   final String? providerName;
-
-  /// Shows a streaming cursor while the assistant response is being built.
   final bool isStreaming;
-
   final bool showAvatar;
   final bool showTimestamp;
 
@@ -97,9 +96,11 @@ class AppMessageBubble extends StatelessWidget {
                       _ProviderBadge(providerName: providerName!.trim()),
                       const SizedBox(height: 10),
                     ],
-                    AnimatedMarkdown(
-                      data: markdownContent,
-                      textColor: foreground,
+                    Text(
+                      markdownContent,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: foreground,
+                      ),
                     ),
                     if (showTimestamp) ...[
                       const SizedBox(height: 8),
@@ -122,6 +123,30 @@ class AppMessageBubble extends StatelessWidget {
                               iconSize: 18,
                               onPressed: onCopy,
                               icon: const Icon(Icons.copy_outlined),
+                            ),
+                          if (!message.isError && onLike != null)
+                            IconButton(
+                              tooltip: 'Good response',
+                              visualDensity: VisualDensity.compact,
+                              iconSize: 18,
+                              onPressed: onLike,
+                              icon: const Icon(Icons.thumb_up_alt_outlined),
+                            ),
+                          if (!message.isError && onDislike != null)
+                            IconButton(
+                              tooltip: 'Bad response',
+                              visualDensity: VisualDensity.compact,
+                              iconSize: 18,
+                              onPressed: onDislike,
+                              icon: const Icon(Icons.thumb_down_alt_outlined),
+                            ),
+                          if (!message.isError && onRegenerate != null)
+                            IconButton(
+                              tooltip: 'Regenerate',
+                              visualDensity: VisualDensity.compact,
+                              iconSize: 18,
+                              onPressed: onRegenerate,
+                              icon: const Icon(Icons.refresh_rounded),
                             ),
                           if (message.isError && onRetry != null)
                             IconButton(

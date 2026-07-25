@@ -17,12 +17,12 @@ dependencies:
   intl: any
   flutter_riverpod: ^2.6.1
   cupertino_icons: ^1.0.8
-  path_provider: ^2.1.5
+  flutter_markdown: ^0.7.7+1
+  http: ^1.5.0
 
   isar_community: ^3.3.2
   isar_community_flutter_libs: ^3.3.2
-  flutter_markdown: ^0.7.7+1
-  http: ^1.5.0
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:

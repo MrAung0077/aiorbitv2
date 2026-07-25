@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/models/coach_profile.dart';
 import '../../core/services/brain_service.dart';
 import '../dashboard/dashboard_screen.dart';
+import 'package:flutter/foundation.dart';
 
 class CoachScreen extends StatefulWidget {
   const CoachScreen({super.key});
@@ -98,12 +99,34 @@ class _CoachScreenState extends State<CoachScreen> {
       return;
     }
 
+    final goal = selectedGoal;
+    final why = selectedWhy;
+    final situation = selectedSituation;
+    final resource = selectedResource;
+    final experience = selectedExperience;
+
+    if (goal == null ||
+        why == null ||
+        situation == null ||
+        resource == null ||
+        experience == null) {
+      debugPrint(
+        'Coach profile incomplete: '
+        'goal=$goal, '
+        'why=$why, '
+        'situation=$situation, '
+        'resource=$resource, '
+        'experience=$experience',
+      );
+      return;
+    }
+
     final profile = CoachProfile(
-      goal: selectedGoal!,
-      why: selectedWhy!,
-      situation: selectedSituation!,
-      resource: selectedResource!,
-      experience: selectedExperience!,
+      goal: goal,
+      why: why,
+      situation: situation,
+      resource: resource,
+      experience: experience,
     );
 
     final plan = const BrainService().createPlan(profile);

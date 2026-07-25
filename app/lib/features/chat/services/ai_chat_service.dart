@@ -5,7 +5,7 @@ class AIChatService {
     : _aiService =
           aiService ??
           AIService(
-            router: AIRouter(providers: AIProviderRegistry.mockProviders()),
+            router: AIRouter(providers: AIProviderRegistry.providers()),
           );
 
   final AIService _aiService;

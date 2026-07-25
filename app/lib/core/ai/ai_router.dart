@@ -1,16 +1,22 @@
+import 'ai_capability.dart';
 import 'ai_provider.dart';
 import 'ai_request.dart';
 import 'ai_routing_result.dart';
+import 'ai_task_analyzer.dart';
+import 'ai_task_analysis_result.dart';
 import 'provider_type.dart';
 
 class AIRouter {
   AIRouter({
     required List<AIProvider> providers,
-    this.defaultProvider = ProviderType.gemini,
-  }) : _providers = List<AIProvider>.unmodifiable(providers);
+    AITaskAnalyzer? analyzer,
+    this.defaultProvider = ProviderType.openAI,
+  }) : _providers = List<AIProvider>.unmodifiable(providers),
+       _analyzer = analyzer ?? const AITaskAnalyzer();
 
   final List<AIProvider> _providers;
   final ProviderType defaultProvider;
+  final AITaskAnalyzer _analyzer;
 
   List<AIProvider> get providers => _providers;
 
@@ -26,47 +32,39 @@ class AIRouter {
       if (preferredProvider != null) {
         return AIRoutingResult(
           provider: preferredProvider,
-          reason: 'User or feature selected ${preferredProvider.displayName}.',
+          reason: 'User selected ${preferredProvider.displayName}.',
         );
       }
     }
 
-    final ProviderType inferredType = _inferProvider(request.latestUserPrompt);
-    final AIProvider? inferredProvider = _findAvailableProvider(
-      inferredType,
-      request,
+    final AITaskAnalysisResult analysis = _analyzer.analyze(
+      request.latestUserPrompt,
     );
 
-    if (inferredProvider != null) {
+    final ProviderType taskProvider = _providerForTask(analysis.task);
+
+    final AIProvider? selected = _findAvailableProvider(taskProvider, request);
+
+    if (selected != null) {
       return AIRoutingResult(
-        provider: inferredProvider,
-        reason:
-            'Router selected ${inferredProvider.displayName} for this task.',
+        provider: selected,
+        reason: '${analysis.reason} Selected ${selected.displayName}.',
       );
     }
 
-    final AIProvider? defaultMatch = _findAvailableProvider(
+    final AIProvider? fallback = _findAvailableProvider(
       defaultProvider,
       request,
     );
 
-    if (defaultMatch != null) {
+    if (fallback != null) {
       return AIRoutingResult(
-        provider: defaultMatch,
-        reason: 'Router used the default provider.',
+        provider: fallback,
+        reason: 'Used default provider.',
       );
     }
 
-    for (final AIProvider provider in _providers) {
-      if (provider.isConfigured && provider.supports(request)) {
-        return AIRoutingResult(
-          provider: provider,
-          reason: 'Router used the first available compatible provider.',
-        );
-      }
-    }
-
-    throw StateError('No configured AI provider supports this request.');
+    throw StateError('No available AI provider.');
   }
 
   AIProvider? _findAvailableProvider(ProviderType type, AIRequest request) {
@@ -77,59 +75,35 @@ class AIRouter {
         return provider;
       }
     }
+
     return null;
   }
 
-  ProviderType _inferProvider(String prompt) {
-    final String normalized = prompt.toLowerCase();
+  ProviderType _providerForTask(AITaskType task) {
+    switch (task) {
+      case AITaskType.coding:
+        return ProviderType.openAI;
 
-    if (_containsAny(normalized, const <String>[
-      'code',
-      'debug',
-      'flutter',
-      'dart',
-      'python',
-      'javascript',
-      'typescript',
-      'api',
-      'architecture',
-    ])) {
-      return ProviderType.claude;
+      case AITaskType.research:
+        return ProviderType.gemini;
+
+      case AITaskType.translation:
+        return ProviderType.gemini;
+
+      case AITaskType.summarization:
+        return ProviderType.gemini;
+
+      case AITaskType.imageGeneration:
+        return ProviderType.openAI;
+
+      case AITaskType.imageAnalysis:
+        return ProviderType.openAI;
+
+      case AITaskType.documentAnalysis:
+        return ProviderType.openAI;
+
+      case AITaskType.generalChat:
+        return defaultProvider;
     }
-
-    if (_containsAny(normalized, const <String>[
-      'latest',
-      'news',
-      'current',
-      'today',
-      'research',
-      'compare',
-    ])) {
-      return ProviderType.gemini;
-    }
-
-    if (_containsAny(normalized, const <String>[
-      'local model',
-      'offline',
-      'private',
-      'on device',
-    ])) {
-      return ProviderType.ollama;
-    }
-
-    if (_containsAny(normalized, const <String>[
-      'cheap',
-      'budget',
-      'low cost',
-      'economical',
-    ])) {
-      return ProviderType.deepSeek;
-    }
-
-    return defaultProvider;
-  }
-
-  bool _containsAny(String value, List<String> terms) {
-    return terms.any(value.contains);
   }
 }
