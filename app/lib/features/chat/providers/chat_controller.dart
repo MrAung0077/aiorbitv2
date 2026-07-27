@@ -6,6 +6,7 @@ import '../models/chat_message.dart';
 import '../models/conversation.dart';
 import '../repositories/conversation_repository.dart';
 import '../services/ai_chat_service.dart';
+import '../models/message_feedback.dart';
 
 final aiChatServiceProvider = Provider<AIChatService>((ref) {
   return AIChatService();
@@ -336,6 +337,238 @@ class ChatController extends StateNotifier<ChatState> {
     }
   }
 
+  Future<void> regenerateLastResponse() async {
+    if (state.isSending) {
+      return;
+    }
+
+    final currentConversation = state.conversation;
+
+    if (currentConversation == null || currentConversation.messages.isEmpty) {
+      state = state.copyWith(
+        error: const ChatControllerException(
+          'There is no response to regenerate.',
+        ),
+      );
+      return;
+    }
+
+    var lastUserMessageIndex = -1;
+
+    for (
+      var index = currentConversation.messages.length - 1;
+      index >= 0;
+      index--
+    ) {
+      if (currentConversation.messages[index].role == ChatRole.user) {
+        lastUserMessageIndex = index;
+        break;
+      }
+    }
+
+    if (lastUserMessageIndex == -1) {
+      state = state.copyWith(
+        error: const ChatControllerException(
+          'The last user message could not be found.',
+        ),
+      );
+      return;
+    }
+
+    final userPrompt = currentConversation
+        .messages[lastUserMessageIndex]
+        .content
+        .trim();
+
+    if (userPrompt.isEmpty) {
+      state = state.copyWith(
+        error: const ChatControllerException('The last user message is empty.'),
+      );
+      return;
+    }
+
+    final conversationId = currentConversation.id;
+
+    final baseMessages = currentConversation.messages.sublist(
+      0,
+      lastUserMessageIndex + 1,
+    );
+
+    var conversation = currentConversation.copyWith(
+      messages: <ChatMessage>[...baseMessages],
+      updatedAt: DateTime.now(),
+    );
+
+    state = state.copyWith(
+      conversation: conversation,
+      isSending: true,
+      clearError: true,
+    );
+
+    try {
+      await _conversationRepository.saveConversation(conversation);
+
+      if (!mounted || state.conversation?.id != conversationId) {
+        return;
+      }
+
+      final assistantMessageId = DateTime.now().microsecondsSinceEpoch
+          .toString();
+
+      var assistantContent = '';
+      String? currentProviderName;
+
+      var streamingConversation = conversation.copyWith(
+        messages: <ChatMessage>[
+          ...conversation.messages,
+          ChatMessage(
+            id: assistantMessageId,
+            role: ChatRole.assistant,
+            content: assistantContent,
+            createdAt: DateTime.now(),
+          ),
+        ],
+        updatedAt: DateTime.now(),
+      );
+
+      state = state.copyWith(
+        conversation: streamingConversation,
+        isSending: true,
+      );
+
+      await for (final chunk in _aiChatService.sendMessage(userPrompt)) {
+        if (!mounted || state.conversation?.id != conversationId) {
+          return;
+        }
+
+        switch (chunk.type) {
+          case AIChunkType.status:
+            currentProviderName = _providerDisplayName(chunk.provider);
+            assistantContent += '${chunk.text}\n\n';
+
+            final assistantMessage = ChatMessage(
+              id: assistantMessageId,
+              role: ChatRole.assistant,
+              content: assistantContent,
+              createdAt: DateTime.now(),
+              providerName: currentProviderName,
+            );
+
+            streamingConversation = conversation.copyWith(
+              messages: <ChatMessage>[
+                ...conversation.messages,
+                assistantMessage,
+              ],
+              updatedAt: DateTime.now(),
+            );
+
+            state = state.copyWith(
+              conversation: streamingConversation,
+              isSending: true,
+            );
+
+          case AIChunkType.text:
+            assistantContent += chunk.text;
+
+            final assistantMessage = ChatMessage(
+              id: assistantMessageId,
+              role: ChatRole.assistant,
+              content: assistantContent,
+              createdAt: DateTime.now(),
+              providerName: currentProviderName,
+            );
+
+            streamingConversation = conversation.copyWith(
+              messages: <ChatMessage>[
+                ...conversation.messages,
+                assistantMessage,
+              ],
+              updatedAt: DateTime.now(),
+            );
+
+            state = state.copyWith(
+              conversation: streamingConversation,
+              isSending: true,
+            );
+
+          case AIChunkType.error:
+            throw StateError(
+              chunk.error ?? 'The AI provider returned an unknown error.',
+            );
+
+          case AIChunkType.usage:
+          case AIChunkType.done:
+            break;
+        }
+      }
+
+      await _conversationRepository.saveConversation(streamingConversation);
+
+      if (!mounted || state.conversation?.id != conversationId) {
+        return;
+      }
+
+      state = state.copyWith(
+        conversation: streamingConversation,
+        isSending: false,
+      );
+    } catch (error, stackTrace) {
+      if (!mounted) {
+        return;
+      }
+
+      debugPrint('AI REGENERATE ERROR: $error');
+      debugPrintStack(stackTrace: stackTrace);
+
+      state = state.copyWith(
+        isSending: false,
+        error: ChatControllerException(
+          error.toString(),
+          cause: error,
+          stackTrace: stackTrace,
+        ),
+      );
+    }
+  }
+
+  MessageFeedback feedbackFor(String messageId) {
+    return state.feedbackByMessageId[messageId] ?? MessageFeedback.none;
+  }
+
+  void toggleLike(String messageId) {
+    final current = feedbackFor(messageId);
+
+    _setMessageFeedback(
+      messageId,
+      current == MessageFeedback.liked
+          ? MessageFeedback.none
+          : MessageFeedback.liked,
+    );
+  }
+
+  void toggleDislike(String messageId) {
+    final current = feedbackFor(messageId);
+
+    _setMessageFeedback(
+      messageId,
+      current == MessageFeedback.disliked
+          ? MessageFeedback.none
+          : MessageFeedback.disliked,
+    );
+  }
+
+  void _setMessageFeedback(String messageId, MessageFeedback feedback) {
+    final updated = <String, MessageFeedback>{...state.feedbackByMessageId};
+
+    if (feedback == MessageFeedback.none) {
+      updated.remove(messageId);
+    } else {
+      updated[messageId] = feedback;
+    }
+
+    state = state.copyWith(feedbackByMessageId: updated);
+  }
+
   String _providerDisplayName(ProviderType provider) {
     return switch (provider) {
       ProviderType.openAI => 'OpenAI',
@@ -359,12 +592,14 @@ class ChatState {
     this.isLoading = false,
     this.isSending = false,
     this.error,
+    this.feedbackByMessageId = const <String, MessageFeedback>{},
   });
 
   final Conversation? conversation;
   final bool isLoading;
   final bool isSending;
   final ChatControllerException? error;
+  final Map<String, MessageFeedback> feedbackByMessageId;
 
   List<ChatMessage> get messages =>
       conversation?.messages ?? const <ChatMessage>[];
@@ -376,6 +611,7 @@ class ChatState {
     bool? isLoading,
     bool? isSending,
     ChatControllerException? error,
+    Map<String, MessageFeedback>? feedbackByMessageId,
     bool clearConversation = false,
     bool clearError = false,
   }) {
@@ -386,6 +622,7 @@ class ChatState {
       isLoading: isLoading ?? this.isLoading,
       isSending: isSending ?? this.isSending,
       error: clearError ? null : error ?? this.error,
+      feedbackByMessageId: feedbackByMessageId ?? this.feedbackByMessageId,
     );
   }
 }

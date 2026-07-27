@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../features/chat/models/chat_message.dart';
+import '../../features/chat/models/message_feedback.dart';
 import '../design/app_radius.dart';
 import '../design/app_shadows.dart';
-import 'animated_markdown.dart';
 
 class AppMessageBubble extends StatelessWidget {
   const AppMessageBubble({
@@ -14,6 +14,7 @@ class AppMessageBubble extends StatelessWidget {
     this.onLike,
     this.onDislike,
     this.onRegenerate,
+    this.feedback = MessageFeedback.none,
     this.providerName,
     this.isStreaming = false,
     this.showAvatar = false,
@@ -27,12 +28,17 @@ class AppMessageBubble extends StatelessWidget {
   final VoidCallback? onDislike;
   final VoidCallback? onRegenerate;
 
+  final MessageFeedback feedback;
   final String? providerName;
   final bool isStreaming;
   final bool showAvatar;
   final bool showTimestamp;
 
   bool get _isUser => message.role == ChatRole.user;
+
+  bool get _isLiked => feedback == MessageFeedback.liked;
+
+  bool get _isDisliked => feedback == MessageFeedback.disliked;
 
   bool get _showProviderBadge {
     return !_isUser &&
@@ -58,7 +64,7 @@ class AppMessageBubble extends StatelessWidget {
         ? colorScheme.onPrimaryContainer
         : colorScheme.onSurface;
 
-    final markdownContent = !_isUser && isStreaming
+    final messageContent = !_isUser && isStreaming
         ? '${message.content}▋'
         : message.content;
 
@@ -97,7 +103,7 @@ class AppMessageBubble extends StatelessWidget {
                       const SizedBox(height: 10),
                     ],
                     Text(
-                      markdownContent,
+                      messageContent,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: foreground,
                       ),
@@ -126,19 +132,33 @@ class AppMessageBubble extends StatelessWidget {
                             ),
                           if (!message.isError && onLike != null)
                             IconButton(
-                              tooltip: 'Good response',
+                              tooltip: _isLiked
+                                  ? 'Remove positive feedback'
+                                  : 'Good response',
                               visualDensity: VisualDensity.compact,
                               iconSize: 18,
+                              color: _isLiked ? colorScheme.primary : null,
                               onPressed: onLike,
-                              icon: const Icon(Icons.thumb_up_alt_outlined),
+                              icon: Icon(
+                                _isLiked
+                                    ? Icons.thumb_up_alt
+                                    : Icons.thumb_up_alt_outlined,
+                              ),
                             ),
                           if (!message.isError && onDislike != null)
                             IconButton(
-                              tooltip: 'Bad response',
+                              tooltip: _isDisliked
+                                  ? 'Remove negative feedback'
+                                  : 'Bad response',
                               visualDensity: VisualDensity.compact,
                               iconSize: 18,
+                              color: _isDisliked ? colorScheme.primary : null,
                               onPressed: onDislike,
-                              icon: const Icon(Icons.thumb_down_alt_outlined),
+                              icon: Icon(
+                                _isDisliked
+                                    ? Icons.thumb_down_alt
+                                    : Icons.thumb_down_alt_outlined,
+                              ),
                             ),
                           if (!message.isError && onRegenerate != null)
                             IconButton(

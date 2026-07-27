@@ -8,6 +8,7 @@ import '../../core/widgets/app_prompt_composer.dart';
 import '../../core/widgets/app_typing_indicator.dart';
 import 'models/brain_status.dart';
 import 'models/chat_message.dart';
+import 'models/message_feedback.dart';
 import 'models/router_decision.dart';
 import 'providers/brain_provider.dart';
 import 'providers/chat_controller.dart';
@@ -72,7 +73,6 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     _focusNode.unfocus();
 
     ref.read(brainStatusProvider.notifier).state = BrainStatus.understanding;
-
     ref.read(brainOverlayVisibleProvider.notifier).state = true;
 
     _scrollToBottom();
@@ -163,7 +163,6 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
 
     final chatState = ref.watch(chatControllerProvider);
     final brainStatus = ref.watch(brainStatusProvider);
-
     final isBrainOverlayVisible = ref.watch(brainOverlayVisibleProvider);
 
     final messages = chatState.messages;
@@ -194,8 +193,16 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                             if (index < messages.length) {
                               final message = messages[index];
 
+                              final isLastAssistantMessage =
+                                  index == messages.length - 1 &&
+                                  message.role == ChatRole.assistant &&
+                                  !message.isError;
+
                               return AppMessageBubble(
                                 message: message,
+                                feedback:
+                                    chatState.feedbackByMessageId[message.id] ??
+                                    MessageFeedback.none,
                                 providerName: message.providerName,
                                 isStreaming:
                                     chatState.isSending &&
@@ -205,14 +212,24 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                                   _copyMessage(message.content);
                                 },
                                 onLike: () {
-                                  debugPrint('👍 Like');
+                                  ref
+                                      .read(chatControllerProvider.notifier)
+                                      .toggleLike(message.id);
                                 },
                                 onDislike: () {
-                                  debugPrint('👎 Dislike');
+                                  ref
+                                      .read(chatControllerProvider.notifier)
+                                      .toggleDislike(message.id);
                                 },
-                                onRegenerate: () {
-                                  debugPrint('🔄 Regenerate');
-                                },
+                                onRegenerate: isLastAssistantMessage
+                                    ? () {
+                                        ref
+                                            .read(
+                                              chatControllerProvider.notifier,
+                                            )
+                                            .regenerateLastResponse();
+                                      }
+                                    : null,
                               );
                             }
 
