@@ -15,6 +15,7 @@ import 'providers/chat_controller.dart';
 import 'services/router_preview_service.dart';
 import 'widgets/brain_overlay.dart';
 import 'widgets/mission_suggestion_card.dart';
+import '../mission/mission_preview_screen.dart';
 
 class AIChatScreen extends ConsumerStatefulWidget {
   const AIChatScreen({super.key});
@@ -150,9 +151,17 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
   }
 
   void _continueAsMission() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Mission creation is coming in the next step.'),
+    final suggestion = ref.read(chatControllerProvider).missionSuggestion;
+
+    if (suggestion == null) {
+      return;
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) {
+          return MissionPreviewScreen(suggestion: suggestion);
+        },
       ),
     );
   }
