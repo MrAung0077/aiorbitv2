@@ -14,6 +14,7 @@ import 'providers/brain_provider.dart';
 import 'providers/chat_controller.dart';
 import 'services/router_preview_service.dart';
 import 'widgets/brain_overlay.dart';
+import 'widgets/mission_suggestion_card.dart';
 
 class AIChatScreen extends ConsumerStatefulWidget {
   const AIChatScreen({super.key});
@@ -148,6 +149,14 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     ).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
   }
 
+  void _continueAsMission() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Mission creation is coming in the next step.'),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen<ChatState>(chatControllerProvider, (previous, next) {
@@ -185,6 +194,11 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                           padding: const EdgeInsets.all(16),
                           itemCount:
                               messages.length +
+                              (chatState.missionSuggestion != null &&
+                                      !chatState.isSending &&
+                                      !hasError
+                                  ? 1
+                                  : 0) +
                               (chatState.isSending && messages.isEmpty
                                   ? 1
                                   : 0) +
@@ -230,6 +244,19 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                                             .regenerateLastResponse();
                                       }
                                     : null,
+                              );
+                            }
+
+                            final shouldShowMissionSuggestion =
+                                chatState.missionSuggestion != null &&
+                                !chatState.isSending &&
+                                !hasError;
+
+                            if (shouldShowMissionSuggestion &&
+                                index == messages.length) {
+                              return MissionSuggestionCard(
+                                suggestion: chatState.missionSuggestion!,
+                                onContinue: _continueAsMission,
                               );
                             }
 

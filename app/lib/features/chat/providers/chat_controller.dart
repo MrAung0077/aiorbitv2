@@ -1,4 +1,5 @@
 import 'package:aiorbit/core/ai/ai.dart';
+import 'package:aiorbit/features/mission/models/mission_suggestion.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,10 +7,17 @@ import '../models/chat_message.dart';
 import '../models/conversation.dart';
 import '../repositories/conversation_repository.dart';
 import '../services/ai_chat_service.dart';
+import '../services/mission_suggestion_service.dart';
 import '../models/message_feedback.dart';
 
 final aiChatServiceProvider = Provider<AIChatService>((ref) {
   return AIChatService();
+});
+
+final missionSuggestionServiceProvider = Provider<MissionSuggestionService>((
+  ref,
+) {
+  return const MissionSuggestionService();
 });
 
 final conversationRepositoryProvider = Provider<ConversationRepository>((ref) {
@@ -21,6 +29,7 @@ final chatControllerProvider = StateNotifierProvider<ChatController, ChatState>(
     return ChatController(
       aiChatService: ref.watch(aiChatServiceProvider),
       conversationRepository: ref.watch(conversationRepositoryProvider),
+      missionSuggestionService: ref.watch(missionSuggestionServiceProvider),
     );
   },
 );
@@ -29,12 +38,15 @@ class ChatController extends StateNotifier<ChatState> {
   ChatController({
     required AIChatService aiChatService,
     required ConversationRepository conversationRepository,
+    required MissionSuggestionService missionSuggestionService,
   }) : _aiChatService = aiChatService,
        _conversationRepository = conversationRepository,
+       _missionSuggestionService = missionSuggestionService,
        super(const ChatState());
 
   final AIChatService _aiChatService;
   final ConversationRepository _conversationRepository;
+  final MissionSuggestionService _missionSuggestionService;
 
   int _operationRevision = 0;
 
@@ -205,6 +217,7 @@ class ChatController extends StateNotifier<ChatState> {
       conversation: conversation,
       isSending: true,
       clearError: true,
+      clearMissionSuggestion: true,
     );
 
     try {
@@ -312,9 +325,13 @@ class ChatController extends StateNotifier<ChatState> {
         return;
       }
 
+      final missionSuggestion = _missionSuggestionService.suggestFor(text);
+
       state = state.copyWith(
         conversation: streamingConversation,
         isSending: false,
+        missionSuggestion: missionSuggestion,
+        clearMissionSuggestion: missionSuggestion == null,
       );
     } catch (error, stackTrace) {
       if (!mounted) {
@@ -403,6 +420,7 @@ class ChatController extends StateNotifier<ChatState> {
       conversation: conversation,
       isSending: true,
       clearError: true,
+      clearMissionSuggestion: true,
     );
 
     try {
@@ -508,9 +526,15 @@ class ChatController extends StateNotifier<ChatState> {
         return;
       }
 
+      final missionSuggestion = _missionSuggestionService.suggestFor(
+        userPrompt,
+      );
+
       state = state.copyWith(
         conversation: streamingConversation,
         isSending: false,
+        missionSuggestion: missionSuggestion,
+        clearMissionSuggestion: missionSuggestion == null,
       );
     } catch (error, stackTrace) {
       if (!mounted) {
@@ -593,6 +617,7 @@ class ChatState {
     this.isSending = false,
     this.error,
     this.feedbackByMessageId = const <String, MessageFeedback>{},
+    this.missionSuggestion,
   });
 
   final Conversation? conversation;
@@ -600,6 +625,7 @@ class ChatState {
   final bool isSending;
   final ChatControllerException? error;
   final Map<String, MessageFeedback> feedbackByMessageId;
+  final MissionSuggestion? missionSuggestion;
 
   List<ChatMessage> get messages =>
       conversation?.messages ?? const <ChatMessage>[];
@@ -612,8 +638,10 @@ class ChatState {
     bool? isSending,
     ChatControllerException? error,
     Map<String, MessageFeedback>? feedbackByMessageId,
+    MissionSuggestion? missionSuggestion,
     bool clearConversation = false,
     bool clearError = false,
+    bool clearMissionSuggestion = false,
   }) {
     return ChatState(
       conversation: clearConversation
@@ -623,6 +651,9 @@ class ChatState {
       isSending: isSending ?? this.isSending,
       error: clearError ? null : error ?? this.error,
       feedbackByMessageId: feedbackByMessageId ?? this.feedbackByMessageId,
+      missionSuggestion: clearMissionSuggestion
+          ? null
+          : missionSuggestion ?? this.missionSuggestion,
     );
   }
 }
