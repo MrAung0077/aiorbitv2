@@ -14,6 +14,10 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
+
+  static const String _heroTitle = 'One Prompt.';
+  static const String _heroSubtitle = 'Best AI. Best Result.';
+  static const String _heroQuestion = 'What do you want to accomplish today?';
   final TextEditingController _promptController = TextEditingController();
   final FocusNode _promptFocusNode = FocusNode();
 
@@ -66,7 +70,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('AIOrbit'),
+        title: const Text('Ovexiq'),
         centerTitle: false,
         actions: [
           IconButton(
@@ -86,13 +90,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 const SizedBox(height: AppSpacing.lg),
 
                 Text(
-                  'One Prompt.',
+                  _heroTitle,
                   style: theme.textTheme.displayMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 Text(
-                  'Best AI. Best Result.',
+                  (_heroSubtitle),
                   style: theme.textTheme.displayMedium?.copyWith(
                     color: theme.colorScheme.primary,
                     fontWeight: FontWeight.w700,
@@ -102,7 +106,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 const SizedBox(height: AppSpacing.md),
 
                 Text(
-                  'What are we working on today?',
+                  (_heroQuestion),
                   style: theme.textTheme.bodyLarge?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),

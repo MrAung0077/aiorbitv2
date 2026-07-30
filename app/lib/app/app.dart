@@ -3,8 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/providers/app_provider.dart';
 import '../core/theme/app_theme.dart';
+import '../features/home/home_navigation.dart';
 import '../features/settings/providers/settings_controller.dart';
-import '../features/welcome/welcome_screen.dart';
+import '../features/startup/startup_screen.dart';
 import '../l10n/app_localizations.dart';
 
 class AIOrbitApp extends ConsumerWidget {
@@ -14,8 +15,6 @@ class AIOrbitApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
     final locale = ref.watch(localeProvider);
-
-    ref.watch(settingsControllerProvider);
 
     return MaterialApp(
       onGenerateTitle: (context) {
@@ -28,7 +27,18 @@ class AIOrbitApp extends ConsumerWidget {
       locale: locale,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: const WelcomeScreen(),
+      home: const StartupScreen(readyChild: _ReadyAppHome()),
     );
+  }
+}
+
+class _ReadyAppHome extends ConsumerWidget {
+  const _ReadyAppHome();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(settingsControllerProvider);
+
+    return const HomeNavigation();
   }
 }

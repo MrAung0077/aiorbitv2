@@ -71,7 +71,10 @@ class ChatController extends StateNotifier<ChatState> {
         return;
       }
 
-      state = ChatState(conversation: conversation);
+      state = ChatState(
+        conversation: conversation,
+        missionSuggestion: _suggestionForConversation(conversation),
+      );
     } catch (error, stackTrace) {
       debugPrint('AI SEND ERROR: $error');
       debugPrintStack(stackTrace: stackTrace);
@@ -123,7 +126,10 @@ class ChatController extends StateNotifier<ChatState> {
         return;
       }
 
-      state = ChatState(conversation: conversation);
+      state = ChatState(
+        conversation: conversation,
+        missionSuggestion: _suggestionForConversation(conversation),
+      );
     } catch (error, stackTrace) {
       if (!mounted || revision != _operationRevision) {
         return;
@@ -156,7 +162,12 @@ class ChatController extends StateNotifier<ChatState> {
         return;
       }
 
-      state = ChatState(conversation: conversations.first);
+      final conversation = conversations.first;
+
+      state = ChatState(
+        conversation: conversation,
+        missionSuggestion: _suggestionForConversation(conversation),
+      );
     } catch (error, stackTrace) {
       if (!mounted || revision != _operationRevision) {
         return;
@@ -178,6 +189,8 @@ class ChatController extends StateNotifier<ChatState> {
     if (text.isEmpty || state.isSending) {
       return;
     }
+
+    ++_operationRevision;
 
     var conversation = state.conversation;
 
@@ -260,30 +273,10 @@ class ChatController extends StateNotifier<ChatState> {
           case AIChunkType.status:
             currentProviderName = _providerDisplayName(chunk.provider);
 
-            assistantContent += '${chunk.text}\n\n';
-
-            final assistantMessage = ChatMessage(
-              id: assistantMessageId,
-              role: ChatRole.assistant,
-              content: assistantContent,
-              createdAt: DateTime.now(),
-              providerName: currentProviderName,
-            );
-
-            streamingConversation = conversation.copyWith(
-              messages: <ChatMessage>[
-                ...conversation.messages,
-                assistantMessage,
-              ],
-              updatedAt: DateTime.now(),
-            );
-
-            state = state.copyWith(
-              conversation: streamingConversation,
-              isSending: true,
-            );
-
+            // Keep provider metadata only.
+            // Don't display internal routing/status messages.
             break;
+
           case AIChunkType.text:
             assistantContent += chunk.text;
 
@@ -308,6 +301,7 @@ class ChatController extends StateNotifier<ChatState> {
               isSending: true,
             );
 
+            break;
           case AIChunkType.error:
             throw StateError(
               chunk.error ?? 'The AI provider returned an unknown error.',
@@ -416,6 +410,8 @@ class ChatController extends StateNotifier<ChatState> {
       updatedAt: DateTime.now(),
     );
 
+    ++_operationRevision;
+
     state = state.copyWith(
       conversation: conversation,
       isSending: true,
@@ -462,28 +458,10 @@ class ChatController extends StateNotifier<ChatState> {
         switch (chunk.type) {
           case AIChunkType.status:
             currentProviderName = _providerDisplayName(chunk.provider);
-            assistantContent += '${chunk.text}\n\n';
 
-            final assistantMessage = ChatMessage(
-              id: assistantMessageId,
-              role: ChatRole.assistant,
-              content: assistantContent,
-              createdAt: DateTime.now(),
-              providerName: currentProviderName,
-            );
-
-            streamingConversation = conversation.copyWith(
-              messages: <ChatMessage>[
-                ...conversation.messages,
-                assistantMessage,
-              ],
-              updatedAt: DateTime.now(),
-            );
-
-            state = state.copyWith(
-              conversation: streamingConversation,
-              isSending: true,
-            );
+            // Keep provider metadata only.
+            // Don't display internal routing/status messages.
+            break;
 
           case AIChunkType.text:
             assistantContent += chunk.text;
@@ -508,6 +486,8 @@ class ChatController extends StateNotifier<ChatState> {
               conversation: streamingConversation,
               isSending: true,
             );
+
+            break;
 
           case AIChunkType.error:
             throw StateError(
@@ -603,6 +583,26 @@ class ChatController extends StateNotifier<ChatState> {
       ProviderType.mistral => 'Mistral',
       ProviderType.ollama => 'Ollama',
     };
+  }
+
+  MissionSuggestion? _suggestionForConversation(Conversation conversation) {
+    for (var index = conversation.messages.length - 1; index >= 0; index--) {
+      final message = conversation.messages[index];
+
+      if (message.role != ChatRole.user) {
+        continue;
+      }
+
+      final prompt = message.content.trim();
+
+      if (prompt.isEmpty) {
+        return null;
+      }
+
+      return _missionSuggestionService.suggestFor(prompt);
+    }
+
+    return null;
   }
 
   void clearError() {

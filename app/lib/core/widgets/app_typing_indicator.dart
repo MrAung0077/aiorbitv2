@@ -8,7 +8,7 @@ import '../design/app_shadows.dart';
 import '../design/app_spacing.dart';
 
 class AppTypingIndicator extends StatefulWidget {
-  const AppTypingIndicator({super.key, this.label = 'AIOrbit is thinking'});
+  const AppTypingIndicator({super.key, this.label = 'Ovexiq is thinking'});
 
   final String label;
 

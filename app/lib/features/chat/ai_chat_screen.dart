@@ -174,8 +174,16 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
 
       final sendingFinished = previous?.isSending == true && !next.isSending;
 
-      if (messageCountChanged || sendingFinished) {
-        _scrollToBottom();
+      final missionSuggestionAppeared =
+          previous?.missionSuggestion != next.missionSuggestion &&
+          next.missionSuggestion != null;
+
+      if (messageCountChanged || sendingFinished || missionSuggestionAppeared) {
+        Future<void>.delayed(const Duration(milliseconds: 80), () {
+          if (mounted) {
+            _scrollToBottom();
+          }
+        });
       }
     });
 
@@ -273,7 +281,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                                 messages.isEmpty &&
                                 index == messages.length) {
                               return const AppTypingIndicator(
-                                label: 'AIOrbit is preparing...',
+                                label: 'Ovexiq is preparing...',
                               );
                             }
 
@@ -302,7 +310,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                     focusNode: _focusNode,
                     isSending: chatState.isSending,
                     onSend: _sendMessage,
-                    hintText: 'Ask AIOrbit anything...',
+                    hintText: 'Ask Ovexiq anything...',
                     maxLines: 5,
                   ),
                 ),
@@ -336,7 +344,7 @@ class _EmptyChatView extends StatelessWidget {
             const Icon(Icons.auto_awesome, size: 64),
             const SizedBox(height: 16),
             Text(
-              'Welcome to AIOrbit',
+              'Welcome to Ovexiq',
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             const SizedBox(height: 8),

@@ -65,7 +65,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('AIOrbit'),
+        title: const Text('Ovexiq'),
         actions: [
           IconButton(
             tooltip: 'Open chat',

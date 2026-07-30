@@ -10,7 +10,7 @@ class AppPromptComposer extends StatelessWidget {
     required this.controller,
     required this.onSend,
     this.focusNode,
-    this.hintText = 'Ask AIOrbit anything...',
+    this.hintText = 'Ask Ovexiq anything...',
     this.isSending = false,
     this.enabled = true,
     this.onAttach,

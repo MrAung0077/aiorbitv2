@@ -13,7 +13,7 @@ class AppConfig {
   // App
   // ---------------------------------------------------------------------------
 
-  static const String appName = 'AIOrbit';
+  static const String appName = 'Ovexiq';
 
   static const String appVersion = '1.0.0';
 
@@ -30,6 +30,16 @@ class AppConfig {
 
   static bool get isProduction => environment == 'production';
 
+  // ---------------------------------------------------------------------------
+  // AI Provider Mode
+  // ---------------------------------------------------------------------------
+
+  static const bool _mockProvidersEnabled = bool.fromEnvironment(
+    'USE_MOCK_AI',
+    defaultValue: true,
+  );
+
+  static bool get useMockProviders => isDevelopment && _mockProvidersEnabled;
   // ---------------------------------------------------------------------------
   // OpenAI
   // ---------------------------------------------------------------------------

@@ -41,10 +41,10 @@ class AppMessageBubble extends StatelessWidget {
   bool get _isDisliked => feedback == MessageFeedback.disliked;
 
   bool get _showProviderBadge {
-    return !_isUser &&
-        !message.isError &&
-        providerName != null &&
-        providerName!.trim().isNotEmpty;
+    // Production UI:
+    // Hide provider badges (OpenAI, Gemini, Claude, etc.)
+    // Keep provider metadata internally for debugging and future developer mode.
+    return false;
   }
 
   @override
