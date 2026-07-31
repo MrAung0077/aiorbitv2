@@ -43,9 +43,13 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
         return;
       }
 
-      await ref
-          .read(chatControllerProvider.notifier)
-          .loadMostRecentConversation();
+      final chatState = ref.read(chatControllerProvider);
+
+      if (chatState.conversation == null && !chatState.isLoading) {
+        await ref
+            .read(chatControllerProvider.notifier)
+            .loadMostRecentConversation();
+      }
     });
   }
 

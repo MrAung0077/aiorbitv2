@@ -5,7 +5,10 @@ import '../../core/design/app_radius.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/widgets/app_prompt_composer.dart';
 import '../chat/ai_chat_screen.dart';
+import '../chat/models/conversation.dart';
 import '../chat/providers/chat_controller.dart';
+import '../chat/providers/conversation_list_provider.dart';
+import '../chat/widgets/conversation_tile.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -67,15 +70,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     await chatController.sendMessage(prompt);
 
-    if (!mounted) {
+    final conversation = ref.read(chatControllerProvider).conversation;
+
+    if (!mounted || conversation == null) {
       return;
     }
 
-    await _openConversation();
+    await _openConversation(conversation);
   }
 
-  Future<void> _openConversation() {
-    return Navigator.of(
+  Future<void> _openConversation(Conversation conversation) async {
+    await ref
+        .read(chatControllerProvider.notifier)
+        .loadConversation(conversation.id);
+
+    if (!mounted ||
+        ref.read(chatControllerProvider).conversation?.id != conversation.id) {
+      return;
+    }
+
+    await Navigator.of(
       context,
     ).push(MaterialPageRoute<void>(builder: (_) => const AIChatScreen()));
   }
@@ -92,7 +106,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final chatState = ref.watch(chatControllerProvider);
-    final activeConversation = chatState.conversation;
+    final conversations =
+        ref.watch(conversationListProvider).asData?.value ??
+        const <Conversation>[];
+    final continueConversation = conversations.isEmpty
+        ? null
+        : conversations.first;
+    final recentConversations = selectRecentConversations(conversations);
 
     return Scaffold(
       appBar: AppBar(
@@ -187,7 +207,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ],
                 ),
 
-                if (activeConversation != null) ...[
+                if (continueConversation != null) ...[
                   const SizedBox(height: AppSpacing.xxl),
 
                   Row(
@@ -199,7 +219,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ),
                       ),
                       TextButton(
-                        onPressed: _openConversation,
+                        onPressed: () {
+                          _openConversation(continueConversation);
+                        },
                         child: const Text('Open'),
                       ),
                     ],
@@ -212,7 +234,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     margin: EdgeInsets.zero,
                     child: InkWell(
                       borderRadius: AppRadius.cardRadius,
-                      onTap: _openConversation,
+                      onTap: () {
+                        _openConversation(continueConversation);
+                      },
                       child: Padding(
                         padding: AppSpacing.card,
                         child: Row(
@@ -235,14 +259,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    activeConversation.title,
+                                    continueConversation.title,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.titleSmall,
                                   ),
                                   const SizedBox(height: AppSpacing.xs),
                                   Text(
-                                    activeConversation.preview,
+                                    continueConversation.preview,
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.bodySmall?.copyWith(
@@ -262,6 +286,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       ),
                     ),
                   ),
+
+                  if (recentConversations.isNotEmpty) ...[
+                    const SizedBox(height: AppSpacing.xxl),
+                    Text('Recent', style: theme.textTheme.titleMedium),
+                    const SizedBox(height: AppSpacing.md),
+                    ...recentConversations.indexed.map((entry) {
+                      final index = entry.$1;
+                      final conversation = entry.$2;
+
+                      return Padding(
+                        padding: EdgeInsets.only(
+                          bottom: index == recentConversations.length - 1
+                              ? 0
+                              : AppSpacing.md,
+                        ),
+                        child: ConversationTile(
+                          conversation: conversation,
+                          onTap: () {
+                            _openConversation(conversation);
+                          },
+                        ),
+                      );
+                    }),
+                  ],
                 ],
 
                 const SizedBox(height: AppSpacing.giant),

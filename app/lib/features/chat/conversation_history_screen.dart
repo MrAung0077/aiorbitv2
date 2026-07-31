@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/design/app_spacing.dart';
+import 'ai_chat_screen.dart';
 import 'providers/chat_controller.dart';
 import 'providers/conversation_list_provider.dart';
 import 'widgets/conversation_tile.dart';
@@ -12,144 +13,94 @@ class ConversationHistoryScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final conversations = ref.watch(conversationListProvider);
-    final searchQuery = ref.watch(conversationSearchProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Conversations'),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(72),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.md,
-              0,
-              AppSpacing.md,
-              AppSpacing.md,
-            ),
-            child: TextField(
-              decoration: const InputDecoration(
-                hintText: 'Search conversations...',
-                prefixIcon: Icon(Icons.search),
-              ),
-              onChanged: (value) {
-                ref.read(conversationSearchProvider.notifier).state = value;
-              },
-            ),
-          ),
-        ),
-      ),
+      appBar: AppBar(title: const Text('Library')),
       body: conversations.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(child: Text(error.toString())),
+        error: (_, _) => const _HistoryMessage(
+          icon: Icons.error_outline_rounded,
+          title: 'Could not load conversations',
+          message: 'Please try again.',
+        ),
         data: (items) {
-          final normalizedQuery = searchQuery.trim().toLowerCase();
-
-          final filteredItems = items
-              .where((conversation) {
-                if (normalizedQuery.isEmpty) {
-                  return true;
-                }
-
-                return conversation.title.toLowerCase().contains(
-                      normalizedQuery,
-                    ) ||
-                    conversation.preview.toLowerCase().contains(
-                      normalizedQuery,
-                    );
-              })
-              .toList(growable: false);
-
           if (items.isEmpty) {
-            return const Center(child: Text('No conversations yet'));
-          }
-
-          if (filteredItems.isEmpty) {
-            return const Center(child: Text('No matching conversations'));
+            return const _HistoryMessage(
+              icon: Icons.forum_outlined,
+              title: 'No conversations yet',
+              message: 'Your conversations will appear here.',
+            );
           }
 
           return ListView.separated(
             padding: AppSpacing.screen,
-            itemCount: filteredItems.length,
+            itemCount: items.length,
             separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
-            itemBuilder: (context, index) {
-              final conversation = filteredItems[index];
+            itemBuilder: (_, index) {
+              final conversation = items[index];
 
-              return Dismissible(
-                key: ValueKey(conversation.id),
-                direction: DismissDirection.endToStart,
-                background: Container(
-                  alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.lg,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.error,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Icon(
-                    Icons.delete_outline,
-                    color: Theme.of(context).colorScheme.onError,
-                  ),
-                ),
-                confirmDismiss: (_) async {
-                  return await showDialog<bool>(
-                        context: context,
-                        builder: (dialogContext) {
-                          return AlertDialog(
-                            title: const Text('Delete conversation?'),
-                            content: const Text(
-                              'This conversation will be permanently removed.',
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () {
-                                  Navigator.pop(dialogContext, false);
-                                },
-                                child: const Text('Cancel'),
-                              ),
-                              FilledButton(
-                                onPressed: () {
-                                  Navigator.pop(dialogContext, true);
-                                },
-                                child: const Text('Delete'),
-                              ),
-                            ],
-                          );
-                        },
-                      ) ??
-                      false;
-                },
-                onDismissed: (_) async {
-                  final repository = ref.read(conversationRepositoryProvider);
+              return ConversationTile(
+                conversation: conversation,
+                onTap: () async {
+                  final controller = ref.read(chatControllerProvider.notifier);
 
-                  await repository.deleteConversation(conversation.id);
+                  await controller.loadConversation(conversation.id);
 
-                  ref.invalidate(conversationListProvider);
-
-                  if (!context.mounted) {
+                  if (!context.mounted ||
+                      ref.read(chatControllerProvider).conversation?.id !=
+                          conversation.id) {
                     return;
                   }
 
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Conversation deleted')),
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const AIChatScreen(),
+                    ),
                   );
                 },
-                child: ConversationTile(
-                  conversation: conversation,
-                  onTap: () async {
-                    await ref
-                        .read(chatControllerProvider.notifier)
-                        .loadConversation(conversation.id);
-
-                    if (context.mounted) {
-                      Navigator.pop(context);
-                    }
-                  },
-                ),
               );
             },
           );
         },
+      ),
+    );
+  }
+}
+
+class _HistoryMessage extends StatelessWidget {
+  const _HistoryMessage({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Center(
+      child: Padding(
+        padding: AppSpacing.screen,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 48, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(height: AppSpacing.lg),
+            Text(title, style: theme.textTheme.titleMedium),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
