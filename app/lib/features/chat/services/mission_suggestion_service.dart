@@ -31,17 +31,42 @@ class MissionSuggestionService {
   }
 
   bool _looksLikeWorkflow(String prompt) {
-    const workflowSignals = <String>[
+    if (_isInformationalOnly(prompt)) {
+      return false;
+    }
+
+    const strongWorkflowSignals = <String>[
       'content plan',
       'content calendar',
+      'content strategy',
+      'content series',
+      'editorial plan',
+      'editorial calendar',
+      'article series',
+      'blog series',
+      'newsletter series',
+      'podcast series',
+      'video series',
+      'email sequence',
+      'drip campaign',
       'marketing plan',
       'marketing campaign',
+      'marketing strategy',
+      'go-to-market',
+      'brand strategy',
+      'customer acquisition plan',
+      'lead generation campaign',
       'social media plan',
       'social media campaign',
       'business plan',
       'business strategy',
       'launch plan',
       'project plan',
+      'action plan',
+      'implementation plan',
+      'event plan',
+      'wedding plan',
+      'travel itinerary',
       'study plan',
       'learning plan',
       'lesson plan',
@@ -56,8 +81,36 @@ class MissionSuggestionService {
       'create a campaign',
       'create a course',
       'create a series',
+      'write a book',
+      'write an ebook',
+      'create a guide',
+      'white paper',
+      'case study',
       'design a brand',
       'brand identity',
+      'visual identity',
+      'brand guidelines',
+      'design system',
+      'ui redesign',
+      'ux redesign',
+      'website redesign',
+      'app redesign',
+      'asset kit',
+      'translate a website',
+      'translate my website',
+      'translate our website',
+      'translate an app',
+      'translate my app',
+      'translate our app',
+      'localize',
+      'localization',
+      'competitive analysis',
+      'competitor analysis',
+      'market analysis',
+      'data analysis',
+      'business analysis',
+      'gap analysis',
+      'risk analysis',
       'workflow',
       'roadmap',
       'research',
@@ -73,7 +126,9 @@ class MissionSuggestionService {
       'organize my',
       'help me launch',
       'help me build',
-      'help me create',
+      'help me plan',
+      'plan my',
+      'plan our',
       'အဆင့်ဆင့်',
       'အစီအစဉ်',
       'စီမံချက်',
@@ -88,10 +143,148 @@ class MissionSuggestionService {
       'သင်တန်းတစ်ခု',
     ];
 
-    return _containsAny(prompt, workflowSignals);
+    if (_containsAny(prompt, strongWorkflowSignals)) {
+      return true;
+    }
+
+    const goalSignals = <String>[
+      'marketing',
+      'advertising',
+      'promotion',
+      'writing',
+      'write',
+      'article',
+      'blog',
+      'newsletter',
+      'script',
+      'content',
+      'social media',
+      'design',
+      'logo',
+      'poster',
+      'banner',
+      'ui',
+      'ux',
+      'translate',
+      'translation',
+      'analyze',
+      'analysis',
+      'evaluate',
+      'planning',
+      'plan',
+      'organize',
+    ];
+
+    if (!_containsAny(prompt, goalSignals)) {
+      return false;
+    }
+
+    const complexitySignals = <String>[
+      'strategy',
+      'campaign',
+      'calendar',
+      'series',
+      'multiple',
+      'several',
+      'batch',
+      'end-to-end',
+      'from start to finish',
+      'phases',
+      'stages',
+      'milestones',
+      'rollout',
+      'launch',
+      'recommendations',
+      'over the next',
+      'for the next',
+      'for a month',
+      'across platforms',
+      'across channels',
+      'across languages',
+      'across regions',
+      'across markets',
+      'across segments',
+      'report and recommendations',
+      'draft, review',
+      'draft and review',
+    ];
+
+    return _containsAny(prompt, complexitySignals) || _hasScaledScope(prompt);
+  }
+
+  bool _hasScaledScope(String prompt) {
+    final numericScope = RegExp(
+      r'\b(?:[2-9]|[1-9]\d+)\s*'
+      r'(?:posts?|articles?|emails?|pages?|documents?|files?|languages?|'
+      r'videos?|scripts?|campaigns?|assets?|concepts?|variants?|screens?|'
+      r'chapters?|weeks?|months?)\b',
+    );
+
+    if (numericScope.hasMatch(prompt)) {
+      return true;
+    }
+
+    const wordScopes = <String>[
+      'two posts',
+      'three posts',
+      'two articles',
+      'three articles',
+      'two emails',
+      'three emails',
+      'two languages',
+      'three languages',
+      'many files',
+      'all pages',
+      'every page',
+    ];
+
+    return _containsAny(prompt, wordScopes);
+  }
+
+  bool _isInformationalOnly(String prompt) {
+    const informationalStarts = <String>[
+      'what is ',
+      'what are ',
+      'what does ',
+      'define ',
+      'explain ',
+      'tell me about ',
+      'give me a definition',
+    ];
+
+    if (!informationalStarts.any(prompt.startsWith)) {
+      return false;
+    }
+
+    const actionSignals = <String>[
+      'create ',
+      'build ',
+      'write ',
+      'design ',
+      'analyze ',
+      'research the ',
+      'research latest ',
+      'translate ',
+      'develop ',
+      'organize ',
+      'launch ',
+      'help me ',
+      'for me',
+    ];
+
+    return !_containsAny(prompt, actionSignals);
   }
 
   MissionCategory _detectCategory(String prompt) {
+    if (_containsAny(prompt, const <String>[
+      'translate',
+      'translation',
+      'localize',
+      'localization',
+    ])) {
+      return MissionCategory.custom;
+    }
+
     if (_containsAny(prompt, const <String>[
       'flutter',
       'dart',
@@ -118,8 +311,12 @@ class MissionSuggestionService {
       'logo',
       'design',
       'brand identity',
+      'visual identity',
+      'brand guidelines',
+      'design system',
       'ui',
       'ux',
+      'redesign',
       'poster',
       'banner',
       'visual',
@@ -184,6 +381,13 @@ class MissionSuggestionService {
     if (_containsAny(prompt, const <String>[
       'article',
       'blog',
+      'writing',
+      'write',
+      'ebook',
+      'guide',
+      'white paper',
+      'case study',
+      'email sequence',
       'script',
       'video script',
       'content',
