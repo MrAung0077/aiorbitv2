@@ -49,48 +49,50 @@ class ChatController extends StateNotifier<ChatState> {
   final MissionSuggestionService _missionSuggestionService;
 
   int _operationRevision = 0;
+  int _lastConversationIdMicros = 0;
+  int _lastActivityMicros = 0;
 
-  Future<void> createNewConversation() async {
+  Future<bool> createNewConversation() async {
     final revision = ++_operationRevision;
-    final now = DateTime.now();
-
-    state = state.copyWith(isLoading: true, clearError: true);
+    final now = _nextActivityTime();
+    final previousState = state;
 
     final conversation = Conversation(
-      id: now.microsecondsSinceEpoch.toString(),
+      id: _nextConversationId(now),
       title: 'New Chat',
       messages: const [],
       createdAt: now,
       updatedAt: now,
     );
 
+    state = ChatState(conversation: conversation, isLoading: true);
+
     try {
       await _conversationRepository.saveConversation(conversation);
 
       if (!mounted || revision != _operationRevision) {
-        return;
+        return false;
       }
 
-      state = ChatState(
-        conversation: conversation,
-        missionSuggestion: _suggestionForConversation(conversation),
-      );
+      state = ChatState(conversation: conversation);
+      return true;
     } catch (error, stackTrace) {
-      debugPrint('AI SEND ERROR: $error');
+      debugPrint('CREATE CONVERSATION ERROR: $error');
       debugPrintStack(stackTrace: stackTrace);
 
-      if (!mounted) {
-        return;
+      if (!mounted || revision != _operationRevision) {
+        return false;
       }
 
-      state = state.copyWith(
-        isSending: false,
+      state = previousState.copyWith(
+        isLoading: false,
         error: ChatControllerException(
           error.toString(),
           cause: error,
           stackTrace: stackTrace,
         ),
       );
+      return false;
     }
   }
 
@@ -126,6 +128,8 @@ class ChatController extends StateNotifier<ChatState> {
         return;
       }
 
+      _trackActivity(conversation.updatedAt);
+
       state = ChatState(
         conversation: conversation,
         missionSuggestion: _suggestionForConversation(conversation),
@@ -158,11 +162,13 @@ class ChatController extends StateNotifier<ChatState> {
       }
 
       if (conversations.isEmpty) {
-        await createNewConversation();
+        state = const ChatState();
         return;
       }
 
       final conversation = conversations.first;
+
+      _trackActivity(conversation.updatedAt);
 
       state = ChatState(
         conversation: conversation,
@@ -195,10 +201,10 @@ class ChatController extends StateNotifier<ChatState> {
     var conversation = state.conversation;
 
     if (conversation == null) {
-      final now = DateTime.now();
+      final now = _nextActivityTime();
 
       conversation = Conversation(
-        id: now.microsecondsSinceEpoch.toString(),
+        id: _nextConversationId(now),
         title: Conversation.generateTitleFromPrompt(text),
         messages: const [],
         createdAt: now,
@@ -207,7 +213,7 @@ class ChatController extends StateNotifier<ChatState> {
     }
 
     final conversationId = conversation.id;
-    final now = DateTime.now();
+    final now = _nextActivityTime();
 
     final userMessage = ChatMessage(
       id: now.microsecondsSinceEpoch.toString(),
@@ -240,7 +246,8 @@ class ChatController extends StateNotifier<ChatState> {
         return;
       }
 
-      final assistantMessageId = DateTime.now().microsecondsSinceEpoch
+      final assistantCreatedAt = _nextActivityTime();
+      final assistantMessageId = assistantCreatedAt.microsecondsSinceEpoch
           .toString();
 
       var assistantContent = '';
@@ -253,10 +260,10 @@ class ChatController extends StateNotifier<ChatState> {
             id: assistantMessageId,
             role: ChatRole.assistant,
             content: assistantContent,
-            createdAt: DateTime.now(),
+            createdAt: assistantCreatedAt,
           ),
         ],
-        updatedAt: DateTime.now(),
+        updatedAt: _nextActivityTime(),
       );
 
       state = state.copyWith(
@@ -264,7 +271,9 @@ class ChatController extends StateNotifier<ChatState> {
         isSending: true,
       );
 
-      await for (final chunk in _aiChatService.sendMessage(text)) {
+      await for (final chunk in _aiChatService.sendMessages(
+        conversation.messages.map(_toAIMessage).toList(growable: false),
+      )) {
         if (!mounted || state.conversation?.id != conversationId) {
           return;
         }
@@ -284,7 +293,7 @@ class ChatController extends StateNotifier<ChatState> {
               id: assistantMessageId,
               role: ChatRole.assistant,
               content: assistantContent,
-              createdAt: DateTime.now(),
+              createdAt: assistantCreatedAt,
               providerName: currentProviderName,
             );
 
@@ -293,7 +302,7 @@ class ChatController extends StateNotifier<ChatState> {
                 ...conversation.messages,
                 assistantMessage,
               ],
-              updatedAt: DateTime.now(),
+              updatedAt: _nextActivityTime(),
             );
 
             state = state.copyWith(
@@ -407,7 +416,7 @@ class ChatController extends StateNotifier<ChatState> {
 
     var conversation = currentConversation.copyWith(
       messages: <ChatMessage>[...baseMessages],
-      updatedAt: DateTime.now(),
+      updatedAt: _nextActivityTime(),
     );
 
     ++_operationRevision;
@@ -426,7 +435,8 @@ class ChatController extends StateNotifier<ChatState> {
         return;
       }
 
-      final assistantMessageId = DateTime.now().microsecondsSinceEpoch
+      final assistantCreatedAt = _nextActivityTime();
+      final assistantMessageId = assistantCreatedAt.microsecondsSinceEpoch
           .toString();
 
       var assistantContent = '';
@@ -439,10 +449,10 @@ class ChatController extends StateNotifier<ChatState> {
             id: assistantMessageId,
             role: ChatRole.assistant,
             content: assistantContent,
-            createdAt: DateTime.now(),
+            createdAt: assistantCreatedAt,
           ),
         ],
-        updatedAt: DateTime.now(),
+        updatedAt: _nextActivityTime(),
       );
 
       state = state.copyWith(
@@ -450,7 +460,9 @@ class ChatController extends StateNotifier<ChatState> {
         isSending: true,
       );
 
-      await for (final chunk in _aiChatService.sendMessage(userPrompt)) {
+      await for (final chunk in _aiChatService.sendMessages(
+        conversation.messages.map(_toAIMessage).toList(growable: false),
+      )) {
         if (!mounted || state.conversation?.id != conversationId) {
           return;
         }
@@ -470,7 +482,7 @@ class ChatController extends StateNotifier<ChatState> {
               id: assistantMessageId,
               role: ChatRole.assistant,
               content: assistantContent,
-              createdAt: DateTime.now(),
+              createdAt: assistantCreatedAt,
               providerName: currentProviderName,
             );
 
@@ -479,7 +491,7 @@ class ChatController extends StateNotifier<ChatState> {
                 ...conversation.messages,
                 assistantMessage,
               ],
-              updatedAt: DateTime.now(),
+              updatedAt: _nextActivityTime(),
             );
 
             state = state.copyWith(
@@ -583,6 +595,43 @@ class ChatController extends StateNotifier<ChatState> {
       ProviderType.mistral => 'Mistral',
       ProviderType.ollama => 'Ollama',
     };
+  }
+
+  AIMessage _toAIMessage(ChatMessage message) {
+    final role = switch (message.role) {
+      ChatRole.user => AIMessageRole.user,
+      ChatRole.assistant => AIMessageRole.assistant,
+      ChatRole.system => AIMessageRole.system,
+    };
+
+    return AIMessage(role: role, content: message.content);
+  }
+
+  String _nextConversationId(DateTime now) {
+    final timestamp = now.microsecondsSinceEpoch;
+    final nextTimestamp = timestamp > _lastConversationIdMicros
+        ? timestamp
+        : _lastConversationIdMicros + 1;
+
+    _lastConversationIdMicros = nextTimestamp;
+    return nextTimestamp.toString();
+  }
+
+  DateTime _nextActivityTime() {
+    final now = DateTime.now();
+    final timestamp = now.microsecondsSinceEpoch;
+    final nextTimestamp = timestamp > _lastActivityMicros
+        ? timestamp
+        : _lastActivityMicros + 1;
+
+    _lastActivityMicros = nextTimestamp;
+    return DateTime.fromMicrosecondsSinceEpoch(nextTimestamp, isUtc: now.isUtc);
+  }
+
+  void _trackActivity(DateTime timestamp) {
+    if (timestamp.microsecondsSinceEpoch > _lastActivityMicros) {
+      _lastActivityMicros = timestamp.microsecondsSinceEpoch;
+    }
   }
 
   MissionSuggestion? _suggestionForConversation(Conversation conversation) {

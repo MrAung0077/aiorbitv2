@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../ai_message.dart';
 import '../gemini_config.dart';
 
 class GeminiAPIClient {
@@ -27,19 +28,18 @@ class GeminiAPIClient {
   bool get isConfigured => _apiKey.isNotEmpty;
 
   Future<GeminiAPIResult> createResponse({
-    required String input,
+    required List<AIMessage> messages,
     String? model,
     int? maxOutputTokens,
   }) async {
-    final normalizedInput = input.trim();
-
     if (!isConfigured) {
       throw const GeminiAPIException(
         message: 'The Gemini API key is not configured.',
       );
     }
 
-    if (normalizedInput.isEmpty) {
+    if (messages.isEmpty ||
+        messages.every((message) => message.content.trim().isEmpty)) {
       throw const GeminiAPIException(
         message: 'The Gemini input cannot be empty.',
       );
@@ -54,15 +54,32 @@ class GeminiAPIClient {
       'models/$selectedModel:generateContent?key=$_apiKey',
     );
 
+    final systemMessages = messages
+        .where((message) => message.role == AIMessageRole.system)
+        .map((message) => message.content)
+        .where((content) => content.trim().isNotEmpty)
+        .toList(growable: false);
+
     final body = <String, Object?>{
-      'contents': <Object?>[
-        <String, Object?>{
-          'role': 'user',
+      'contents': messages
+          .where((message) => message.role != AIMessageRole.system)
+          .map(
+            (message) => <String, Object?>{
+              'role': message.role == AIMessageRole.assistant
+                  ? 'model'
+                  : 'user',
+              'parts': <Object?>[
+                <String, Object?>{'text': message.content},
+              ],
+            },
+          )
+          .toList(growable: false),
+      if (systemMessages.isNotEmpty)
+        'systemInstruction': <String, Object?>{
           'parts': <Object?>[
-            <String, Object?>{'text': normalizedInput},
+            <String, Object?>{'text': systemMessages.join('\n\n')},
           ],
         },
-      ],
       if (maxOutputTokens != null)
         'generationConfig': <String, Object?>{
           'maxOutputTokens': maxOutputTokens,

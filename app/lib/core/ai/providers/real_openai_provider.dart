@@ -42,7 +42,7 @@ class RealOpenAIProvider implements AIProvider {
     _validate(request);
 
     final result = await _client.createResponse(
-      input: request.latestUserPrompt,
+      messages: request.messages,
       model: request.model,
       maxOutputTokens: request.maxTokens,
     );

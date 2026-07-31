@@ -18,7 +18,17 @@ class AIChatService {
       return Stream<AIChunk>.error(Exception('Message cannot be empty.'));
     }
 
-    final request = AIRequest.fromPrompt(prompt: text);
+    return sendMessages(<AIMessage>[
+      AIMessage(role: AIMessageRole.user, content: text),
+    ]);
+  }
+
+  Stream<AIChunk> sendMessages(List<AIMessage> messages) {
+    final request = AIRequest(messages: List<AIMessage>.unmodifiable(messages));
+
+    if (request.latestUserPrompt.trim().isEmpty) {
+      return Stream<AIChunk>.error(Exception('Message cannot be empty.'));
+    }
 
     return _aiService.stream(request);
   }

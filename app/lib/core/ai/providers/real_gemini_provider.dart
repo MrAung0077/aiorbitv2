@@ -41,7 +41,7 @@ class RealGeminiProvider implements AIProvider {
   Future<AIResponse> complete(AIRequest request) async {
     try {
       final result = await _client.createResponse(
-        input: request.latestUserPrompt,
+        messages: request.messages,
         model: request.model,
         maxOutputTokens: request.maxTokens,
       );

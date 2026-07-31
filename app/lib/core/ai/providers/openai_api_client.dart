@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../ai_message.dart';
+
 class OpenAIAPIClient {
   OpenAIAPIClient({
     required String apiKey,
@@ -23,19 +25,18 @@ class OpenAIAPIClient {
   bool get isConfigured => _apiKey.isNotEmpty;
 
   Future<OpenAIAPIResult> createResponse({
-    required String input,
+    required List<AIMessage> messages,
     String? model,
     int? maxOutputTokens,
   }) async {
-    final normalizedInput = input.trim();
-
     if (!isConfigured) {
       throw const OpenAIAPIException(
         message: 'The OpenAI API key is not configured.',
       );
     }
 
-    if (normalizedInput.isEmpty) {
+    if (messages.isEmpty ||
+        messages.every((message) => message.content.trim().isEmpty)) {
       throw const OpenAIAPIException(
         message: 'The OpenAI input cannot be empty.',
       );
@@ -43,7 +44,7 @@ class OpenAIAPIClient {
 
     final body = <String, Object?>{
       'model': model?.trim().isNotEmpty == true ? model!.trim() : defaultModel,
-      'input': normalizedInput,
+      'input': messages.map((message) => message.toJson()).toList(),
       'max_output_tokens': ?maxOutputTokens,
     };
 
