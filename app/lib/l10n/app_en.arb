@@ -1,7 +1,7 @@
 {
   "@@locale": "en",
 
-  "appName": "AIOrbit",
+  "appName": "Ovexiq",
   "@appName": {
     "description": "Application name"
   },
@@ -11,7 +11,7 @@
     "description": "AIOrbit application tagline"
   },
 
-  "welcomeTitle": "Welcome to AIOrbit",
+  "welcomeTitle": "Welcome to Ovexiq",
   "welcomeSubtitle": "Your intelligent workspace for every task.",
   "getStarted": "Get Started",
   "continueButton": "Continue",
@@ -32,9 +32,9 @@
 
   "aiChat": "AI Chat",
   "newChat": "New Chat",
-  "askAIOrbit": "Ask AIOrbit...",
+  "askAIOrbit": "Ask Ovexiq...",
   "startConversation": "Start a new conversation.",
-  "aiThinking": "AIOrbit is thinking...",
+  "aiThinking": "Ovexiq is thinking...",
   "copiedToClipboard": "Copied to clipboard",
   "somethingWentWrong": "Something went wrong. Please try again.",
 

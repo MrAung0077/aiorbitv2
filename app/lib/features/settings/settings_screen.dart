@@ -105,7 +105,7 @@ class SettingsScreen extends ConsumerWidget {
                 children: [
                   ListTile(
                     leading: Icon(Icons.info_outline_rounded),
-                    title: Text('AIOrbit'),
+                    title: Text('Ovexiq'),
                     subtitle: Text('Version 1.0.0'),
                   ),
                 ],

@@ -73,14 +73,14 @@ class BrainOverlay extends StatelessWidget {
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 Text(
-                  'AIOrbit Brain',
+                  'Ovexiq',
                   style: theme.textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(height: AppSpacing.xs),
                 Text(
-                  'Analyzing and routing your request',
+                  'Working toward your result',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: colorScheme.onSurfaceVariant,
@@ -94,108 +94,12 @@ class BrainOverlay extends StatelessWidget {
                     isActive: status == currentStatus,
                   ),
                 ),
-                const SizedBox(height: AppSpacing.lg),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                  decoration: BoxDecoration(
-                    color: colorScheme.secondaryContainer,
-                    borderRadius: AppRadius.cardRadius,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _InfoRow(
-                        icon: Icons.task_alt_rounded,
-                        label: 'Task',
-                        value: decision.task,
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      _InfoRow(
-                        icon: Icons.psychology_alt_rounded,
-                        label: 'Reasoning',
-                        value: decision.reasoning,
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      _InfoRow(
-                        icon: Icons.speed_rounded,
-                        label: 'Complexity',
-                        value: decision.complexity,
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      _InfoRow(
-                        icon: Icons.auto_awesome_rounded,
-                        label: 'Recommended AI',
-                        value: decision.recommendedAi,
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      LinearProgressIndicator(
-                        value: decision.confidence.clamp(0, 100) / 100,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      const SizedBox(height: AppSpacing.xs),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          '${decision.confidence}% confidence',
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            color: colorScheme.onSecondaryContainer,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                const SizedBox(height: AppSpacing.sm),
               ],
             ),
           ),
         ),
       ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 18, color: colorScheme.onSecondaryContainer),
-        const SizedBox(width: AppSpacing.sm),
-        SizedBox(
-          width: 112,
-          child: Text(
-            label,
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: colorScheme.onSecondaryContainer,
-            ),
-          ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: colorScheme.onSecondaryContainer,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

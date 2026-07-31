@@ -1,10 +1,10 @@
 {
   "@@locale": "my",
 
-  "appName": "AIOrbit",
+  "appName": "Ovexiq",
   "appTagline": "Prompt တစ်ခု။ အကောင်းဆုံး AI။ အကောင်းဆုံးရလဒ်။",
 
-  "welcomeTitle": "AIOrbit မှ ကြိုဆိုပါတယ်",
+  "welcomeTitle": "Ovexiq မှ ကြိုဆိုပါတယ်",
   "welcomeSubtitle": "အလုပ်တိုင်းအတွက် သင့်ရဲ့ ဉာဏ်ရည်မြင့် Workspace",
   "getStarted": "စတင်မယ်",
   "continueButton": "ဆက်သွားမယ်",
@@ -25,9 +25,9 @@
 
   "aiChat": "AI နှင့် စကားပြောမယ်",
   "newChat": "စကားဝိုင်းအသစ်",
-  "askAIOrbit": "AIOrbit ကို မေးပါ...",
+  "askAIOrbit": "Ovexiq ကို မေးပါ...",
   "startConversation": "စကားဝိုင်းအသစ် စတင်ပါ။",
-  "aiThinking": "AIOrbit စဉ်းစားနေပါတယ်...",
+  "aiThinking": "Ovexiq စဉ်းစားနေပါတယ်...",
   "copiedToClipboard": "Clipboard သို့ ကူးယူပြီးပါပြီ",
   "somethingWentWrong": "တစ်ခုခုမှားယွင်းသွားပါတယ်။ ထပ်ကြိုးစားပါ။",
 

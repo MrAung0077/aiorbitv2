@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/design/app_radius.dart';
 import '../../core/design/app_spacing.dart';
 import '../../core/widgets/app_prompt_composer.dart';
 import '../chat/ai_chat_screen.dart';
@@ -14,12 +15,30 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-
   static const String _heroTitle = 'One Prompt.';
   static const String _heroSubtitle = 'Best AI. Best Result.';
   static const String _heroQuestion = 'What do you want to accomplish today?';
   final TextEditingController _promptController = TextEditingController();
   final FocusNode _promptFocusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+
+    Future<void>.microtask(() async {
+      if (!mounted) {
+        return;
+      }
+
+      final chatState = ref.read(chatControllerProvider);
+
+      if (chatState.conversation == null && !chatState.isLoading) {
+        await ref
+            .read(chatControllerProvider.notifier)
+            .loadMostRecentConversation();
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -32,14 +51,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final prompt = _promptController.text.trim();
     final chatState = ref.read(chatControllerProvider);
 
-    if (prompt.isEmpty || chatState.isSending) {
+    if (prompt.isEmpty || chatState.isBusy) {
+      return;
+    }
+
+    final chatController = ref.read(chatControllerProvider.notifier);
+    final conversationCreated = await chatController.createNewConversation();
+
+    if (!mounted || !conversationCreated) {
       return;
     }
 
     _promptController.clear();
     _promptFocusNode.unfocus();
 
-    await ref.read(chatControllerProvider.notifier).sendMessage(prompt);
+    await chatController.sendMessage(prompt);
 
     if (!mounted) {
       return;
@@ -117,7 +143,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 AppPromptComposer(
                   controller: _promptController,
                   focusNode: _promptFocusNode,
-                  isSending: chatState.isSending,
+                  isSending: chatState.isBusy,
                   onSend: _sendPrompt,
                 ),
 
@@ -182,8 +208,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   const SizedBox(height: AppSpacing.sm),
 
                   Card(
+                    clipBehavior: Clip.antiAlias,
+                    margin: EdgeInsets.zero,
                     child: InkWell(
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: AppRadius.cardRadius,
                       onTap: _openConversation,
                       child: Padding(
                         padding: AppSpacing.card,

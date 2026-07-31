@@ -101,7 +101,7 @@ abstract class AppLocalizations {
   /// Application name
   ///
   /// In en, this message translates to:
-  /// **'AIOrbit'**
+  /// **'Ovexiq'**
   String get appName;
 
   /// AIOrbit application tagline
@@ -113,7 +113,7 @@ abstract class AppLocalizations {
   /// No description provided for @welcomeTitle.
   ///
   /// In en, this message translates to:
-  /// **'Welcome to AIOrbit'**
+  /// **'Welcome to Ovexiq'**
   String get welcomeTitle;
 
   /// No description provided for @welcomeSubtitle.
@@ -227,7 +227,7 @@ abstract class AppLocalizations {
   /// No description provided for @askAIOrbit.
   ///
   /// In en, this message translates to:
-  /// **'Ask AIOrbit...'**
+  /// **'Ask Ovexiq...'**
   String get askAIOrbit;
 
   /// No description provided for @startConversation.
@@ -239,7 +239,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiThinking.
   ///
   /// In en, this message translates to:
-  /// **'AIOrbit is thinking...'**
+  /// **'Ovexiq is thinking...'**
   String get aiThinking;
 
   /// No description provided for @copiedToClipboard.

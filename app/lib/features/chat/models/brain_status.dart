@@ -4,11 +4,11 @@ extension BrainStatusX on BrainStatus {
   String get label {
     switch (this) {
       case BrainStatus.understanding:
-        return 'Understanding your request';
+        return 'Understanding your goal';
       case BrainStatus.selectingAi:
-        return 'Selecting the best AI';
+        return 'Planning the best approach';
       case BrainStatus.optimizing:
-        return 'Optimizing prompt';
+        return 'Preparing your result';
       case BrainStatus.completed:
         return 'Ready';
     }

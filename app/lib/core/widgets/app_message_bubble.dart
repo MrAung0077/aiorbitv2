@@ -4,6 +4,7 @@ import '../../features/chat/models/chat_message.dart';
 import '../../features/chat/models/message_feedback.dart';
 import '../design/app_radius.dart';
 import '../design/app_shadows.dart';
+import 'animated_markdown.dart';
 
 class AppMessageBubble extends StatelessWidget {
   const AppMessageBubble({
@@ -102,12 +103,18 @@ class AppMessageBubble extends StatelessWidget {
                       _ProviderBadge(providerName: providerName!.trim()),
                       const SizedBox(height: 10),
                     ],
-                    Text(
-                      messageContent,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: foreground,
+                    if (_isUser || message.isError)
+                      Text(
+                        messageContent,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: foreground,
+                        ),
+                      )
+                    else
+                      AnimatedMarkdown(
+                        data: messageContent,
+                        textColor: foreground,
                       ),
-                    ),
                     if (showTimestamp) ...[
                       const SizedBox(height: 8),
                       Text(

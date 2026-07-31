@@ -9,13 +9,13 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
-  String get appName => 'AIOrbit';
+  String get appName => 'Ovexiq';
 
   @override
   String get appTagline => 'One Prompt. Best AI. Best Result.';
 
   @override
-  String get welcomeTitle => 'Welcome to AIOrbit';
+  String get welcomeTitle => 'Welcome to Ovexiq';
 
   @override
   String get welcomeSubtitle => 'Your intelligent workspace for every task.';
@@ -72,13 +72,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get newChat => 'New Chat';
 
   @override
-  String get askAIOrbit => 'Ask AIOrbit...';
+  String get askAIOrbit => 'Ask Ovexiq...';
 
   @override
   String get startConversation => 'Start a new conversation.';
 
   @override
-  String get aiThinking => 'AIOrbit is thinking...';
+  String get aiThinking => 'Ovexiq is thinking...';
 
   @override
   String get copiedToClipboard => 'Copied to clipboard';

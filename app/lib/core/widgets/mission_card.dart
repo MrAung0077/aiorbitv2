@@ -81,6 +81,8 @@ class MissionCard extends StatelessWidget {
           const SizedBox(height: AppSpacing.lg),
           Text(
             title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w700,
             ),
@@ -88,6 +90,8 @@ class MissionCard extends StatelessWidget {
           const SizedBox(height: AppSpacing.sm),
           Text(
             subtitle,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: colorScheme.onSurfaceVariant,
             ),

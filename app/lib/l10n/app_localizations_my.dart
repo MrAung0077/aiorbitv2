@@ -9,13 +9,13 @@ class AppLocalizationsMy extends AppLocalizations {
   AppLocalizationsMy([String locale = 'my']) : super(locale);
 
   @override
-  String get appName => 'AIOrbit';
+  String get appName => 'Ovexiq';
 
   @override
   String get appTagline => 'Prompt တစ်ခု။ အကောင်းဆုံး AI။ အကောင်းဆုံးရလဒ်။';
 
   @override
-  String get welcomeTitle => 'AIOrbit မှ ကြိုဆိုပါတယ်';
+  String get welcomeTitle => 'Ovexiq မှ ကြိုဆိုပါတယ်';
 
   @override
   String get welcomeSubtitle =>
@@ -73,13 +73,13 @@ class AppLocalizationsMy extends AppLocalizations {
   String get newChat => 'စကားဝိုင်းအသစ်';
 
   @override
-  String get askAIOrbit => 'AIOrbit ကို မေးပါ...';
+  String get askAIOrbit => 'Ovexiq ကို မေးပါ...';
 
   @override
   String get startConversation => 'စကားဝိုင်းအသစ် စတင်ပါ။';
 
   @override
-  String get aiThinking => 'AIOrbit စဉ်းစားနေပါတယ်...';
+  String get aiThinking => 'Ovexiq စဉ်းစားနေပါတယ်...';
 
   @override
   String get copiedToClipboard => 'Clipboard သို့ ကူးယူပြီးပါပြီ';

@@ -83,14 +83,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         padding: const EdgeInsets.all(24),
         children: [
           Text(
-            'What can AIOrbit help you with?',
+            'What can Ovexiq help you with?',
             style: theme.textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            'Ask once. AIOrbit will handle the rest.',
+            'Ask once. Ovexiq will handle the rest.',
             style: theme.textTheme.bodyLarge?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
@@ -167,10 +167,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
           const SizedBox(height: 22),
 
-          _sectionCard(
-            title: '🤖 Recommended AI',
-            body: '${widget.plan.bestAI}\n\n${widget.plan.reason}',
-          ),
+          _sectionCard(title: 'Approach', body: widget.plan.reason),
 
           _sectionCard(
             title: '💬 AI Coach Message',
@@ -259,7 +256,7 @@ class _PromptComposer extends StatelessWidget {
                 maxLines: 5,
                 textCapitalization: TextCapitalization.sentences,
                 decoration: const InputDecoration(
-                  hintText: 'Ask AIOrbit anything...',
+                  hintText: 'Ask Ovexiq anything...',
                   border: InputBorder.none,
                   contentPadding: EdgeInsets.symmetric(
                     horizontal: 8,

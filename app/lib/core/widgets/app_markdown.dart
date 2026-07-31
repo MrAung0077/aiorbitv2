@@ -23,6 +23,11 @@ class AppMarkdown extends StatelessWidget {
           color: effectiveTextColor,
           height: 1.5,
         ),
+        a: theme.textTheme.bodyMedium?.copyWith(
+          color: colorScheme.primary,
+          decoration: TextDecoration.underline,
+          decorationColor: colorScheme.primary,
+        ),
         h1: theme.textTheme.headlineMedium?.copyWith(
           color: effectiveTextColor,
           fontWeight: FontWeight.w700,

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/design/app_radius.dart';
+import '../../../core/design/app_shadows.dart';
+import '../../../core/design/app_spacing.dart';
 import '../../mission/models/mission_suggestion.dart';
 
 class MissionSuggestionCard extends StatelessWidget {
@@ -19,12 +22,13 @@ class MissionSuggestionCard extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(top: 8, bottom: 16),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(top: AppSpacing.sm, bottom: AppSpacing.lg),
+      padding: AppSpacing.card,
       decoration: BoxDecoration(
         color: colorScheme.secondaryContainer.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: AppRadius.cardRadius,
         border: Border.all(color: colorScheme.outlineVariant),
+        boxShadow: AppShadows.card,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -35,7 +39,7 @@ class MissionSuggestionCard extends StatelessWidget {
                 Icons.route_rounded,
                 color: colorScheme.onSecondaryContainer,
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Text(
                   'Continue as a Mission',
@@ -47,7 +51,7 @@ class MissionSuggestionCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.md),
           Text(
             suggestion.title,
             maxLines: 2,
@@ -56,14 +60,14 @@ class MissionSuggestionCard extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: AppSpacing.sm),
           Text(
             'Turn this goal into a guided workflow.',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: colorScheme.onSurfaceVariant,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.lg),
           Align(
             alignment: Alignment.centerRight,
             child: FilledButton.tonalIcon(
