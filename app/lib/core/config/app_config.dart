@@ -36,7 +36,7 @@ class AppConfig {
 
   static const bool _mockProvidersEnabled = bool.fromEnvironment(
     'USE_MOCK_AI',
-    defaultValue: true,
+    defaultValue: false,
   );
 
   static bool get useMockProviders => isDevelopment && _mockProvidersEnabled;
@@ -49,7 +49,12 @@ class AppConfig {
     defaultValue: '',
   );
 
-  static bool get hasOpenAiKey => openAiApiKey.isNotEmpty;
+  static const String openAiModel = String.fromEnvironment(
+    'OPENAI_MODEL',
+    defaultValue: 'gpt-5.6-sol',
+  );
+
+  static bool get hasOpenAiKey => openAiApiKey.trim().isNotEmpty;
 
   // ---------------------------------------------------------------------------
   // Future Providers

@@ -1,13 +1,9 @@
+import '../config/app_config.dart';
+
 class OpenAIConfig {
   const OpenAIConfig._();
 
-  static const apiKey = String.fromEnvironment(
-    'OPENAI_API_KEY',
-    defaultValue: '',
-  );
+  static const apiKey = AppConfig.openAiApiKey;
 
-  static const model = String.fromEnvironment(
-    'OPENAI_MODEL',
-    defaultValue: 'gpt-5',
-  );
+  static const model = AppConfig.openAiModel;
 }
