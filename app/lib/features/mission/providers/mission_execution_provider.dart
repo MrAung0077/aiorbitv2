@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../controllers/mission_execution_controller.dart';
 import '../models/mission_execution.dart';
+import '../models/mission_task_execution.dart';
+import 'mission_task_execution_provider.dart';
 
 final missionExecutionControllerProvider = Provider<MissionExecutionController>(
   (ref) {
@@ -110,5 +112,14 @@ class MissionExecutionNotifier extends Notifier<MissionExecution?> {
 
   void clear() {
     state = null;
+  }
+
+  Future<MissionTaskExecution> executeTask({
+    required String missionId,
+    required String taskId,
+  }) {
+    return ref
+        .read(missionTaskExecutionProvider.notifier)
+        .executeTask(missionId: missionId, taskId: taskId);
   }
 }

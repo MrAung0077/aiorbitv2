@@ -114,6 +114,41 @@ class MissionController {
     return updatedMission;
   }
 
+  Future<Mission> acceptTaskResult({
+    required String missionId,
+    required String taskId,
+  }) async {
+    final mission = await _repository.getMission(missionId);
+
+    if (mission == null) {
+      throw StateError('Mission "$missionId" was not found.');
+    }
+
+    final taskIndex = mission.tasks.indexWhere((task) => task.id == taskId);
+
+    if (taskIndex < 0) {
+      throw StateError('Task "$taskId" was not found.');
+    }
+
+    final task = mission.tasks[taskIndex];
+
+    if (task.status == TaskStatus.pending) {
+      await updateTaskStatus(
+        missionId: missionId,
+        taskId: taskId,
+        status: TaskStatus.inProgress,
+      );
+    } else if (task.status != TaskStatus.inProgress) {
+      throw StateError('This task cannot accept an execution result.');
+    }
+
+    return updateTaskStatus(
+      missionId: missionId,
+      taskId: taskId,
+      status: TaskStatus.completed,
+    );
+  }
+
   Future<void> deleteMission(String id) {
     return _repository.deleteMission(id);
   }

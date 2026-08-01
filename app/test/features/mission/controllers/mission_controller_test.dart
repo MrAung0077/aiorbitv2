@@ -67,6 +67,29 @@ void main() {
     expect(persisted?.tasks.single.status, TaskStatus.pending);
   });
 
+  test(
+    'accepting a pending task completes it through existing rules',
+    () async {
+      final repository = MemoryMissionRepository();
+      final controller = MissionController(repository: repository);
+
+      await repository.saveMission(_mission(TaskStatus.pending));
+
+      final accepted = await controller.acceptTaskResult(
+        missionId: 'mission',
+        taskId: 'task',
+      );
+
+      expect(accepted.tasks.single.status, TaskStatus.completed);
+      expect(accepted.tasks.single.completedAt, isNotNull);
+      expect(accepted.taskProgress.percentage, 100);
+
+      final persisted = await repository.getMission('mission');
+      expect(persisted?.tasks.single.status, TaskStatus.completed);
+      expect(persisted?.tasks.single.completedAt, isNotNull);
+    },
+  );
+
   test('conversation lookup returns the latest linked mission', () async {
     final repository = MemoryMissionRepository();
     final controller = MissionController(repository: repository);

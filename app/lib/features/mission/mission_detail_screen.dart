@@ -6,9 +6,11 @@ import 'models/execution_status.dart';
 import 'models/mission.dart';
 import 'models/mission_execution.dart';
 import 'models/mission_task.dart';
+import 'models/mission_task_execution.dart';
 import 'models/mission_timeline.dart';
 import 'models/task_status.dart';
 import 'providers/mission_execution_provider.dart';
+import 'providers/mission_task_execution_provider.dart';
 
 class MissionDetailScreen extends ConsumerStatefulWidget {
   const MissionDetailScreen({
@@ -28,6 +30,7 @@ class MissionDetailScreen extends ConsumerStatefulWidget {
 class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   late Mission _mission;
   String? _updatingTaskId;
+  String? _acceptingTaskId;
 
   Mission get mission => _mission;
 
@@ -130,10 +133,53 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     notifier.complete();
   }
 
+  Future<void> _runTask(String taskId) async {
+    try {
+      await ref
+          .read(missionTaskExecutionProvider.notifier)
+          .executeTask(missionId: mission.id, taskId: taskId);
+    } catch (_) {
+      return;
+    }
+  }
+
+  Future<void> _acceptTaskResult(String taskId) async {
+    if (_acceptingTaskId != null) {
+      return;
+    }
+
+    setState(() {
+      _acceptingTaskId = taskId;
+    });
+
+    try {
+      final updatedMission = await ref
+          .read(missionTaskExecutionProvider.notifier)
+          .acceptResult(missionId: mission.id, taskId: taskId);
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _mission = updatedMission;
+      });
+    } catch (_) {
+      return;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _acceptingTaskId = null;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final execution = ref.watch(missionExecutionProvider);
+    final taskExecutions = ref.watch(missionTaskExecutionProvider);
 
     final currentExecution = execution?.missionId == mission.id
         ? execution
@@ -145,6 +191,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
     final isExecutionCompleted =
         currentExecution?.status == ExecutionStatus.completed;
+    final isAnyTaskRunning = taskExecutions.any(
+      (execution) => execution.status == ExecutionStatus.running,
+    );
 
     return Scaffold(
       appBar: AppBar(title: const Text('Mission')),
@@ -191,6 +240,13 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                     padding: const EdgeInsets.only(bottom: 12),
                     child: _MissionTaskTile(
                       task: task,
+                      taskExecution: _taskExecutionFor(
+                        taskExecutions,
+                        missionId: mission.id,
+                        taskId: task.id,
+                      ),
+                      isAnyTaskRunning: isAnyTaskRunning,
+                      isAccepting: _acceptingTaskId == task.id,
                       isCurrent:
                           currentExecution?.currentTaskId == task.id &&
                           currentExecution?.status == ExecutionStatus.running,
@@ -199,6 +255,12 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                           widget.missionController.canTransitionTaskStatus,
                       onStatusChanged: (status) {
                         _updateTaskStatus(task.id, status);
+                      },
+                      onRunTask: () {
+                        _runTask(task.id);
+                      },
+                      onAcceptResult: () {
+                        _acceptTaskResult(task.id);
                       },
                     ),
                   ),
@@ -675,17 +737,27 @@ class _MissionMetadataChip extends StatelessWidget {
 class _MissionTaskTile extends StatelessWidget {
   const _MissionTaskTile({
     required this.task,
+    required this.taskExecution,
+    required this.isAnyTaskRunning,
+    required this.isAccepting,
     required this.isCurrent,
     required this.isUpdating,
     required this.canTransition,
     required this.onStatusChanged,
+    required this.onRunTask,
+    required this.onAcceptResult,
   });
 
   final MissionTask task;
+  final MissionTaskExecution? taskExecution;
+  final bool isAnyTaskRunning;
+  final bool isAccepting;
   final bool isCurrent;
   final bool isUpdating;
   final bool Function(TaskStatus from, TaskStatus to) canTransition;
   final ValueChanged<TaskStatus> onStatusChanged;
+  final VoidCallback onRunTask;
+  final VoidCallback onAcceptResult;
 
   @override
   Widget build(BuildContext context) {
@@ -696,8 +768,12 @@ class _MissionTaskTile extends StatelessWidget {
     final canChangeStatus = _interactiveTaskStatuses.any(
       (status) => canTransition(task.status, status),
     );
+    final isTaskRunning = taskExecution?.status == ExecutionStatus.running;
+    final didTaskFail = taskExecution?.status == ExecutionStatus.failed;
+    final canRunTask = _isTaskExecutionEligible(task);
 
     return Container(
+      key: ValueKey<String>('mission-task-${task.id}'),
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -831,6 +907,55 @@ class _MissionTaskTile extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (canRunTask) ...[
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      key: ValueKey<String>('run-task-${task.id}'),
+                      onPressed: isTaskRunning || isAnyTaskRunning
+                          ? null
+                          : onRunTask,
+                      style: OutlinedButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                      ),
+                      icon: isTaskRunning
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Icon(
+                              didTaskFail
+                                  ? Icons.refresh_rounded
+                                  : Icons.play_arrow_rounded,
+                              size: 18,
+                            ),
+                      label: Text(
+                        isTaskRunning
+                            ? 'Running…'
+                            : didTaskFail
+                            ? 'Retry Task'
+                            : 'Run Task',
+                      ),
+                    ),
+                  ),
+                ],
+                if (taskExecution?.status == ExecutionStatus.completed ||
+                    taskExecution?.status == ExecutionStatus.failed) ...[
+                  const SizedBox(height: 10),
+                  _TaskExecutionResultPanel(
+                    taskId: task.id,
+                    execution: taskExecution!,
+                    taskStatus: task.status,
+                    isAccepting: isAccepting,
+                    onAcceptResult: onAcceptResult,
+                  ),
+                ],
                 if (isCurrent) ...[
                   const SizedBox(height: 8),
                   Row(
@@ -858,6 +983,157 @@ class _MissionTaskTile extends StatelessWidget {
       ),
     );
   }
+}
+
+class _TaskExecutionResultPanel extends StatelessWidget {
+  const _TaskExecutionResultPanel({
+    required this.taskId,
+    required this.execution,
+    required this.taskStatus,
+    required this.isAccepting,
+    required this.onAcceptResult,
+  });
+
+  final String taskId;
+  final MissionTaskExecution execution;
+  final TaskStatus taskStatus;
+  final bool isAccepting;
+  final VoidCallback onAcceptResult;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final failed = execution.status == ExecutionStatus.failed;
+    final content = failed
+        ? execution.failureMessage ??
+              'Unable to complete this task. Please try again.'
+        : execution.outputText?.trim().isNotEmpty == true
+        ? execution.outputText!.trim()
+        : 'Task execution completed without text output.';
+    final containerColor = failed
+        ? colorScheme.errorContainer
+        : colorScheme.tertiaryContainer;
+    final contentColor = failed
+        ? colorScheme.onErrorContainer
+        : colorScheme.onTertiaryContainer;
+    final canAccept =
+        !failed &&
+        _hasUsableTaskExecutionResult(execution) &&
+        (taskStatus == TaskStatus.pending ||
+            taskStatus == TaskStatus.inProgress);
+    final isAccepted = !failed && taskStatus == TaskStatus.completed;
+
+    return Container(
+      key: ValueKey<String>('task-execution-result-$taskId'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: containerColor.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            failed
+                ? Icons.error_outline_rounded
+                : Icons.check_circle_outline_rounded,
+            size: 20,
+            color: contentColor,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  failed ? 'Task execution failed' : 'Task execution completed',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: contentColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  content,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: contentColor,
+                  ),
+                ),
+                if (canAccept) ...[
+                  const SizedBox(height: 10),
+                  FilledButton.tonalIcon(
+                    key: ValueKey<String>('accept-task-result-$taskId'),
+                    onPressed: isAccepting ? null : onAcceptResult,
+                    style: FilledButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                    ),
+                    icon: const Icon(Icons.check_rounded, size: 18),
+                    label: Text(isAccepting ? 'Accepting…' : 'Accept Result'),
+                  ),
+                ] else if (isAccepted) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.verified_rounded,
+                        size: 17,
+                        color: contentColor,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Task completed',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: contentColor,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+MissionTaskExecution? _taskExecutionFor(
+  List<MissionTaskExecution> executions, {
+  required String missionId,
+  required String taskId,
+}) {
+  for (final execution in executions.reversed) {
+    if (execution.missionId == missionId && execution.taskId == taskId) {
+      return execution;
+    }
+  }
+
+  return null;
+}
+
+bool _isTaskExecutionEligible(MissionTask task) {
+  final hasRequiredInput =
+      task.title.trim().isNotEmpty &&
+      task.description.trim().isNotEmpty &&
+      task.taskType.trim().isNotEmpty;
+
+  return hasRequiredInput &&
+      (task.status == TaskStatus.pending ||
+          task.status == TaskStatus.inProgress);
+}
+
+bool _hasUsableTaskExecutionResult(MissionTaskExecution execution) {
+  return execution.outputText?.trim().isNotEmpty == true ||
+      execution.structuredResultReference?.trim().isNotEmpty == true;
 }
 
 class _EmptyWorkflowCard extends StatelessWidget {
