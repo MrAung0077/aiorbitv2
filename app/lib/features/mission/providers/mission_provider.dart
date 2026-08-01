@@ -1,12 +1,18 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:isar_community/isar.dart';
 
+import '../../../core/database/isar_service.dart';
 import '../controllers/mission_controller.dart';
 import '../models/mission.dart';
-import '../services/memory_mission_repository.dart';
+import '../services/isar_mission_repository.dart';
 import '../services/mission_repository.dart';
 
+final sharedIsarProvider = Provider<Isar>((ref) {
+  return IsarService.instance;
+});
+
 final missionRepositoryProvider = Provider<MissionRepository>((ref) {
-  return MemoryMissionRepository();
+  return IsarMissionRepository(isar: ref.watch(sharedIsarProvider));
 });
 
 final missionControllerProvider = Provider<MissionController>((ref) {

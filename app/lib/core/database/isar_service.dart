@@ -2,6 +2,7 @@ import 'package:isar_community/isar.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../features/chat/data/models/conversation_record.dart';
+import '../../features/mission/data/models/mission_record.dart';
 import '../../shared/models/app_setting.dart';
 
 class IsarService {
@@ -9,18 +10,23 @@ class IsarService {
 
   static Isar? _isar;
 
-  static Future<void> initialize() async {
+  static Future<void> initialize({
+    String? directoryPath,
+    String name = 'aiorbit',
+    bool inspector = true,
+  }) async {
     if (_isar != null && _isar!.isOpen) {
       return;
     }
 
-    final directory = await getApplicationDocumentsDirectory();
+    final directory =
+        directoryPath ?? (await getApplicationDocumentsDirectory()).path;
 
     _isar = await Isar.open(
-      [AppSettingSchema, ConversationRecordSchema],
-      directory: directory.path,
-      name: 'aiorbit',
-      inspector: true,
+      [AppSettingSchema, ConversationRecordSchema, MissionRecordSchema],
+      directory: directory,
+      name: name,
+      inspector: inspector,
     );
   }
 
