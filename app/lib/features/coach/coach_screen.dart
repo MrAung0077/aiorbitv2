@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../core/models/coach_profile.dart';
 import '../../core/services/brain_service.dart';
 import '../dashboard/dashboard_screen.dart';
-import 'package:flutter/foundation.dart';
 
 class CoachScreen extends StatefulWidget {
   const CoachScreen({super.key});

@@ -37,4 +37,25 @@ class MissionTask {
   final DateTime createdAt;
 
   final DateTime? completedAt;
+
+  MissionTask copyWith({
+    TaskStatus? status,
+    DateTime? completedAt,
+    bool clearCompletedAt = false,
+  }) {
+    return MissionTask(
+      id: id,
+      missionId: missionId,
+      title: title,
+      description: description,
+      order: order,
+      status: status ?? this.status,
+      taskType: taskType,
+      recommendedProvider: recommendedProvider,
+      inputContext: inputContext,
+      output: output,
+      createdAt: createdAt,
+      completedAt: clearCompletedAt ? null : completedAt ?? this.completedAt,
+    );
+  }
 }

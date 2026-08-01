@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer';
 
 import 'package:http/http.dart' as http;
 
@@ -126,9 +127,11 @@ class GeminiAPIClient {
       final Object? decodedBody = _tryDecodeJson(response.body);
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        print('================ GEMINI =================');
-        print('STATUS: ${response.statusCode}');
-        print(response.body);
+        log(
+          'Gemini request failed with status ${response.statusCode}.',
+          name: 'Ovexiq.GeminiAPIClient',
+          error: response.body,
+        );
 
         final message =
             _extractErrorMessage(decodedBody) ??

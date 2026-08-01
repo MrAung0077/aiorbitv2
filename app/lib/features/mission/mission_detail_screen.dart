@@ -1,16 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'controllers/mission_controller.dart';
 import 'models/execution_status.dart';
 import 'models/mission.dart';
 import 'models/mission_execution.dart';
 import 'models/mission_task.dart';
+import 'models/mission_timeline.dart';
+import 'models/task_status.dart';
 import 'providers/mission_execution_provider.dart';
 
 class MissionDetailScreen extends ConsumerStatefulWidget {
-  const MissionDetailScreen({super.key, required this.mission});
+  const MissionDetailScreen({
+    super.key,
+    required this.mission,
+    required this.missionController,
+  });
 
   final Mission mission;
+  final MissionController missionController;
 
   @override
   ConsumerState<MissionDetailScreen> createState() =>
@@ -18,7 +26,67 @@ class MissionDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
-  Mission get mission => widget.mission;
+  late Mission _mission;
+  String? _updatingTaskId;
+
+  Mission get mission => _mission;
+
+  @override
+  void initState() {
+    super.initState();
+    _mission = widget.mission;
+  }
+
+  @override
+  void didUpdateWidget(covariant MissionDetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.mission != widget.mission) {
+      _mission = widget.mission;
+    }
+  }
+
+  Future<void> _updateTaskStatus(String taskId, TaskStatus status) async {
+    if (_updatingTaskId != null) {
+      return;
+    }
+
+    setState(() {
+      _updatingTaskId = taskId;
+    });
+
+    try {
+      final updatedMission = await widget.missionController.updateTaskStatus(
+        missionId: mission.id,
+        taskId: taskId,
+        status: status,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _mission = updatedMission;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to update the task. Please try again.'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _updatingTaskId = null;
+        });
+      }
+    }
+  }
 
   Future<void> _runExecution() async {
     final notifier = ref.read(missionExecutionProvider.notifier);
@@ -65,7 +133,6 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
     final execution = ref.watch(missionExecutionProvider);
 
     final currentExecution = execution?.missionId == mission.id
@@ -76,7 +143,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         currentExecution?.status == ExecutionStatus.preparing ||
         currentExecution?.status == ExecutionStatus.running;
 
-    final isCompleted = currentExecution?.status == ExecutionStatus.completed;
+    final isExecutionCompleted =
+        currentExecution?.status == ExecutionStatus.completed;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Mission')),
@@ -86,25 +154,23 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.flag_rounded, size: 44, color: colorScheme.primary),
-              const SizedBox(height: 18),
-              Text(
-                mission.title,
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                mission.goal,
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 24),
               _MissionSummaryCard(mission: mission),
               const SizedBox(height: 16),
               _ExecutionCard(execution: currentExecution),
+              const SizedBox(height: 28),
+              Text(
+                'Mission Timeline',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _MissionTimelineCard(
+                timeline: MissionTimeline(
+                  mission: mission,
+                  execution: currentExecution,
+                ),
+              ),
               const SizedBox(height: 28),
               Text(
                 'Workflow',
@@ -114,7 +180,11 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               ),
               const SizedBox(height: 12),
               if (mission.tasks.isEmpty)
-                const _EmptyWorkflowCard()
+                _EmptyWorkflowCard(
+                  onBackToChat: () {
+                    Navigator.of(context).maybePop();
+                  },
+                )
               else
                 ...mission.tasks.map(
                   (task) => Padding(
@@ -124,6 +194,12 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                       isCurrent:
                           currentExecution?.currentTaskId == task.id &&
                           currentExecution?.status == ExecutionStatus.running,
+                      isUpdating: _updatingTaskId == task.id,
+                      canTransition:
+                          widget.missionController.canTransitionTaskStatus,
+                      onStatusChanged: (status) {
+                        _updateTaskStatus(task.id, status);
+                      },
                     ),
                   ),
                 ),
@@ -131,7 +207,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: mission.tasks.isEmpty || isExecuting || isCompleted
+                  onPressed:
+                      mission.tasks.isEmpty ||
+                          isExecuting ||
+                          isExecutionCompleted
                       ? null
                       : _runExecution,
                   icon: isExecuting
@@ -141,15 +220,15 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : Icon(
-                          isCompleted
+                          isExecutionCompleted
                               ? Icons.check_rounded
                               : Icons.play_arrow_rounded,
                         ),
                   label: Text(
                     isExecuting
                         ? 'Mission Running...'
-                        : isCompleted
-                        ? 'Mission Completed'
+                        : isExecutionCompleted
+                        ? 'Execution Completed'
                         : 'Run Mission',
                   ),
                 ),
@@ -228,6 +307,113 @@ class _ExecutionCard extends StatelessWidget {
   }
 }
 
+class _MissionTimelineCard extends StatelessWidget {
+  const _MissionTimelineCard({required this.timeline});
+
+  final MissionTimeline timeline;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Column(
+        children: [
+          _TimelineRow(
+            icon: Icons.add_circle_outline_rounded,
+            label: 'Created',
+            value: formatMissionTimelineDate(
+              timeline.createdAt,
+              placeholder: '—',
+            ),
+          ),
+          const Divider(height: 1),
+          _TimelineRow(
+            icon: Icons.play_circle_outline_rounded,
+            label: 'Started',
+            value: formatMissionTimelineDate(
+              timeline.startedAt,
+              placeholder: 'Not started',
+            ),
+          ),
+          const Divider(height: 1),
+          _TimelineRow(
+            icon: Icons.update_rounded,
+            label: 'Updated',
+            value: formatMissionTimelineDate(
+              timeline.updatedAt,
+              placeholder: '—',
+            ),
+          ),
+          const Divider(height: 1),
+          _TimelineRow(
+            icon: Icons.check_circle_outline_rounded,
+            label: 'Completed',
+            value: formatMissionTimelineDate(
+              timeline.completedAt,
+              placeholder: '—',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimelineRow extends StatelessWidget {
+  const _TimelineRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: colorScheme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 IconData _executionIcon(ExecutionStatus status) {
   return switch (status) {
     ExecutionStatus.queued => Icons.schedule_rounded,
@@ -240,6 +426,32 @@ IconData _executionIcon(ExecutionStatus status) {
   };
 }
 
+const _interactiveTaskStatuses = <TaskStatus>[
+  TaskStatus.pending,
+  TaskStatus.inProgress,
+  TaskStatus.completed,
+];
+
+IconData _taskStatusIcon(TaskStatus status) {
+  return switch (status) {
+    TaskStatus.pending => Icons.schedule_rounded,
+    TaskStatus.inProgress => Icons.play_circle_outline_rounded,
+    TaskStatus.completed => Icons.check_circle_outline_rounded,
+    TaskStatus.skipped => Icons.skip_next_rounded,
+    TaskStatus.failed => Icons.error_outline_rounded,
+  };
+}
+
+Color _taskStatusColor(TaskStatus status, ColorScheme colorScheme) {
+  return switch (status) {
+    TaskStatus.pending => colorScheme.onSurfaceVariant,
+    TaskStatus.inProgress => colorScheme.primary,
+    TaskStatus.completed => colorScheme.tertiary,
+    TaskStatus.skipped => colorScheme.outline,
+    TaskStatus.failed => colorScheme.error,
+  };
+}
+
 class _MissionSummaryCard extends StatelessWidget {
   const _MissionSummaryCard({required this.mission});
 
@@ -249,6 +461,7 @@ class _MissionSummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final progress = mission.taskProgress;
 
     return Container(
       width: double.infinity,
@@ -259,31 +472,163 @@ class _MissionSummaryCard extends StatelessWidget {
         border: Border.all(color: colorScheme.outlineVariant),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SummaryRow(label: 'Status', value: _formatName(mission.status.name)),
-          const SizedBox(height: 12),
-          _SummaryRow(
-            label: 'Category',
-            value: _formatName(mission.category.name),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.flag_rounded,
+                  color: colorScheme.onPrimaryContainer,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  mission.title,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
-          _SummaryRow(label: 'Tasks', value: '${mission.tasks.length}'),
-          const SizedBox(height: 16),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(100),
-            child: LinearProgressIndicator(
-              value: (mission.progressPercent / 100).clamp(0.0, 1.0),
-              minHeight: 8,
+          const SizedBox(height: 10),
+          Text(
+            mission.goal,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
             ),
           ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Text(
-              '${mission.progressPercent.round()}% complete',
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _MissionMetadataChip(
+                icon: Icons.category_outlined,
+                label: _formatName(mission.category.name),
+              ),
+              _MissionMetadataChip(
+                icon: Icons.info_outline_rounded,
+                label: progress.isComplete
+                    ? 'Completed'
+                    : _formatName(mission.status.name),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (progress.isComplete)
+            _MissionCompletedSection(
+              completedTasks: progress.completedTasks,
+              totalTasks: progress.totalTasks,
+            )
+          else ...[
+            Row(
+              children: [
+                Text(
+                  'Task progress',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${progress.percentage}%',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: colorScheme.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(100),
+              child: LinearProgressIndicator(
+                value: progress.percent,
+                minHeight: 8,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '${progress.completedTasks} / ${progress.totalTasks} Tasks Completed',
               style: theme.textTheme.labelMedium?.copyWith(
                 color: colorScheme.onSurfaceVariant,
               ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MissionCompletedSection extends StatelessWidget {
+  const _MissionCompletedSection({
+    required this.completedTasks,
+    required this.totalTasks,
+  });
+
+  final int completedTasks;
+  final int totalTasks;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colorScheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.check_circle_rounded,
+            color: colorScheme.onTertiaryContainer,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Mission Completed',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: colorScheme.onTertiaryContainer,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'All tasks completed successfully.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onTertiaryContainer,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$completedTasks / $totalTasks Tasks Completed',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: colorScheme.onTertiaryContainer,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -292,49 +637,65 @@ class _MissionSummaryCard extends StatelessWidget {
   }
 }
 
-class _SummaryRow extends StatelessWidget {
-  const _SummaryRow({required this.label, required this.value});
+class _MissionMetadataChip extends StatelessWidget {
+  const _MissionMetadataChip({required this.icon, required this.label});
 
+  final IconData icon;
   final String label;
-  final String value;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(100),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: colorScheme.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Text(
             label,
-            style: theme.textTheme.bodyMedium?.copyWith(
+            style: theme.textTheme.labelMedium?.copyWith(
               color: colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
             ),
           ),
-        ),
-        Text(
-          value,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
 class _MissionTaskTile extends StatelessWidget {
-  const _MissionTaskTile({required this.task, required this.isCurrent});
+  const _MissionTaskTile({
+    required this.task,
+    required this.isCurrent,
+    required this.isUpdating,
+    required this.canTransition,
+    required this.onStatusChanged,
+  });
 
   final MissionTask task;
   final bool isCurrent;
+  final bool isUpdating;
+  final bool Function(TaskStatus from, TaskStatus to) canTransition;
+  final ValueChanged<TaskStatus> onStatusChanged;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final stepNumber = task.order + 1;
+    final statusColor = _taskStatusColor(task.status, colorScheme);
+    final canChangeStatus = _interactiveTaskStatuses.any(
+      (status) => canTransition(task.status, status),
+    );
 
     return Container(
       width: double.infinity,
@@ -389,11 +750,85 @@ class _MissionTaskTile extends StatelessWidget {
                   ),
                 ],
                 const SizedBox(height: 6),
-                Text(
-                  _formatName(task.status.name),
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: colorScheme.primary,
-                    fontWeight: FontWeight.w600,
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: PopupMenuButton<TaskStatus>(
+                    key: ValueKey<String>('task-status-${task.id}'),
+                    enabled: canChangeStatus && !isUpdating,
+                    tooltip: 'Change task status',
+                    onSelected: onStatusChanged,
+                    itemBuilder: (context) {
+                      return _interactiveTaskStatuses
+                          .map((status) {
+                            final isSelected = status == task.status;
+
+                            return PopupMenuItem<TaskStatus>(
+                              value: status,
+                              enabled: canTransition(task.status, status),
+                              child: Row(
+                                children: [
+                                  Icon(_taskStatusIcon(status), size: 18),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(_formatName(status.name)),
+                                  ),
+                                  if (isSelected)
+                                    const Icon(Icons.check_rounded, size: 18),
+                                ],
+                              ),
+                            );
+                          })
+                          .toList(growable: false);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: statusColor.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(100),
+                        border: Border.all(
+                          color: statusColor.withValues(alpha: 0.35),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _taskStatusIcon(task.status),
+                            size: 16,
+                            color: statusColor,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            _formatName(task.status.name),
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: statusColor,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          if (isUpdating) ...[
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: statusColor,
+                              ),
+                            ),
+                          ] else if (canChangeStatus) ...[
+                            const SizedBox(width: 4),
+                            Icon(
+                              Icons.arrow_drop_down_rounded,
+                              size: 18,
+                              color: statusColor,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                   ),
                 ),
                 if (isCurrent) ...[
@@ -426,7 +861,9 @@ class _MissionTaskTile extends StatelessWidget {
 }
 
 class _EmptyWorkflowCard extends StatelessWidget {
-  const _EmptyWorkflowCard();
+  const _EmptyWorkflowCard({required this.onBackToChat});
+
+  final VoidCallback onBackToChat;
 
   @override
   Widget build(BuildContext context) {
@@ -440,11 +877,38 @@ class _EmptyWorkflowCard extends StatelessWidget {
         color: colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Text(
-        'No workflow tasks are available for this mission.',
-        style: theme.textTheme.bodyMedium?.copyWith(
-          color: colorScheme.onSurfaceVariant,
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.route_outlined, color: colorScheme.primary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'This mission needs a workflow',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Return to Chat and tell Ovexiq what you want to accomplish in '
+            'more detail.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.tonalIcon(
+            onPressed: onBackToChat,
+            icon: const Icon(Icons.chat_bubble_outline_rounded),
+            label: const Text('Back to Chat'),
+          ),
+        ],
       ),
     );
   }

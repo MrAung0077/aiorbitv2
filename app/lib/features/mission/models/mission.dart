@@ -1,6 +1,7 @@
 import 'mission_status.dart';
 import 'mission_task.dart';
 import 'mission_category.dart';
+import 'mission_progress.dart';
 
 class Mission {
   const Mission({
@@ -34,6 +35,8 @@ class Mission {
 
   final String? conversationId;
   final String? userContext;
+
+  MissionProgress get taskProgress => MissionProgress.fromTasks(tasks);
 
   Mission copyWith({
     String? id,

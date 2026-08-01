@@ -3,17 +3,20 @@ import 'package:flutter/material.dart';
 import '../../../core/design/app_radius.dart';
 import '../../../core/design/app_shadows.dart';
 import '../../../core/design/app_spacing.dart';
-import '../../mission/models/mission_suggestion.dart';
 
 class MissionSuggestionCard extends StatelessWidget {
   const MissionSuggestionCard({
     super.key,
-    required this.suggestion,
+    required this.title,
     required this.onContinue,
+    this.isExistingMission = false,
+    this.isLoading = false,
   });
 
-  final MissionSuggestion suggestion;
+  final String title;
   final VoidCallback onContinue;
+  final bool isExistingMission;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -42,7 +45,9 @@ class MissionSuggestionCard extends StatelessWidget {
               const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Text(
-                  'Continue as a Mission',
+                  isExistingMission
+                      ? 'Continue Mission'
+                      : 'Continue as a Mission',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                     color: colorScheme.onSecondaryContainer,
@@ -53,7 +58,7 @@ class MissionSuggestionCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.md),
           Text(
-            suggestion.title,
+            title,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodyLarge?.copyWith(
@@ -62,7 +67,9 @@ class MissionSuggestionCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'Turn this goal into a guided workflow.',
+            isExistingMission
+                ? 'Return to your saved workflow.'
+                : 'Turn this goal into a guided workflow.',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: colorScheme.onSurfaceVariant,
             ),
@@ -71,9 +78,21 @@ class MissionSuggestionCard extends StatelessWidget {
           Align(
             alignment: Alignment.centerRight,
             child: FilledButton.tonalIcon(
-              onPressed: onContinue,
-              icon: const Icon(Icons.arrow_forward_rounded),
-              label: const Text('Continue'),
+              onPressed: isLoading ? null : onContinue,
+              icon: isLoading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.arrow_forward_rounded),
+              label: Text(
+                isLoading
+                    ? 'Checking...'
+                    : isExistingMission
+                    ? 'Open Mission'
+                    : 'Continue',
+              ),
             ),
           ),
         ],

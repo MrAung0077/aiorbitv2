@@ -15,7 +15,9 @@ import 'providers/chat_controller.dart';
 import 'services/router_preview_service.dart';
 import 'widgets/brain_overlay.dart';
 import 'widgets/mission_suggestion_card.dart';
+import '../mission/mission_detail_screen.dart';
 import '../mission/mission_preview_screen.dart';
+import '../mission/providers/mission_provider.dart';
 
 class AIChatScreen extends ConsumerStatefulWidget {
   const AIChatScreen({super.key});
@@ -33,6 +35,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
       const RouterPreviewService();
 
   RouterDecision? _routerDecision;
+  bool _isOpeningMission = false;
 
   @override
   void initState() {
@@ -154,20 +157,95 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     ).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
   }
 
-  void _continueAsMission() {
-    final suggestion = ref.read(chatControllerProvider).missionSuggestion;
-
-    if (suggestion == null) {
+  Future<void> _continueMission() async {
+    if (_isOpeningMission) {
       return;
     }
 
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (context) {
-          return MissionPreviewScreen(suggestion: suggestion);
-        },
-      ),
-    );
+    final chatState = ref.read(chatControllerProvider);
+    final conversationId = chatState.conversation?.id;
+
+    setState(() {
+      _isOpeningMission = true;
+    });
+
+    try {
+      final missionController = ref.read(missionControllerProvider);
+      final linkedMission = conversationId == null
+          ? null
+          : await missionController.getMissionForConversation(conversationId);
+
+      if (!mounted) {
+        return;
+      }
+
+      if (linkedMission != null) {
+        final latestMission = await missionController.getMission(
+          linkedMission.id,
+        );
+
+        if (!mounted) {
+          return;
+        }
+
+        if (latestMission == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('This mission is no longer available.'),
+            ),
+          );
+          return;
+        }
+
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => MissionDetailScreen(
+              mission: latestMission,
+              missionController: missionController,
+            ),
+          ),
+        );
+        return;
+      }
+
+      final suggestion = chatState.missionSuggestion;
+
+      if (suggestion == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No mission is linked to this conversation.'),
+          ),
+        );
+        return;
+      }
+
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => MissionPreviewScreen(
+            suggestion: suggestion,
+            conversationId: conversationId,
+          ),
+        ),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to open the mission. Please try again.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        if (conversationId != null) {
+          ref.invalidate(linkedMissionProvider(conversationId));
+        }
+
+        setState(() {
+          _isOpeningMission = false;
+        });
+      }
+    }
   }
 
   @override
@@ -197,6 +275,17 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
 
     final messages = chatState.messages;
     final hasError = chatState.error != null;
+    final conversationId = chatState.conversation?.id;
+    final linkedMissionState = conversationId == null
+        ? null
+        : ref.watch(linkedMissionProvider(conversationId));
+    final linkedMission = linkedMissionState?.valueOrNull;
+    final showMissionCard =
+        !chatState.isSending &&
+        !hasError &&
+        (chatState.missionSuggestion != null || linkedMission != null);
+    final isMissionActionLoading =
+        _isOpeningMission || (linkedMissionState?.isLoading ?? false);
 
     return Scaffold(
       appBar: AppConversationHeader(
@@ -215,11 +304,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                           padding: const EdgeInsets.all(16),
                           itemCount:
                               messages.length +
-                              (chatState.missionSuggestion != null &&
-                                      !chatState.isSending &&
-                                      !hasError
-                                  ? 1
-                                  : 0) +
+                              (showMissionCard ? 1 : 0) +
                               (chatState.isSending && messages.isEmpty
                                   ? 1
                                   : 0) +
@@ -268,16 +353,15 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                               );
                             }
 
-                            final shouldShowMissionSuggestion =
-                                chatState.missionSuggestion != null &&
-                                !chatState.isSending &&
-                                !hasError;
-
-                            if (shouldShowMissionSuggestion &&
-                                index == messages.length) {
+                            if (showMissionCard && index == messages.length) {
                               return MissionSuggestionCard(
-                                suggestion: chatState.missionSuggestion!,
-                                onContinue: _continueAsMission,
+                                title:
+                                    linkedMission?.title ??
+                                    chatState.missionSuggestion?.title ??
+                                    'Mission',
+                                isExistingMission: linkedMission != null,
+                                isLoading: isMissionActionLoading,
+                                onContinue: _continueMission,
                               );
                             }
 
@@ -348,12 +432,13 @@ class _EmptyChatView extends StatelessWidget {
             const Icon(Icons.auto_awesome, size: 64),
             const SizedBox(height: 16),
             Text(
-              'Welcome to Ovexiq',
+              'Tell Ovexiq your goal',
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             const SizedBox(height: 8),
             const Text(
-              'Start a new conversation.',
+              'Describe what you want to accomplish. Ovexiq can help turn it '
+              'into a structured workflow.',
               textAlign: TextAlign.center,
             ),
           ],

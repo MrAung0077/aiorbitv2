@@ -25,10 +25,18 @@ class ConversationHistoryScreen extends ConsumerWidget {
         ),
         data: (items) {
           if (items.isEmpty) {
-            return const _HistoryMessage(
-              icon: Icons.forum_outlined,
-              title: 'No conversations yet',
-              message: 'Your conversations will appear here.',
+            return _HistoryMessage(
+              icon: Icons.flag_outlined,
+              title: 'Your first mission starts with a conversation.',
+              message:
+                  'Tell Ovexiq what you want to accomplish, and it can turn '
+                  'your goal into a structured workflow.',
+              actionLabel: 'Start Chat',
+              onAction: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const AIChatScreen()),
+                );
+              },
             );
           }
 
@@ -72,11 +80,15 @@ class _HistoryMessage extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.message,
+    this.actionLabel,
+    this.onAction,
   });
 
   final IconData icon;
   final String title;
   final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -99,6 +111,14 @@ class _HistoryMessage extends StatelessWidget {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: AppSpacing.xl),
+              FilledButton.icon(
+                onPressed: onAction,
+                icon: const Icon(Icons.chat_bubble_outline_rounded),
+                label: Text(actionLabel!),
+              ),
+            ],
           ],
         ),
       ),

@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'controllers/mission_controller.dart';
 import 'mission_detail_screen.dart';
 import 'models/mission_suggestion.dart';
 import 'providers/mission_execution_provider.dart';
-import 'services/memory_mission_repository.dart';
+import 'providers/mission_provider.dart';
 
 class MissionPreviewScreen extends ConsumerStatefulWidget {
-  const MissionPreviewScreen({super.key, required this.suggestion});
+  const MissionPreviewScreen({
+    super.key,
+    required this.suggestion,
+    this.conversationId,
+  });
 
   final MissionSuggestion suggestion;
+  final String? conversationId;
 
   @override
   ConsumerState<MissionPreviewScreen> createState() =>
@@ -18,21 +22,10 @@ class MissionPreviewScreen extends ConsumerStatefulWidget {
 }
 
 class _MissionPreviewScreenState extends ConsumerState<MissionPreviewScreen> {
-  late final MissionController _missionController;
-
   bool _isStarting = false;
   bool _isCreated = false;
 
   MissionSuggestion get suggestion => widget.suggestion;
-
-  @override
-  void initState() {
-    super.initState();
-
-    _missionController = MissionController(
-      repository: MemoryMissionRepository(),
-    );
-  }
 
   Future<void> _startMission() async {
     if (_isStarting || _isCreated) {
@@ -44,7 +37,11 @@ class _MissionPreviewScreenState extends ConsumerState<MissionPreviewScreen> {
     });
 
     try {
-      final mission = await _missionController.startMission(suggestion);
+      final missionController = ref.read(missionControllerProvider);
+      final mission = await missionController.startMission(
+        suggestion,
+        conversationId: widget.conversationId,
+      );
 
       if (!mounted) {
         return;
@@ -63,7 +60,10 @@ class _MissionPreviewScreenState extends ConsumerState<MissionPreviewScreen> {
 
       await Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(
-          builder: (_) => MissionDetailScreen(mission: mission),
+          builder: (_) => MissionDetailScreen(
+            mission: mission,
+            missionController: missionController,
+          ),
         ),
       );
     } catch (_) {
