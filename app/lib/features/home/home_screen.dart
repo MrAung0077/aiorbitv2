@@ -18,9 +18,10 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  static const String _heroTitle = 'One Prompt.';
-  static const String _heroSubtitle = 'Best AI. Best Result.';
-  static const String _heroQuestion = 'What do you want to accomplish today?';
+  static const String _heroTitle = 'What do you want';
+  static const String _heroSubtitle = 'to get done?';
+  static const String _heroQuestion =
+      'Tell Ovexiq your goal. It will help you move from idea to finished result.';
   final TextEditingController _promptController = TextEditingController();
   final FocusNode _promptFocusNode = FocusNode();
 
@@ -178,31 +179,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   runSpacing: AppSpacing.sm,
                   children: [
                     _QuickAction(
+                      icon: Icons.auto_awesome_outlined,
+                      label: 'Create',
+                      onTap: () => _useQuickPrompt('Help me create '),
+                    ),
+                    _QuickAction(
+                      icon: Icons.search_rounded,
+                      label: 'Research',
+                      onTap: () => _useQuickPrompt('Research this for me: '),
+                    ),
+                    _QuickAction(
                       icon: Icons.edit_outlined,
                       label: 'Write',
                       onTap: () => _useQuickPrompt('Help me write '),
                     ),
                     _QuickAction(
-                      icon: Icons.code_rounded,
-                      label: 'Code',
-                      onTap: () =>
-                          _useQuickPrompt('Help me build or fix this code: '),
-                    ),
-                    _QuickAction(
-                      icon: Icons.search_rounded,
-                      label: 'Research',
-                      onTap: () =>
-                          _useQuickPrompt('Research this topic for me: '),
-                    ),
-                    _QuickAction(
-                      icon: Icons.analytics_outlined,
-                      label: 'Analyze',
-                      onTap: () => _useQuickPrompt('Analyze this for me: '),
-                    ),
-                    _QuickAction(
-                      icon: Icons.translate_rounded,
-                      label: 'Translate',
-                      onTap: () => _useQuickPrompt('Translate this: '),
+                      icon: Icons.route_outlined,
+                      label: 'Plan',
+                      onTap: () => _useQuickPrompt('Help me plan '),
                     ),
                   ],
                 ),

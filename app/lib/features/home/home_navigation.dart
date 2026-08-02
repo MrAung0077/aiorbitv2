@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../chat/conversation_history_screen.dart';
-import '../coach/coach_screen.dart';
 import '../settings/settings_screen.dart';
 import 'home_screen.dart';
 
@@ -18,7 +17,6 @@ class _HomeNavigationState extends State<HomeNavigation> {
   late final List<Widget> _screens = const [
     HomeScreen(),
     ConversationHistoryScreen(),
-    CoachScreen(),
     SettingsScreen(),
   ];
 
@@ -43,11 +41,6 @@ class _HomeNavigationState extends State<HomeNavigation> {
             icon: Icon(Icons.folder_copy_outlined),
             selectedIcon: Icon(Icons.folder_copy_rounded),
             label: 'Library',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.psychology_outlined),
-            selectedIcon: Icon(Icons.psychology_rounded),
-            label: 'Coach',
           ),
           NavigationDestination(
             icon: Icon(Icons.settings_outlined),
