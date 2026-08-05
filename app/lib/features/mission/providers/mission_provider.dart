@@ -5,7 +5,9 @@ import '../../../core/database/isar_service.dart';
 import '../controllers/mission_controller.dart';
 import '../models/mission.dart';
 import '../services/isar_mission_repository.dart';
+import '../services/isar_mission_task_execution_repository.dart';
 import '../services/mission_repository.dart';
+import '../services/mission_task_execution_repository.dart';
 
 final sharedIsarProvider = Provider<Isar>((ref) {
   return IsarService.instance;
@@ -14,6 +16,13 @@ final sharedIsarProvider = Provider<Isar>((ref) {
 final missionRepositoryProvider = Provider<MissionRepository>((ref) {
   return IsarMissionRepository(isar: ref.watch(sharedIsarProvider));
 });
+
+final missionTaskExecutionRepositoryProvider =
+    Provider<MissionTaskExecutionRepository>((ref) {
+      return IsarMissionTaskExecutionRepository(
+        isar: ref.watch(sharedIsarProvider),
+      );
+    });
 
 final missionControllerProvider = Provider<MissionController>((ref) {
   return MissionController(repository: ref.watch(missionRepositoryProvider));

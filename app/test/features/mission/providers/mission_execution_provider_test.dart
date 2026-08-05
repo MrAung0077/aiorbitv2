@@ -13,6 +13,7 @@ import 'package:aiorbit/features/mission/providers/mission_provider.dart';
 import 'package:aiorbit/features/mission/providers/mission_task_execution_provider.dart';
 import 'package:aiorbit/features/mission/services/memory_mission_repository.dart';
 import 'package:aiorbit/features/mission/services/mission_task_executor.dart';
+import 'package:aiorbit/features/mission/services/mission_task_execution_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -524,10 +525,66 @@ ProviderContainer _container({
   return ProviderContainer(
     overrides: <Override>[
       missionRepositoryProvider.overrideWithValue(repository),
+      missionTaskExecutionRepositoryProvider.overrideWithValue(
+        _MemoryMissionTaskExecutionRepository(),
+      ),
       missionTaskExecutorProvider.overrideWithValue(executor),
       missionTaskExecutionClockProvider.overrideWithValue(clock),
     ],
   );
+}
+
+class _MemoryMissionTaskExecutionRepository
+    implements MissionTaskExecutionRepository {
+  final Map<String, MissionTaskExecution> _executions =
+      <String, MissionTaskExecution>{};
+
+  String _key(String missionId, String taskId) {
+    return '${missionId.trim()}::${taskId.trim()}';
+  }
+
+  @override
+  Future<void> saveExecution(MissionTaskExecution execution) async {
+    _executions[_key(execution.missionId, execution.taskId)] = execution;
+  }
+
+  @override
+  Future<MissionTaskExecution?> getExecution({
+    required String missionId,
+    required String taskId,
+  }) async {
+    return _executions[_key(missionId, taskId)];
+  }
+
+  @override
+  Future<List<MissionTaskExecution>> getExecutionsForMission(
+    String missionId,
+  ) async {
+    final normalizedMissionId = missionId.trim();
+
+    return List<MissionTaskExecution>.unmodifiable(
+      _executions.values.where(
+        (execution) => execution.missionId == normalizedMissionId,
+      ),
+    );
+  }
+
+  @override
+  Future<void> deleteExecution({
+    required String missionId,
+    required String taskId,
+  }) async {
+    _executions.remove(_key(missionId, taskId));
+  }
+
+  @override
+  Future<void> deleteExecutionsForMission(String missionId) async {
+    final normalizedMissionId = missionId.trim();
+
+    _executions.removeWhere(
+      (_, execution) => execution.missionId == normalizedMissionId,
+    );
+  }
 }
 
 MissionTaskExecution? _record(ProviderContainer container) {

@@ -10,11 +10,13 @@ class MissionTaskExecution {
     this.structuredResultReference,
     this.failureMessage,
   }) {
-    if (execution.currentTaskId == null) {
-      throw ArgumentError.notNull('execution.currentTaskId');
+    if (execution.currentTaskId == null ||
+        execution.currentTaskId!.trim().isEmpty) {
+      throw ArgumentError('A task execution requires a valid currentTaskId.');
     }
 
-    if (execution.status == ExecutionStatus.failed && failureMessage == null) {
+    if (execution.status == ExecutionStatus.failed &&
+        (failureMessage == null || failureMessage!.trim().isEmpty)) {
       throw ArgumentError(
         'A failed task execution requires failure information.',
       );
@@ -35,4 +37,13 @@ class MissionTaskExecution {
   DateTime? get startedAt => execution.startedAt;
 
   DateTime? get finishedAt => execution.finishedAt;
+
+  bool get hasOutput => outputText?.trim().isNotEmpty ?? false;
+
+  bool get hasStructuredResult =>
+      structuredResultReference?.trim().isNotEmpty ?? false;
+
+  bool get hasFailure =>
+      status == ExecutionStatus.failed &&
+      (failureMessage?.trim().isNotEmpty ?? false);
 }

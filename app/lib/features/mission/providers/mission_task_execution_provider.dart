@@ -153,7 +153,7 @@ class MissionTaskExecutionNotifier
         ),
       );
 
-      _publish(running);
+      await _publishAndPersist(running);
 
       try {
         final result = await ref
@@ -178,7 +178,7 @@ class MissionTaskExecutionNotifier
             throw StateError('Mission task is no longer available.');
           }
 
-          _publish(result);
+          await _publishAndPersist(result);
           return result;
         }
 
@@ -213,7 +213,9 @@ class MissionTaskExecutionNotifier
         execution.structuredResultReference?.trim().isNotEmpty == true;
   }
 
-  MissionTaskExecution _publishSafeFailure(MissionExecution execution) {
+  Future<MissionTaskExecution> _publishSafeFailure(
+    MissionExecution execution,
+  ) async {
     final failed = MissionTaskExecution(
       execution: execution.copyWith(
         status: ExecutionStatus.failed,
@@ -225,11 +227,11 @@ class MissionTaskExecutionNotifier
       failureMessage: _safeFailureMessage,
     );
 
-    _publish(failed);
+    await _publishAndPersist(failed);
     return failed;
   }
 
-  void _publish(MissionTaskExecution execution) {
+  Future<void> _publishAndPersist(MissionTaskExecution execution) async {
     state = List<MissionTaskExecution>.unmodifiable(<MissionTaskExecution>[
       for (final current in state)
         if (current.missionId != execution.missionId ||
@@ -237,5 +239,9 @@ class MissionTaskExecutionNotifier
           current,
       execution,
     ]);
+
+    await ref
+        .read(missionTaskExecutionRepositoryProvider)
+        .saveExecution(execution);
   }
 }

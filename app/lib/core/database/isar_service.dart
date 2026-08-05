@@ -3,6 +3,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../features/chat/data/models/conversation_record.dart';
 import '../../features/mission/data/models/mission_record.dart';
+import '../../features/mission/data/models/mission_task_execution_record.dart';
 import '../../shared/models/app_setting.dart';
 
 class IsarService {
@@ -23,7 +24,12 @@ class IsarService {
         directoryPath ?? (await getApplicationDocumentsDirectory()).path;
 
     _isar = await Isar.open(
-      [AppSettingSchema, ConversationRecordSchema, MissionRecordSchema],
+      [
+        AppSettingSchema,
+        ConversationRecordSchema,
+        MissionRecordSchema,
+        MissionTaskExecutionRecordSchema,
+      ],
       directory: directory,
       name: name,
       inspector: inspector,

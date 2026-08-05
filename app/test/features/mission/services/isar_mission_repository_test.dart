@@ -23,6 +23,7 @@ import 'package:aiorbit/features/mission/services/mission_task_executor.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:isar_community/isar.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:aiorbit/features/mission/data/models/mission_task_execution_record.dart';
 
 void main() {
   late Directory databaseDirectory;
@@ -783,7 +784,10 @@ Future<Isar> _openDatabase({
   required String name,
 }) {
   return Isar.open(
-    <CollectionSchema<dynamic>>[MissionRecordSchema],
+    <CollectionSchema<dynamic>>[
+      MissionRecordSchema,
+      MissionTaskExecutionRecordSchema,
+    ],
     directory: directory.path,
     name: name,
     inspector: false,
