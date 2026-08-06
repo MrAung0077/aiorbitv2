@@ -37,6 +37,8 @@ class MissionTaskExecutionNotifier
 
   String? _activeTaskKey;
   final Set<String> _activeAcceptanceKeys = <String>{};
+  final Set<String> _restoringMissionIds = <String>{};
+  final Set<String> _restoredMissionIds = <String>{};
 
   @override
   List<MissionTaskExecution> build() {
@@ -58,6 +60,70 @@ class MissionTaskExecutionNotifier
 
   bool isIdle({required String missionId, required String taskId}) {
     return executionFor(missionId: missionId, taskId: taskId) == null;
+  }
+
+  Future<void> restoreMissionExecutions(String missionId) async {
+    final normalizedMissionId = missionId.trim();
+
+    if (normalizedMissionId.isEmpty ||
+        _restoredMissionIds.contains(normalizedMissionId) ||
+        !_restoringMissionIds.add(normalizedMissionId)) {
+      return;
+    }
+
+    if (!ref.read(isarInitializedProvider)) {
+      _restoringMissionIds.remove(normalizedMissionId);
+      return;
+    }
+
+    try {
+      final storedExecutions = await ref
+          .read(missionTaskExecutionRepositoryProvider)
+          .getExecutionsForMission(normalizedMissionId);
+
+      final restoredExecutions = <MissionTaskExecution>[];
+
+      for (final stored in storedExecutions) {
+        if (stored.status == ExecutionStatus.running ||
+            stored.status == ExecutionStatus.preparing) {
+          final recovered = MissionTaskExecution(
+            execution: stored.execution.copyWith(
+              status: ExecutionStatus.failed,
+              progress: 0,
+              finishedAt:
+                  stored.finishedAt ??
+                  ref.read(missionTaskExecutionClockProvider)(),
+            ),
+            failureMessage:
+                'This task was interrupted before it finished. Please retry.',
+          );
+
+          await ref
+              .read(missionTaskExecutionRepositoryProvider)
+              .saveExecution(recovered);
+
+          restoredExecutions.add(recovered);
+          continue;
+        }
+
+        restoredExecutions.add(stored);
+      }
+
+      final restoredKeys = restoredExecutions
+          .map((execution) => '${execution.missionId}::${execution.taskId}')
+          .toSet();
+
+      state = List<MissionTaskExecution>.unmodifiable(<MissionTaskExecution>[
+        for (final current in state)
+          if (!restoredKeys.contains('${current.missionId}::${current.taskId}'))
+            current,
+        ...restoredExecutions,
+      ]);
+
+      _restoredMissionIds.add(normalizedMissionId);
+    } finally {
+      _restoringMissionIds.remove(normalizedMissionId);
+    }
   }
 
   Future<Mission> acceptResult({

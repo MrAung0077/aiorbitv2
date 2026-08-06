@@ -36,6 +36,10 @@ class IsarService {
     );
   }
 
+  static bool get isInitialized {
+    return _isar != null && _isar!.isOpen;
+  }
+
   static Isar get instance {
     final database = _isar;
 

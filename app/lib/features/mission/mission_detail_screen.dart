@@ -44,6 +44,11 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   void didUpdateWidget(covariant MissionDetailScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
 
+    if (oldWidget.mission.id != widget.mission.id) {
+      _mission = widget.mission;
+      return;
+    }
+
     if (oldWidget.mission != widget.mission) {
       _mission = widget.mission;
     }

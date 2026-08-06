@@ -9,6 +9,10 @@ import '../services/isar_mission_task_execution_repository.dart';
 import '../services/mission_repository.dart';
 import '../services/mission_task_execution_repository.dart';
 
+final isarInitializedProvider = Provider<bool>((ref) {
+  return IsarService.isInitialized;
+});
+
 final sharedIsarProvider = Provider<Isar>((ref) {
   return IsarService.instance;
 });
