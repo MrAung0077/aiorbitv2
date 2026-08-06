@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:aiorbit/features/mission/controllers/mission_controller.dart';
 import 'package:aiorbit/features/mission/mission_detail_screen.dart';
+import 'package:aiorbit/features/mission/mission_task_output_screen.dart';
 import 'package:aiorbit/features/mission/models/execution_status.dart';
 import 'package:aiorbit/features/mission/models/mission.dart';
 import 'package:aiorbit/features/mission/models/mission_category.dart';
@@ -322,7 +323,7 @@ void main() {
       _taskExecutionResult(
         task: mission.tasks.single,
         status: ExecutionStatus.completed,
-        outputText: 'Research execution output',
+        outputText: '  Research execution output\n',
       ),
     );
     await tester.pumpAndSettle();
@@ -331,12 +332,31 @@ void main() {
     expect(find.text('Research execution output'), findsOneWidget);
     expect(find.text('Run Task'), findsOneWidget);
     expect(find.text('Accept Result'), findsOneWidget);
+    expect(find.text('View Full Output'), findsOneWidget);
     expect(container.read(missionExecutionProvider), isNull);
     expect(find.text('0%'), findsOneWidget);
     expect(find.text('0 / 1 Tasks Completed'), findsOneWidget);
     expect(find.text('Mission Execution'), findsOneWidget);
     expect(find.text('Mission Timeline'), findsOneWidget);
     expect(find.text('Workflow'), findsOneWidget);
+
+    final viewFullOutput = find.byKey(
+      const ValueKey<String>('view-full-task-output-research'),
+    );
+    await tester.ensureVisible(viewFullOutput);
+    await tester.tap(viewFullOutput);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(MissionTaskOutputScreen), findsOneWidget);
+    expect(find.text('Task Output'), findsOneWidget);
+    expect(find.text('research'), findsOneWidget);
+    expect(
+      tester.widget<SelectableText>(find.byType(SelectableText)).data,
+      'Research execution output',
+    );
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
 
     final persistedMission = await repository.getMission(mission.id);
     expect(persistedMission?.tasks.single.status, TaskStatus.pending);
@@ -436,6 +456,7 @@ void main() {
     expect(find.text('provider-specific detail'), findsNothing);
     expect(find.text('Retry Task'), findsOneWidget);
     expect(find.text('Accept Result'), findsNothing);
+    expect(find.text('View Full Output'), findsNothing);
 
     await tester.tap(runTask);
     await tester.tap(runTask);
@@ -479,6 +500,53 @@ void main() {
       TaskStatus.completed,
     );
     expect(container.read(missionExecutionProvider), isNull);
+  });
+
+  testWidgets('whitespace-only task output has no full output action', (
+    tester,
+  ) async {
+    final mission = _mission(<MissionTask>[
+      _task('research', TaskStatus.pending, 0),
+    ]);
+    final repository = MemoryMissionRepository();
+    final controller = MissionController(repository: repository);
+    final executor = _ControllableMissionTaskExecutor();
+    final container = _taskExecutionContainer(
+      repository: repository,
+      executor: executor,
+    );
+    addTearDown(container.dispose);
+
+    await repository.saveMission(mission);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: MissionDetailScreen(
+            mission: mission,
+            missionController: controller,
+          ),
+        ),
+      ),
+    );
+
+    final runTask = find.byKey(const ValueKey<String>('run-task-research'));
+    await tester.ensureVisible(runTask);
+    await tester.tap(runTask);
+    await executor.waitForCalls(1);
+    executor.complete(
+      0,
+      _taskExecutionResult(
+        task: mission.tasks.single,
+        status: ExecutionStatus.completed,
+        outputText: '  \n\t ',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Task execution failed'), findsOneWidget);
+    expect(find.text('View Full Output'), findsNothing);
+    expect(find.byType(MissionTaskOutputScreen), findsNothing);
   });
 
   testWidgets('manual completion during a run is not overwritten', (
@@ -783,7 +851,6 @@ ProviderContainer _taskExecutionContainer({
     ],
   );
 }
-
 
 class _MemoryMissionTaskExecutionRepository
     implements MissionTaskExecutionRepository {

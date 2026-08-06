@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'controllers/mission_controller.dart';
+import 'mission_task_output_screen.dart';
 import 'models/execution_status.dart';
 import 'models/mission.dart';
 import 'models/mission_execution.dart';
@@ -955,6 +956,7 @@ class _MissionTaskTile extends StatelessWidget {
                   const SizedBox(height: 10),
                   _TaskExecutionResultPanel(
                     taskId: task.id,
+                    taskTitle: task.title,
                     execution: taskExecution!,
                     taskStatus: task.status,
                     isAccepting: isAccepting,
@@ -993,6 +995,7 @@ class _MissionTaskTile extends StatelessWidget {
 class _TaskExecutionResultPanel extends StatelessWidget {
   const _TaskExecutionResultPanel({
     required this.taskId,
+    required this.taskTitle,
     required this.execution,
     required this.taskStatus,
     required this.isAccepting,
@@ -1000,6 +1003,7 @@ class _TaskExecutionResultPanel extends StatelessWidget {
   });
 
   final String taskId;
+  final String taskTitle;
   final MissionTaskExecution execution;
   final TaskStatus taskStatus;
   final bool isAccepting;
@@ -1028,6 +1032,9 @@ class _TaskExecutionResultPanel extends StatelessWidget {
         (taskStatus == TaskStatus.pending ||
             taskStatus == TaskStatus.inProgress);
     final isAccepted = !failed && taskStatus == TaskStatus.completed;
+    final canViewFullOutput =
+        execution.status == ExecutionStatus.completed &&
+        execution.outputText?.trim().isNotEmpty == true;
 
     return Container(
       key: ValueKey<String>('task-execution-result-$taskId'),
@@ -1066,6 +1073,31 @@ class _TaskExecutionResultPanel extends StatelessWidget {
                     color: contentColor,
                   ),
                 ),
+                if (canViewFullOutput) ...[
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    key: ValueKey<String>('view-full-task-output-$taskId'),
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => MissionTaskOutputScreen(
+                            taskTitle: taskTitle,
+                            outputText: execution.outputText!,
+                          ),
+                        ),
+                      );
+                    },
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                    ),
+                    icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                    label: const Text('View Full Output'),
+                  ),
+                ],
                 if (canAccept) ...[
                   const SizedBox(height: 10),
                   FilledButton.tonalIcon(
