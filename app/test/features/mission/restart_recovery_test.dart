@@ -230,6 +230,12 @@ void main() {
       expect(find.text('Continue Mission'), findsOneWidget);
       expect(find.text('Open Mission'), findsOneWidget);
 
+      await tester.runAsync(
+        () => uiContainer
+            .read(missionTaskExecutionProvider.notifier)
+            .restoreMissionExecutions(latestMission.id),
+      );
+
       await tester.tap(find.text('Open Mission'));
       await tester.pumpAndSettle();
 

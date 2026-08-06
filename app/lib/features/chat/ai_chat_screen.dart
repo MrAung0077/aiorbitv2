@@ -18,6 +18,7 @@ import 'widgets/mission_suggestion_card.dart';
 import '../mission/mission_detail_screen.dart';
 import '../mission/mission_preview_screen.dart';
 import '../mission/providers/mission_provider.dart';
+import '../mission/providers/mission_task_execution_provider.dart';
 
 class AIChatScreen extends ConsumerStatefulWidget {
   const AIChatScreen({super.key});
@@ -197,6 +198,14 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
           return;
         }
 
+        await ref
+            .read(missionTaskExecutionProvider.notifier)
+            .restoreMissionExecutions(latestMission.id);
+
+        if (!mounted) {
+          return;
+        }
+
         await Navigator.of(context).push(
           MaterialPageRoute<void>(
             builder: (_) => MissionDetailScreen(
@@ -205,6 +214,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
             ),
           ),
         );
+
         return;
       }
 
