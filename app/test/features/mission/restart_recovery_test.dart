@@ -11,6 +11,7 @@ import 'package:aiorbit/features/chat/providers/chat_controller.dart';
 import 'package:aiorbit/features/chat/providers/conversation_list_provider.dart';
 import 'package:aiorbit/features/home/home_screen.dart';
 import 'package:aiorbit/features/mission/mission_detail_screen.dart';
+import 'package:aiorbit/features/mission/mission_final_results_card.dart';
 import 'package:aiorbit/features/mission/mission_preview_screen.dart';
 import 'package:aiorbit/features/mission/models/execution_status.dart';
 import 'package:aiorbit/features/mission/models/mission.dart';
@@ -84,15 +85,12 @@ void main() {
         updatedAt: DateTime(2026, 4, 2, 11),
         taskStatus: TaskStatus.pending,
       );
-      final completedAt = DateTime(2026, 4, 3, 9);
       final latestMission = _mission(
         id: 'mission-latest',
         conversationId: latestConversation.id,
         title: 'Restored Completed Mission',
         updatedAt: DateTime(2026, 4, 3, 10),
-        taskStatus: TaskStatus.completed,
-        completedAt: completedAt,
-        taskOutput: 'Do not restore this task output',
+        taskStatus: TaskStatus.pending,
       );
       final initialContainer = ProviderContainer(
         overrides: <Override>[
@@ -119,10 +117,20 @@ void main() {
         () => initialContainer
             .read(missionTaskExecutionProvider.notifier)
             .executeTask(
-              missionId: olderMission.id,
-              taskId: olderMission.tasks.single.id,
+              missionId: latestMission.id,
+              taskId: latestMission.tasks.single.id,
             ),
       );
+
+      final acceptedMission = await tester.runAsync(
+        () => initialContainer
+            .read(missionTaskExecutionProvider.notifier)
+            .acceptResult(
+              missionId: latestMission.id,
+              taskId: latestMission.tasks.single.id,
+            ),
+      );
+
       final missionExecution = initialContainer.read(
         missionExecutionProvider.notifier,
       );
@@ -134,6 +142,16 @@ void main() {
       missionExecution.start();
 
       expect(taskExecution?.outputText, 'Session-only execution result');
+      expect(acceptedMission, isNotNull);
+
+expect(
+  acceptedMission!.tasks.single.status,
+  TaskStatus.completed,
+);
+expect(
+  acceptedMission.tasks.single.completedAt,
+  isNotNull,
+);
       expect(initialContainer.read(missionExecutionProvider), isNotNull);
       expect(initialContainer.read(missionTaskExecutionProvider), isNotEmpty);
 
@@ -236,6 +254,20 @@ void main() {
             .restoreMissionExecutions(latestMission.id),
       );
 
+      final restoredTaskExecutions = uiContainer.read(
+        missionTaskExecutionProvider,
+      );
+
+      expect(restoredTaskExecutions, hasLength(1));
+      expect(
+        restoredTaskExecutions.single.status,
+        ExecutionStatus.completed,
+      );
+      expect(
+        restoredTaskExecutions.single.outputText,
+        'Session-only execution result',
+      );
+
       await tester.tap(find.text('Open Mission'));
       await tester.pumpAndSettle();
 
@@ -248,8 +280,11 @@ void main() {
       expect(find.text('Mission Timeline'), findsOneWidget);
       expect(find.text('Mission Execution'), findsOneWidget);
       expect(find.text('Workflow'), findsOneWidget);
-      expect(find.text('Session-only execution result'), findsNothing);
-      expect(find.text('Do not restore this task output'), findsNothing);
+      expect(find.byType(MissionFinalResultsCard), findsOneWidget);
+      expect(find.text('Final Results'), findsOneWidget);
+      expect(find.text('1 finished result is ready.'), findsOneWidget);
+      expect(find.text('Session-only execution result'), findsNWidgets(2));
+      expect(find.text('Open Final Result'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(milliseconds: 1));
