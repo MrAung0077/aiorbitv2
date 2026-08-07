@@ -6,14 +6,20 @@ import 'models/mission_task.dart';
 import 'models/mission_task_execution.dart';
 
 class MissionFinalResult {
-  const MissionFinalResult({required this.task, required this.execution});
+  const MissionFinalResult({
+    required this.task,
+    required this.execution,
+  });
 
   final MissionTask task;
   final MissionTaskExecution execution;
 }
 
 class MissionFinalResultsCard extends StatelessWidget {
-  const MissionFinalResultsCard({super.key, required this.results});
+  const MissionFinalResultsCard({
+    super.key,
+    required this.results,
+  });
 
   final List<MissionFinalResult> results;
 
@@ -22,21 +28,15 @@ class MissionFinalResultsCard extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    if (results.isEmpty) {
+    final usableResults = results.where((result) {
+      return result.execution.outputText?.trim().isNotEmpty == true;
+    }).toList(growable: false);
+
+    if (usableResults.isEmpty) {
       return const SizedBox.shrink();
     }
 
-    final usableResults = results
-        .where((result) {
-          return result.execution.outputText?.trim().isNotEmpty == true;
-        })
-        .toList(growable: false);
-
     Future<void> copyAllResults() async {
-      if (usableResults.isEmpty) {
-        return;
-      }
-
       final text = usableResults
           .map((result) {
             final title = result.task.title.trim();
@@ -46,7 +46,9 @@ class MissionFinalResultsCard extends StatelessWidget {
           })
           .join('\n\n---\n\n');
 
-      await Clipboard.setData(ClipboardData(text: text));
+      await Clipboard.setData(
+        ClipboardData(text: text),
+      );
 
       if (!context.mounted) {
         return;
@@ -55,7 +57,9 @@ class MissionFinalResultsCard extends StatelessWidget {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          const SnackBar(content: Text('All final results copied')),
+          const SnackBar(
+            content: Text('All final results copied'),
+          ),
         );
     }
 
@@ -66,7 +70,9 @@ class MissionFinalResultsCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: colorScheme.tertiaryContainer.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: colorScheme.tertiary.withValues(alpha: 0.25)),
+        border: Border.all(
+          color: colorScheme.tertiary.withValues(alpha: 0.25),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -101,9 +107,9 @@ class MissionFinalResultsCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      results.length == 1
+                      usableResults.length == 1
                           ? '1 finished result is ready.'
-                          : '${results.length} finished results are ready.',
+                          : '${usableResults.length} finished results are ready.',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: colorScheme.onSurfaceVariant,
                       ),
@@ -114,29 +120,33 @@ class MissionFinalResultsCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          ...results.indexed.map((entry) {
-            final index = entry.$1;
-            final result = entry.$2;
+          ...usableResults.indexed.map(
+            (entry) {
+              final index = entry.$1;
+              final result = entry.$2;
 
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: index == results.length - 1 ? 0 : 8,
+              return Padding(
+                padding: EdgeInsets.only(
+                  bottom: index == usableResults.length - 1 ? 0 : 8,
+                ),
+                child: _FinalResultTile(
+                  result: result,
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.tonalIcon(
+              key: const ValueKey<String>(
+                'copy-all-final-results-button',
               ),
-              child: _FinalResultTile(result: result),
-            );
-          }),
-          if (usableResults.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.tonalIcon(
-                key: const ValueKey<String>('copy-all-final-results-button'),
-                onPressed: copyAllResults,
-                icon: const Icon(Icons.copy_all_rounded),
-                label: const Text('Copy All Results'),
-              ),
+              onPressed: copyAllResults,
+              icon: const Icon(Icons.copy_all_rounded),
+              label: const Text('Copy All Results'),
             ),
-          ],
+          ),
         ],
       ),
     );
@@ -144,7 +154,9 @@ class MissionFinalResultsCard extends StatelessWidget {
 }
 
 class _FinalResultTile extends StatelessWidget {
-  const _FinalResultTile({required this.result});
+  const _FinalResultTile({
+    required this.result,
+  });
 
   final MissionFinalResult result;
 
@@ -154,29 +166,31 @@ class _FinalResultTile extends StatelessWidget {
     final colorScheme = theme.colorScheme;
 
     final taskTitle = result.task.title.trim();
-    final outputText = result.execution.outputText?.trim() ?? '';
-    final canOpen = outputText.isNotEmpty;
+    final outputText = result.execution.outputText!.trim();
 
     return Material(
       color: colorScheme.surface.withValues(alpha: 0.7),
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
-        key: ValueKey<String>('open-final-result-${result.task.id}'),
+        key: ValueKey<String>(
+          'open-final-result-${result.task.id}',
+        ),
         borderRadius: BorderRadius.circular(12),
-        onTap: canOpen
-            ? () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => MissionTaskOutputScreen(
-                      taskTitle: taskTitle,
-                      outputText: outputText,
-                    ),
-                  ),
-                );
-              }
-            : null,
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => MissionTaskOutputScreen(
+                taskTitle: taskTitle,
+                outputText: outputText,
+              ),
+            ),
+          );
+        },
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          padding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 12,
+          ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -207,31 +221,27 @@ class _FinalResultTile extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    if (canOpen) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        outputText,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                          height: 1.4,
-                        ),
+                    const SizedBox(height: 4),
+                    Text(
+                      outputText,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        height: 1.4,
                       ),
-                    ],
+                    ),
                   ],
                 ),
               ),
-              if (canOpen) ...[
-                const SizedBox(width: 10),
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Icon(
-                    Icons.chevron_right_rounded,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
+              const SizedBox(width: 10),
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Icon(
+                  Icons.chevron_right_rounded,
+                  color: colorScheme.onSurfaceVariant,
                 ),
-              ],
+              ),
             ],
           ),
         ),
