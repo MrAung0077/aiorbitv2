@@ -1014,24 +1014,30 @@ class _TaskExecutionResultPanel extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final failed = execution.status == ExecutionStatus.failed;
+
     final content = failed
         ? execution.failureMessage ??
               'Unable to complete this task. Please try again.'
         : execution.outputText?.trim().isNotEmpty == true
         ? execution.outputText!.trim()
         : 'Task execution completed without text output.';
+
     final containerColor = failed
         ? colorScheme.errorContainer
         : colorScheme.tertiaryContainer;
+
     final contentColor = failed
         ? colorScheme.onErrorContainer
         : colorScheme.onTertiaryContainer;
+
     final canAccept =
         !failed &&
         _hasUsableTaskExecutionResult(execution) &&
         (taskStatus == TaskStatus.pending ||
             taskStatus == TaskStatus.inProgress);
+
     final isAccepted = !failed && taskStatus == TaskStatus.completed;
+
     final canViewFullOutput =
         execution.status == ExecutionStatus.completed &&
         execution.outputText?.trim().isNotEmpty == true;
@@ -1069,8 +1075,13 @@ class _TaskExecutionResultPanel extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   content,
+                  maxLines: failed ? null : 6,
+                  overflow: failed
+                      ? TextOverflow.visible
+                      : TextOverflow.ellipsis,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: contentColor,
+                    height: 1.45,
                   ),
                 ),
                 if (canViewFullOutput) ...[
