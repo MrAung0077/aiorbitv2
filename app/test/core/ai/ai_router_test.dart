@@ -105,6 +105,39 @@ void main() {
       expect(result.provider, same(claude));
     },
   );
+
+  test(
+    'skips a configured task provider when it does not support the request',
+    () {
+      final gemini = _TestAIProvider(
+        type: ProviderType.gemini,
+        displayName: 'Gemini',
+        isConfigured: true,
+        isSupported: false,
+      );
+
+      final openAI = _TestAIProvider(
+        type: ProviderType.openAI,
+        displayName: 'OpenAI',
+        isConfigured: true,
+      );
+
+      final router = AIRouter(
+        providers: <AIProvider>[
+          gemini,
+          openAI,
+        ],
+      );
+
+      final result = router.route(
+        AIRequest.fromPrompt(
+          prompt: 'Research the latest AI market trends',
+        ),
+      );
+
+      expect(result.provider, same(openAI));
+    },
+  );
 }
 
 class _TestAIProvider implements AIProvider {
