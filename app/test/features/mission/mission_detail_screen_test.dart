@@ -55,6 +55,11 @@ void main() {
     expect(find.text('Mission Execution'), findsOneWidget);
     expect(find.text('Mission Timeline'), findsOneWidget);
     expect(find.text('Workflow'), findsOneWidget);
+    expect(find.text('Final Results'), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('mission-final-results')),
+      findsNothing,
+    );
     expect(
       find.byKey(const ValueKey<String>('task-status-pending')),
       findsOneWidget,
@@ -372,6 +377,11 @@ void main() {
 
     expect(find.text('Mission Completed'), findsOneWidget);
     expect(find.text('Task completed'), findsOneWidget);
+    expect(find.text('Final Results'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('mission-final-results')),
+      findsOneWidget,
+    );
     expect(find.text('Research execution output'), findsNWidgets(2));
     expect(find.text('Accept Result'), findsNothing);
     expect(
@@ -398,6 +408,11 @@ void main() {
     expect(find.text('Mission Completed'), findsNothing);
     expect(find.text('Task progress'), findsOneWidget);
     expect(find.text('0%'), findsOneWidget);
+    expect(find.text('Final Results'), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('mission-final-results')),
+      findsNothing,
+    );
     expect(find.text('Research execution output'), findsOneWidget);
     expect(find.text('Task completed'), findsNothing);
     expect(find.text('Accept Result'), findsOneWidget);
