@@ -56,6 +56,7 @@ void main() {
 
     expect(find.byType(MissionTaskOutputScreen), findsOneWidget);
     expect(find.text('Task Output'), findsOneWidget);
+
     expect(
       tester.widget<SelectableText>(find.byType(SelectableText)).data,
       'Finished competitor research',
@@ -207,6 +208,7 @@ void main() {
     expect(find.text('Finished usable output'), findsOneWidget);
 
     expect(find.text('Structured result'), findsNothing);
+
     expect(
       find.byKey(
         const ValueKey<String>('open-final-result-structured'),
@@ -259,6 +261,151 @@ void main() {
 
     expect(find.text('Final Results'), findsNothing);
     expect(find.text('Copy All Results'), findsNothing);
+  });
+
+  testWidgets('long title and output stay compact in the final results card', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(
+      const Size(360, 800),
+    );
+
+    addTearDown(
+      () => tester.binding.setSurfaceSize(null),
+    );
+
+    const longTitle =
+        'Create a complete market research summary for the Ovexiq '
+        'launch strategy across multiple international customer segments';
+
+    const longOutput =
+        'This is a deliberately long finished result designed to verify that '
+        'the mission final results card remains compact when AI output becomes '
+        'much longer than a normal preview. The complete content must still '
+        'remain available when the user opens the final result screen, while '
+        'the mission detail experience should only show a short preview.';
+
+    final task = _task(
+      id: 'long-result',
+      title: longTitle,
+      order: 0,
+    );
+
+    final execution = _execution(
+      task: task,
+      id: 'execution-long-result',
+      outputText: longOutput,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: MissionFinalResultsCard(
+              results: [
+                MissionFinalResult(
+                  task: task,
+                  execution: execution,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+
+    final titleWidget = tester.widget<Text>(
+      find.text(longTitle),
+    );
+
+    expect(titleWidget.maxLines, 1);
+    expect(titleWidget.overflow, TextOverflow.ellipsis);
+
+    final outputWidget = tester.widget<Text>(
+      find.text(longOutput),
+    );
+
+    expect(outputWidget.maxLines, 2);
+    expect(outputWidget.overflow, TextOverflow.ellipsis);
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('open-final-result-long-result'),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(find.byType(MissionTaskOutputScreen), findsOneWidget);
+
+    expect(
+      tester.widget<SelectableText>(find.byType(SelectableText)).data,
+      longOutput,
+    );
+  });
+
+  testWidgets('multiple final results fit without overflow', (tester) async {
+    await tester.binding.setSurfaceSize(
+      const Size(360, 900),
+    );
+
+    addTearDown(
+      () => tester.binding.setSurfaceSize(null),
+    );
+
+    final results = List<MissionFinalResult>.generate(
+      5,
+      (index) {
+        final task = _task(
+          id: 'task-$index',
+          title: 'Finished result ${index + 1}',
+          order: index,
+        );
+
+        return MissionFinalResult(
+          task: task,
+          execution: _execution(
+            task: task,
+            id: 'execution-$index',
+            outputText:
+                'Completed output for finished result ${index + 1}.',
+          ),
+        );
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: MissionFinalResultsCard(
+              results: results,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('5 finished results are ready.'), findsOneWidget);
+
+    for (var index = 0; index < 5; index++) {
+      expect(
+        find.text('Finished result ${index + 1}'),
+        findsOneWidget,
+      );
+
+      expect(
+        find.byKey(
+          ValueKey<String>('open-final-result-task-$index'),
+        ),
+        findsOneWidget,
+      );
+    }
+
+    expect(find.text('Copy All Results'), findsOneWidget);
   });
 
   testWidgets('empty final results render nothing', (tester) async {
