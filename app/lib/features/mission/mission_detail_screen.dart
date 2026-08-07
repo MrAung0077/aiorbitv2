@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'controllers/mission_controller.dart';
+import 'mission_final_results_card.dart';
 import 'mission_task_output_screen.dart';
 import 'models/execution_status.dart';
 import 'models/mission.dart';
@@ -201,6 +202,11 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       (execution) => execution.status == ExecutionStatus.running,
     );
 
+    final finalResults = _finalResultsForMission(
+      mission,
+      taskExecutions,
+    );
+
     return Scaffold(
       appBar: AppBar(title: const Text('Mission')),
       body: SafeArea(
@@ -210,6 +216,14 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _MissionSummaryCard(mission: mission),
+
+              if (finalResults.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                MissionFinalResultsCard(
+                  results: finalResults,
+                ),
+              ],
+
               const SizedBox(height: 16),
               _ExecutionCard(execution: currentExecution),
               const SizedBox(height: 28),
@@ -1105,8 +1119,17 @@ class _TaskExecutionResultPanel extends StatelessWidget {
                         vertical: 6,
                       ),
                     ),
-                    icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                    label: const Text('View Full Output'),
+                    icon: Icon(
+                      isAccepted
+                          ? Icons.description_rounded
+                          : Icons.open_in_new_rounded,
+                      size: 18,
+                    ),
+                    label: Text(
+                      isAccepted
+                          ? 'Open Final Result'
+                          : 'View Full Output',
+                    ),
                   ),
                 ],
                 if (canAccept) ...[
@@ -1152,6 +1175,44 @@ class _TaskExecutionResultPanel extends StatelessWidget {
       ),
     );
   }
+}
+
+List<MissionFinalResult> _finalResultsForMission(
+  Mission mission,
+  List<MissionTaskExecution> executions,
+) {
+  if (!mission.taskProgress.isComplete) {
+    return const <MissionFinalResult>[];
+  }
+
+  final results = <MissionFinalResult>[];
+
+  for (final task in mission.tasks) {
+    if (task.status != TaskStatus.completed) {
+      continue;
+    }
+
+    final execution = _taskExecutionFor(
+      executions,
+      missionId: mission.id,
+      taskId: task.id,
+    );
+
+    if (execution == null ||
+        execution.status != ExecutionStatus.completed ||
+        execution.outputText?.trim().isNotEmpty != true) {
+      continue;
+    }
+
+    results.add(
+      MissionFinalResult(
+        task: task,
+        execution: execution,
+      ),
+    );
+  }
+
+  return List<MissionFinalResult>.unmodifiable(results);
 }
 
 MissionTaskExecution? _taskExecutionFor(
