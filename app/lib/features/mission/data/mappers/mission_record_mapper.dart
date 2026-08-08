@@ -184,6 +184,7 @@ class MissionRecordMapper {
       ..taskType = task.taskType
       ..recommendedProvider = task.recommendedProvider
       ..inputContext = task.inputContext
+      ..output = task.output
       ..createdAt = task.createdAt
       ..completedAt = task.status == TaskStatus.completed
           ? task.completedAt
@@ -212,6 +213,7 @@ class MissionRecordMapper {
       taskType: record.taskType,
       recommendedProvider: record.recommendedProvider,
       inputContext: record.inputContext,
+      output: record.output,
       createdAt: record.createdAt,
       completedAt: status == TaskStatus.completed ? record.completedAt : null,
     );

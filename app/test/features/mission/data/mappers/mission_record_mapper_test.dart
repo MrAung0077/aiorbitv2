@@ -48,6 +48,7 @@ void main() {
           order: 1,
           status: TaskStatus.completed,
           taskType: 'writing',
+          output: 'Accepted campaign draft',
           createdAt: createdAt.add(const Duration(hours: 1)),
           completedAt: completedAt,
         ),
@@ -72,6 +73,7 @@ void main() {
     expect(record.tasks.first.status, TaskStatus.inProgress.name);
     expect(record.tasks.last.status, TaskStatus.completed.name);
     expect(record.tasks.last.completedAt, completedAt);
+    expect(record.tasks.last.output, 'Accepted campaign draft');
 
     expect(restored.id, mission.id);
     expect(restored.conversationId, mission.conversationId);
@@ -93,6 +95,7 @@ void main() {
     );
     expect(restored.tasks.last.status, TaskStatus.completed);
     expect(restored.tasks.last.completedAt, completedAt);
+    expect(restored.tasks.last.output, 'Accepted campaign draft');
     expect(restored.taskProgress.completedTasks, 1);
     expect(restored.taskProgress.totalTasks, 2);
     expect(restored.taskProgress.percentage, 50);
@@ -135,7 +138,7 @@ void main() {
     expect(restored.tasks.single.output, isNull);
   });
 
-  test('derived progress and task execution output are not restored', () {
+  test('derived progress is recalculated and task output is restored', () {
     final createdAt = DateTime.utc(2026, 3, 4);
     final mission = Mission(
       id: 'mission-derived',
@@ -156,7 +159,7 @@ void main() {
           order: 0,
           status: TaskStatus.completed,
           taskType: 'test',
-          output: 'Session-only execution output',
+          output: 'Accepted execution output',
           createdAt: createdAt,
           completedAt: createdAt,
         ),
@@ -179,7 +182,7 @@ void main() {
     expect(restored.taskProgress.totalTasks, 2);
     expect(restored.taskProgress.percentage, 50);
     expect(restored.progressPercent, 50);
-    expect(restored.tasks.first.output, isNull);
+    expect(restored.tasks.first.output, 'Accepted execution output');
   });
 
   test('unknown stored enum names use safe fallbacks', () {

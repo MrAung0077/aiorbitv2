@@ -38,8 +38,11 @@ class MissionTask {
 
   final DateTime? completedAt;
 
+  static const Object _notProvided = Object();
+
   MissionTask copyWith({
     TaskStatus? status,
+    Object? output = _notProvided,
     DateTime? completedAt,
     bool clearCompletedAt = false,
   }) {
@@ -53,7 +56,7 @@ class MissionTask {
       taskType: taskType,
       recommendedProvider: recommendedProvider,
       inputContext: inputContext,
-      output: output,
+      output: identical(output, _notProvided) ? this.output : output as String?,
       createdAt: createdAt,
       completedAt: clearCompletedAt ? null : completedAt ?? this.completedAt,
     );

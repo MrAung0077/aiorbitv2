@@ -1,6 +1,8 @@
 import '../models/mission.dart';
+import '../models/execution_status.dart';
 import '../models/mission_suggestion.dart';
 import '../models/mission_task.dart';
+import '../models/mission_task_execution.dart';
 import '../models/task_status.dart';
 import '../services/mission_factory.dart';
 import '../services/mission_repository.dart';
@@ -74,6 +76,19 @@ class MissionController {
     required String missionId,
     required String taskId,
     required TaskStatus status,
+  }) {
+    return _updateTaskStatus(
+      missionId: missionId,
+      taskId: taskId,
+      status: status,
+    );
+  }
+
+  Future<Mission> _updateTaskStatus({
+    required String missionId,
+    required String taskId,
+    required TaskStatus status,
+    String? acceptedOutput,
   }) async {
     final mission = await _repository.getMission(missionId);
 
@@ -98,11 +113,15 @@ class MissionController {
     final now = DateTime.now();
     final updatedTasks = mission.tasks.toList(growable: false);
 
-    updatedTasks[taskIndex] = task.copyWith(
+    final updatedTask = task.copyWith(
       status: status,
       completedAt: status == TaskStatus.completed ? now : null,
       clearCompletedAt: status != TaskStatus.completed,
     );
+
+    updatedTasks[taskIndex] = acceptedOutput == null
+        ? updatedTask
+        : updatedTask.copyWith(output: acceptedOutput);
 
     final updatedMission = mission.copyWith(
       tasks: List<MissionTask>.unmodifiable(updatedTasks),
@@ -117,7 +136,24 @@ class MissionController {
   Future<Mission> acceptTaskResult({
     required String missionId,
     required String taskId,
+    required MissionTaskExecution execution,
   }) async {
+    final outputText = execution.outputText?.trim();
+    final structuredResultReference = execution.structuredResultReference
+        ?.trim();
+    final acceptedOutput = outputText?.isNotEmpty == true
+        ? outputText!
+        : structuredResultReference?.isNotEmpty == true
+        ? structuredResultReference!
+        : null;
+
+    if (execution.status != ExecutionStatus.completed ||
+        execution.missionId != missionId ||
+        execution.taskId != taskId ||
+        acceptedOutput == null) {
+      throw StateError('A matching completed task execution is required.');
+    }
+
     final mission = await _repository.getMission(missionId);
 
     if (mission == null) {
@@ -142,10 +178,11 @@ class MissionController {
       throw StateError('This task cannot accept an execution result.');
     }
 
-    return updateTaskStatus(
+    return _updateTaskStatus(
       missionId: missionId,
       taskId: taskId,
       status: TaskStatus.completed,
+      acceptedOutput: acceptedOutput,
     );
   }
 

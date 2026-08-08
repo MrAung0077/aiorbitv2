@@ -22,6 +22,8 @@ class MissionTaskRecord {
 
   String? inputContext;
 
+  String? output;
+
   DateTime createdAt = DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
 
   DateTime? completedAt;

@@ -501,6 +501,7 @@ void main() {
 
     expect(acceptedMission.tasks.single.status, TaskStatus.completed);
     expect(acceptedMission.tasks.single.completedAt, isNotNull);
+    expect(acceptedMission.tasks.single.output, 'Output for task');
     expect(container.read(missionExecutionProvider), isNull);
 
     await repository.saveMission(_mission());

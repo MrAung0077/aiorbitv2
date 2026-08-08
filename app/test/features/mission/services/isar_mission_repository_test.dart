@@ -405,7 +405,7 @@ void main() {
             missionId: 'mission-double-restart',
             order: 0,
             status: TaskStatus.pending,
-            output: 'Session-only output',
+            output: 'Accepted output',
           ),
         ],
       );
@@ -486,7 +486,7 @@ void main() {
       expect(restored?.id, mission.id);
       expect(restored?.tasks.single.status, TaskStatus.completed);
       expect(restored?.tasks.single.completedAt, isNotNull);
-      expect(restored?.tasks.single.output, isNull);
+      expect(restored?.tasks.single.output, 'Accepted output');
       expect(restored?.taskProgress.percentage, 100);
       expect(restored?.taskProgress.isComplete, isTrue);
       expect(secondRestartContainer.read(missionExecutionProvider), isNull);
@@ -512,7 +512,7 @@ void main() {
             order: index,
             status: index.isEven ? TaskStatus.completed : TaskStatus.pending,
             completedAt: index.isEven ? completedAt : null,
-            output: 'Do not persist output $index',
+            output: 'Accepted output $index',
           ),
       ],
     );
@@ -534,7 +534,13 @@ void main() {
     expect(restored.progressPercent, 50);
     expect(restored.taskProgress.isComplete, isFalse);
     expect(restored.status, MissionStatus.completed);
-    expect(restored.tasks.every((task) => task.output == null), isTrue);
+    expect(
+      restored.tasks.map((task) => task.output),
+      orderedEquals(<String>[
+        for (var index = 0; index < taskCount; index++)
+          'Accepted output $index',
+      ]),
+    );
     expect(restored.tasks.clear, throwsUnsupportedError);
   });
 
@@ -663,7 +669,7 @@ void main() {
             missionId: 'mission-reopen',
             order: 0,
             status: TaskStatus.pending,
-            output: 'Session-only task output',
+            output: 'Accepted task output',
           ),
         ],
       );
@@ -713,7 +719,7 @@ void main() {
       expect(restored?.id, mission.id);
       expect(restored?.conversationId, mission.conversationId);
       expect(restored?.tasks.single.status, TaskStatus.pending);
-      expect(restored?.tasks.single.output, isNull);
+      expect(restored?.tasks.single.output, 'Accepted task output');
       expect(restored?.updatedAt.isAtSameMomentAs(mission.updatedAt), isTrue);
       expect(restored?.taskProgress.percentage, 0);
       expect(reopenedContainer.read(missionExecutionProvider), isNull);
@@ -721,7 +727,7 @@ void main() {
     },
   );
 
-  test('task output and execution state remain outside persistence', () async {
+  test('task output survives repository save and reload', () async {
     final mission = _mission(
       id: 'mission-session-only',
       tasks: <MissionTask>[
@@ -730,7 +736,7 @@ void main() {
           missionId: 'mission-session-only',
           order: 0,
           status: TaskStatus.pending,
-          output: 'Do not persist this execution output',
+          output: 'Persist this accepted output',
         ),
       ],
     );
@@ -738,7 +744,7 @@ void main() {
     await repository.saveMission(mission);
     final restored = await repository.getMission(mission.id);
 
-    expect(restored?.tasks.single.output, isNull);
+    expect(restored?.tasks.single.output, 'Persist this accepted output');
     expect(restored?.tasks.single.status, TaskStatus.pending);
     expect(restored?.taskProgress.percentage, 0);
   });

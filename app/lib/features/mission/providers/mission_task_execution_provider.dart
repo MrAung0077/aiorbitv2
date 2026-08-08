@@ -154,6 +154,7 @@ class MissionTaskExecutionNotifier
           .acceptTaskResult(
             missionId: normalizedMissionId,
             taskId: normalizedTaskId,
+            execution: execution,
           );
     } finally {
       _activeAcceptanceKeys.remove(taskKey);

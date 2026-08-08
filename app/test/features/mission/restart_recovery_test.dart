@@ -144,14 +144,8 @@ void main() {
       expect(taskExecution?.outputText, 'Session-only execution result');
       expect(acceptedMission, isNotNull);
 
-expect(
-  acceptedMission!.tasks.single.status,
-  TaskStatus.completed,
-);
-expect(
-  acceptedMission.tasks.single.completedAt,
-  isNotNull,
-);
+      expect(acceptedMission!.tasks.single.status, TaskStatus.completed);
+      expect(acceptedMission.tasks.single.completedAt, isNotNull);
       expect(initialContainer.read(missionExecutionProvider), isNotNull);
       expect(initialContainer.read(missionTaskExecutionProvider), isNotEmpty);
 
@@ -178,7 +172,10 @@ expect(
       expect(restoredMission?.id, latestMission.id);
       expect(restoredMission?.tasks.single.status, TaskStatus.completed);
       expect(restoredMission?.tasks.single.completedAt, isNotNull);
-      expect(restoredMission?.tasks.single.output, isNull);
+      expect(
+        restoredMission?.tasks.single.output,
+        'Session-only execution result',
+      );
       expect(restoredMission?.taskProgress.percentage, 100);
       expect(restoredContainer.read(missionExecutionProvider), isNull);
       expect(restoredContainer.read(missionTaskExecutionProvider), isEmpty);
@@ -259,10 +256,7 @@ expect(
       );
 
       expect(restoredTaskExecutions, hasLength(1));
-      expect(
-        restoredTaskExecutions.single.status,
-        ExecutionStatus.completed,
-      );
+      expect(restoredTaskExecutions.single.status, ExecutionStatus.completed);
       expect(
         restoredTaskExecutions.single.outputText,
         'Session-only execution result',

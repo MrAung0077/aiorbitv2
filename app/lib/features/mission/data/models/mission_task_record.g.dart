@@ -39,19 +39,20 @@ const MissionTaskRecordSchema = Schema(
       type: IsarType.string,
     ),
     r'order': PropertySchema(id: 5, name: r'order', type: IsarType.long),
+    r'output': PropertySchema(id: 6, name: r'output', type: IsarType.string),
     r'recommendedProvider': PropertySchema(
-      id: 6,
+      id: 7,
       name: r'recommendedProvider',
       type: IsarType.string,
     ),
-    r'status': PropertySchema(id: 7, name: r'status', type: IsarType.string),
-    r'taskId': PropertySchema(id: 8, name: r'taskId', type: IsarType.string),
+    r'status': PropertySchema(id: 8, name: r'status', type: IsarType.string),
+    r'taskId': PropertySchema(id: 9, name: r'taskId', type: IsarType.string),
     r'taskType': PropertySchema(
-      id: 9,
+      id: 10,
       name: r'taskType',
       type: IsarType.string,
     ),
-    r'title': PropertySchema(id: 10, name: r'title', type: IsarType.string),
+    r'title': PropertySchema(id: 11, name: r'title', type: IsarType.string),
   },
 
   estimateSize: _missionTaskRecordEstimateSize,
@@ -74,6 +75,12 @@ int _missionTaskRecordEstimateSize(
     }
   }
   bytesCount += 3 + object.missionId.length * 3;
+  {
+    final value = object.output;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
   {
     final value = object.recommendedProvider;
     if (value != null) {
@@ -99,11 +106,12 @@ void _missionTaskRecordSerialize(
   writer.writeString(offsets[3], object.inputContext);
   writer.writeString(offsets[4], object.missionId);
   writer.writeLong(offsets[5], object.order);
-  writer.writeString(offsets[6], object.recommendedProvider);
-  writer.writeString(offsets[7], object.status);
-  writer.writeString(offsets[8], object.taskId);
-  writer.writeString(offsets[9], object.taskType);
-  writer.writeString(offsets[10], object.title);
+  writer.writeString(offsets[6], object.output);
+  writer.writeString(offsets[7], object.recommendedProvider);
+  writer.writeString(offsets[8], object.status);
+  writer.writeString(offsets[9], object.taskId);
+  writer.writeString(offsets[10], object.taskType);
+  writer.writeString(offsets[11], object.title);
 }
 
 MissionTaskRecord _missionTaskRecordDeserialize(
@@ -119,11 +127,12 @@ MissionTaskRecord _missionTaskRecordDeserialize(
   object.inputContext = reader.readStringOrNull(offsets[3]);
   object.missionId = reader.readString(offsets[4]);
   object.order = reader.readLong(offsets[5]);
-  object.recommendedProvider = reader.readStringOrNull(offsets[6]);
-  object.status = reader.readString(offsets[7]);
-  object.taskId = reader.readString(offsets[8]);
-  object.taskType = reader.readString(offsets[9]);
-  object.title = reader.readString(offsets[10]);
+  object.output = reader.readStringOrNull(offsets[6]);
+  object.recommendedProvider = reader.readStringOrNull(offsets[7]);
+  object.status = reader.readString(offsets[8]);
+  object.taskId = reader.readString(offsets[9]);
+  object.taskType = reader.readString(offsets[10]);
+  object.title = reader.readString(offsets[11]);
   return object;
 }
 
@@ -149,12 +158,14 @@ P _missionTaskRecordDeserializeProp<P>(
     case 6:
       return (reader.readStringOrNull(offset)) as P;
     case 7:
-      return (reader.readString(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 8:
       return (reader.readString(offset)) as P;
     case 9:
       return (reader.readString(offset)) as P;
     case 10:
+      return (reader.readString(offset)) as P;
+    case 11:
       return (reader.readString(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -783,6 +794,165 @@ extension MissionTaskRecordQueryFilter
           upper: upper,
           includeUpper: includeUpper,
         ),
+      );
+    });
+  }
+
+  QueryBuilder<MissionTaskRecord, MissionTaskRecord, QAfterFilterCondition>
+  outputIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'output'),
+      );
+    });
+  }
+
+  QueryBuilder<MissionTaskRecord, MissionTaskRecord, QAfterFilterCondition>
+  outputIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'output'),
+      );
+    });
+  }
+
+  QueryBuilder<MissionTaskRecord, MissionTaskRecord, QAfterFilterCondition>
+  outputEqualTo(String? value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'output',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<MissionTaskRecord, MissionTaskRecord, QAfterFilterCondition>
+  outputGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'output',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<MissionTaskRecord, MissionTaskRecord, QAfterFilterCondition>
+  outputLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'output',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<MissionTaskRecord, MissionTaskRecord, QAfterFilterCondition>
+  outputBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'output',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<MissionTaskRecord, MissionTaskRecord, QAfterFilterCondition>
+  outputStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'output',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<MissionTaskRecord, MissionTaskRecord, QAfterFilterCondition>
+  outputEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'output',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<MissionTaskRecord, MissionTaskRecord, QAfterFilterCondition>
+  outputContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'output',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<MissionTaskRecord, MissionTaskRecord, QAfterFilterCondition>
+  outputMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'output',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<MissionTaskRecord, MissionTaskRecord, QAfterFilterCondition>
+  outputIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'output', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<MissionTaskRecord, MissionTaskRecord, QAfterFilterCondition>
+  outputIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'output', value: ''),
       );
     });
   }
