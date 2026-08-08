@@ -21,12 +21,7 @@ void main() {
       isConfigured: true,
     );
 
-    final router = AIRouter(
-      providers: <AIProvider>[
-        openAI,
-        gemini,
-      ],
-    );
+    final router = AIRouter(providers: <AIProvider>[openAI, gemini]);
 
     final result = router.route(
       AIRequest.fromPrompt(
@@ -51,17 +46,10 @@ void main() {
       isConfigured: true,
     );
 
-    final router = AIRouter(
-      providers: <AIProvider>[
-        openAI,
-        gemini,
-      ],
-    );
+    final router = AIRouter(providers: <AIProvider>[openAI, gemini]);
 
     final result = router.route(
-      AIRequest.fromPrompt(
-        prompt: 'Research the latest AI market trends',
-      ),
+      AIRequest.fromPrompt(prompt: 'Research the latest AI market trends'),
     );
 
     expect(result.provider, same(gemini));
@@ -88,18 +76,10 @@ void main() {
         isConfigured: true,
       );
 
-      final router = AIRouter(
-        providers: <AIProvider>[
-          gemini,
-          openAI,
-          claude,
-        ],
-      );
+      final router = AIRouter(providers: <AIProvider>[gemini, openAI, claude]);
 
       final result = router.route(
-        AIRequest.fromPrompt(
-          prompt: 'Research the latest AI market trends',
-        ),
+        AIRequest.fromPrompt(prompt: 'Research the latest AI market trends'),
       );
 
       expect(result.provider, same(claude));
@@ -122,20 +102,41 @@ void main() {
         isConfigured: true,
       );
 
-      final router = AIRouter(
-        providers: <AIProvider>[
-          gemini,
-          openAI,
-        ],
+      final router = AIRouter(providers: <AIProvider>[gemini, openAI]);
+
+      final result = router.route(
+        AIRequest.fromPrompt(prompt: 'Research the latest AI market trends'),
       );
+
+      expect(result.provider, same(openAI));
+    },
+  );
+
+  test(
+    'falls back from unavailable preferred provider to the task provider',
+    () {
+      final openAI = _TestAIProvider(
+        type: ProviderType.openAI,
+        displayName: 'OpenAI',
+        isConfigured: false,
+      );
+
+      final gemini = _TestAIProvider(
+        type: ProviderType.gemini,
+        displayName: 'Gemini',
+        isConfigured: true,
+      );
+
+      final router = AIRouter(providers: <AIProvider>[openAI, gemini]);
 
       final result = router.route(
         AIRequest.fromPrompt(
           prompt: 'Research the latest AI market trends',
+          preferredProvider: ProviderType.openAI,
         ),
       );
 
-      expect(result.provider, same(openAI));
+      expect(result.provider, same(gemini));
     },
   );
 }
