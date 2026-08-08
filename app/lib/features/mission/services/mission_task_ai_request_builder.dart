@@ -15,12 +15,15 @@ class MissionTaskAIRequestBuilder {
     }
 
     final missionGoal = mission.goal.trim();
+    final userContext = mission.userContext?.trim();
     final inputContext = task.inputContext?.trim();
 
     final promptLines = <String>[
       'Complete this mission task.',
       '',
       if (missionGoal.isNotEmpty) 'Mission goal: $missionGoal',
+      if (userContext != null && userContext.isNotEmpty)
+        'User context: $userContext',
       'Title: ${task.title.trim()}',
       'Description: ${task.description.trim()}',
       'Task type: ${task.taskType.trim()}',
@@ -36,6 +39,8 @@ class MissionTaskAIRequestBuilder {
         'taskType': task.taskType,
         'missionGoal': missionGoal,
         'missionCategory': mission.category.name,
+        if (userContext != null && userContext.isNotEmpty)
+          'userContext': userContext,
       },
     );
   }

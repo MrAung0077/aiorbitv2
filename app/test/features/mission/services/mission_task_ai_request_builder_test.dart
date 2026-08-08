@@ -18,6 +18,8 @@ void main() {
       updatedAt: DateTime(2026),
       currentTaskIndex: 0,
       progressPercent: 0,
+      userContext:
+          'Audience is Myanmar beginners. Keep recommendations practical.',
       tasks: <MissionTask>[
         MissionTask(
           id: 'task-1',
@@ -34,13 +36,9 @@ void main() {
     );
 
     final task = mission.tasks.single;
-
     const builder = MissionTaskAIRequestBuilder();
 
-    final request = builder.build(
-      mission: mission,
-      task: task,
-    );
+    final request = builder.build(mission: mission, task: task);
 
     final prompt = request.latestUserPrompt;
 
@@ -53,20 +51,20 @@ void main() {
 
     expect(
       prompt,
-      contains('Title: Research competitors'),
-    );
-
-    expect(
-      prompt,
       contains(
-        'Description: Find the strongest competing creator tools',
+        'User context: Audience is Myanmar beginners. '
+        'Keep recommendations practical.',
       ),
     );
 
+    expect(prompt, contains('Title: Research competitors'));
+
     expect(
       prompt,
-      contains('Task type: research'),
+      contains('Description: Find the strongest competing creator tools'),
     );
+
+    expect(prompt, contains('Task type: research'));
 
     expect(
       prompt,
@@ -87,6 +85,7 @@ void main() {
       updatedAt: DateTime(2026),
       currentTaskIndex: 0,
       progressPercent: 0,
+      userContext: 'Professional tone. Budget must stay under 50 USD.',
       tasks: <MissionTask>[
         MissionTask(
           id: 'task-1',
@@ -103,24 +102,58 @@ void main() {
 
     const builder = MissionTaskAIRequestBuilder();
 
-    final request = builder.build(
-      mission: mission,
-      task: mission.tasks.single,
-    );
+    final request = builder.build(mission: mission, task: mission.tasks.single);
 
     expect(request.metadata['missionId'], 'mission-1');
     expect(request.metadata['taskId'], 'task-1');
     expect(request.metadata['taskType'], 'research');
 
-    expect(
-      request.metadata['missionGoal'],
-      'Create a launch campaign',
-    );
+    expect(request.metadata['missionGoal'], 'Create a launch campaign');
 
     expect(
       request.metadata['missionCategory'],
       MissionCategory.productivity.name,
     );
+
+    expect(
+      request.metadata['userContext'],
+      'Professional tone. Budget must stay under 50 USD.',
+    );
+  });
+
+  test('blank mission user context is excluded from prompt and metadata', () {
+    final mission = Mission(
+      id: 'mission-1',
+      title: 'Mission',
+      goal: 'Complete the mission',
+      category: MissionCategory.productivity,
+      status: MissionStatus.active,
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+      currentTaskIndex: 0,
+      progressPercent: 0,
+      userContext: '   \n\t ',
+      tasks: <MissionTask>[
+        MissionTask(
+          id: 'task-1',
+          missionId: 'mission-1',
+          title: 'Research',
+          description: 'Research the market',
+          order: 0,
+          status: TaskStatus.pending,
+          taskType: 'research',
+          createdAt: DateTime(2026),
+        ),
+      ],
+    );
+
+    const builder = MissionTaskAIRequestBuilder();
+
+    final request = builder.build(mission: mission, task: mission.tasks.single);
+
+    expect(request.latestUserPrompt, isNot(contains('User context:')));
+
+    expect(request.metadata.containsKey('userContext'), isFalse);
   });
 
   test('build rejects a task that belongs to another mission', () {
@@ -151,10 +184,7 @@ void main() {
     const builder = MissionTaskAIRequestBuilder();
 
     expect(
-      () => builder.build(
-        mission: mission,
-        task: foreignTask,
-      ),
+      () => builder.build(mission: mission, task: foreignTask),
       throwsArgumentError,
     );
   });
