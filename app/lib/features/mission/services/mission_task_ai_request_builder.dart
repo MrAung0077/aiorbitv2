@@ -14,10 +14,13 @@ class MissionTaskAIRequestBuilder {
       );
     }
 
+    final missionGoal = mission.goal.trim();
     final inputContext = task.inputContext?.trim();
+
     final promptLines = <String>[
       'Complete this mission task.',
       '',
+      if (missionGoal.isNotEmpty) 'Mission goal: $missionGoal',
       'Title: ${task.title.trim()}',
       'Description: ${task.description.trim()}',
       'Task type: ${task.taskType.trim()}',
@@ -31,6 +34,8 @@ class MissionTaskAIRequestBuilder {
         'missionId': mission.id,
         'taskId': task.id,
         'taskType': task.taskType,
+        'missionGoal': missionGoal,
+        'missionCategory': mission.category.name,
       },
     );
   }

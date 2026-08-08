@@ -24,6 +24,7 @@ void main() {
 
   test('MissionTask is converted to a provider-agnostic AI request', () {
     final mission = _mission();
+
     final request = const MissionTaskAIRequestBuilder().build(
       mission: mission,
       task: mission.tasks.single,
@@ -31,32 +32,40 @@ void main() {
 
     expect(request.messages, hasLength(1));
     expect(request.messages.single.role, AIMessageRole.user);
+
     expect(
       request.messages.single.content,
       'Complete this mission task.\n'
       '\n'
+      'Mission goal: Produce a sourced report\n'
       'Title: Research sources\n'
       'Description: Find credible primary sources.\n'
       'Task type: research\n'
       'Input context: Focus on official documentation.',
     );
+
     expect(request.preferredProvider, isNull);
     expect(request.model, isNull);
+
     expect(request.metadata, <String, Object?>{
       'missionId': 'mission',
       'taskId': 'task',
       'taskType': 'research',
+      'missionGoal': 'Produce a sourced report',
+      'missionCategory': MissionCategory.education.name,
     });
   });
 
   test('successful AI output completes task execution', () async {
     final mission = _mission();
+
     final provider = _RecordingAIProvider(
       response: const AIResponse(
         provider: ProviderType.openAI,
         content: 'Provider-agnostic result',
       ),
     );
+
     final executor = AIServiceMissionTaskExecutor(
       _aiService(provider),
       clock: _clock(startedAt, finishedAt),
@@ -80,12 +89,14 @@ void main() {
 
   test('whitespace-only AI output fails task execution', () async {
     final mission = _mission();
+
     final provider = _RecordingAIProvider(
       response: const AIResponse(
         provider: ProviderType.openAI,
         content: '  \n\t ',
       ),
     );
+
     final executor = AIServiceMissionTaskExecutor(
       _aiService(provider),
       clock: _clock(startedAt, finishedAt),
@@ -107,7 +118,9 @@ void main() {
 
   test('AI failure returns failed execution with useful information', () async {
     final mission = _mission();
+
     final provider = _RecordingAIProvider(error: StateError('stub AI failure'));
+
     final executor = AIServiceMissionTaskExecutor(
       _aiService(provider),
       clock: _clock(startedAt, finishedAt),
@@ -131,12 +144,14 @@ void main() {
   test('execution does not mutate task status or mission progress', () async {
     final mission = _mission();
     final task = mission.tasks.single;
+
     final provider = _RecordingAIProvider(
       response: const AIResponse(
         provider: ProviderType.openAI,
         content: 'Provider-agnostic result',
       ),
     );
+
     final executor = AIServiceMissionTaskExecutor(
       _aiService(provider),
       clock: _clock(startedAt, finishedAt),
@@ -194,6 +209,7 @@ class _RecordingAIProvider implements AIProvider {
     receivedRequest = request;
 
     final failure = error;
+
     if (failure != null) {
       throw failure;
     }
