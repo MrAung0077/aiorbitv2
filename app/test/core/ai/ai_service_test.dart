@@ -34,18 +34,11 @@ void main() {
       );
 
       final service = AIService(
-        router: AIRouter(
-          providers: <AIProvider>[
-            gemini,
-            openAI,
-          ],
-        ),
+        router: AIRouter(providers: <AIProvider>[gemini, openAI]),
       );
 
       final response = await service.complete(
-        AIRequest.fromPrompt(
-          prompt: 'Research the latest AI market trends',
-        ),
+        AIRequest.fromPrompt(prompt: 'Research the latest AI market trends'),
       );
 
       expect(response.provider, ProviderType.openAI);
@@ -81,19 +74,12 @@ void main() {
             text: 'Fallback stream result',
           );
 
-          yield const AIChunk.done(
-            provider: ProviderType.openAI,
-          );
+          yield const AIChunk.done(provider: ProviderType.openAI);
         },
       );
 
       final service = AIService(
-        router: AIRouter(
-          providers: <AIProvider>[
-            gemini,
-            openAI,
-          ],
-        ),
+        router: AIRouter(providers: <AIProvider>[gemini, openAI]),
       );
 
       final chunks = await service
@@ -136,10 +122,7 @@ void main() {
         isTrue,
       );
 
-      expect(
-        chunks.where((chunk) => chunk.type == AIChunkType.error),
-        isEmpty,
-      );
+      expect(chunks.where((chunk) => chunk.type == AIChunkType.error), isEmpty);
     },
   );
 
@@ -173,12 +156,7 @@ void main() {
       );
 
       final service = AIService(
-        router: AIRouter(
-          providers: <AIProvider>[
-            gemini,
-            openAI,
-          ],
-        ),
+        router: AIRouter(providers: <AIProvider>[gemini, openAI]),
       );
 
       final chunks = await service
@@ -212,22 +190,78 @@ void main() {
       );
 
       expect(
-        chunks.any(
-          (chunk) => chunk.provider == ProviderType.openAI,
-        ),
+        chunks.any((chunk) => chunk.provider == ProviderType.openAI),
         isFalse,
       );
     },
   );
+
+  test(
+    'stream clears a previous provider error when fallback finishes cleanly without text',
+    () async {
+      final gemini = _TestAIProvider(
+        type: ProviderType.gemini,
+        displayName: 'Gemini',
+        isConfigured: true,
+        streamHandler: (_) async* {
+          yield const AIChunk.error(
+            provider: ProviderType.gemini,
+            error: 'Gemini unavailable',
+          );
+        },
+      );
+
+      final openAI = _TestAIProvider(
+        type: ProviderType.openAI,
+        displayName: 'OpenAI',
+        isConfigured: true,
+        streamHandler: (_) async* {
+          yield const AIChunk.done(provider: ProviderType.openAI);
+        },
+      );
+
+      final service = AIService(
+        router: AIRouter(providers: <AIProvider>[gemini, openAI]),
+      );
+
+      final chunks = await service
+          .stream(
+            AIRequest.fromPrompt(
+              prompt: 'Research the latest AI market trends',
+            ),
+          )
+          .toList();
+
+      expect(gemini.streamCallCount, 1);
+      expect(openAI.streamCallCount, 1);
+
+      expect(
+        chunks.any(
+          (chunk) =>
+              chunk.type == AIChunkType.status &&
+              chunk.provider == ProviderType.openAI &&
+              chunk.text == 'Switching to OpenAI...',
+        ),
+        isTrue,
+      );
+
+      expect(
+        chunks.any(
+          (chunk) =>
+              chunk.type == AIChunkType.done &&
+              chunk.provider == ProviderType.openAI,
+        ),
+        isTrue,
+      );
+
+      expect(chunks.where((chunk) => chunk.type == AIChunkType.error), isEmpty);
+    },
+  );
 }
 
-typedef _CompleteHandler = Future<AIResponse> Function(
-  AIRequest request,
-);
+typedef _CompleteHandler = Future<AIResponse> Function(AIRequest request);
 
-typedef _StreamHandler = Stream<AIChunk> Function(
-  AIRequest request,
-);
+typedef _StreamHandler = Stream<AIChunk> Function(AIRequest request);
 
 class _TestAIProvider implements AIProvider {
   _TestAIProvider({
@@ -237,8 +271,8 @@ class _TestAIProvider implements AIProvider {
     this.isSupported = true,
     _CompleteHandler? completeHandler,
     _StreamHandler? streamHandler,
-  })  : _completeHandler = completeHandler,
-        _streamHandler = streamHandler;
+  }) : _completeHandler = completeHandler,
+       _streamHandler = streamHandler;
 
   @override
   final ProviderType type;
@@ -270,9 +304,7 @@ class _TestAIProvider implements AIProvider {
     final handler = _completeHandler;
 
     if (handler == null) {
-      throw StateError(
-        '$displayName complete handler was not configured.',
-      );
+      throw StateError('$displayName complete handler was not configured.');
     }
 
     return handler(request);
@@ -285,9 +317,7 @@ class _TestAIProvider implements AIProvider {
     final handler = _streamHandler;
 
     if (handler == null) {
-      throw StateError(
-        '$displayName stream handler was not configured.',
-      );
+      throw StateError('$displayName stream handler was not configured.');
     }
 
     return handler(request);

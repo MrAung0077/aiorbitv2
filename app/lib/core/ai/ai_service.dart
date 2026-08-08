@@ -72,6 +72,11 @@ class AIService {
       final AIProvider provider = candidates[index];
       final bool isFallback = index > 0;
 
+      // Each provider attempt starts with a clean error state.
+      // A previous provider failure must not make a later successful
+      // fallback look like it also failed.
+      lastError = null;
+
       var hasEmittedText = false;
 
       if (isFallback) {
@@ -125,6 +130,7 @@ class AIService {
 
         if (hasEmittedText) {
           yield AIChunk.error(provider: provider.type, error: error.toString());
+
           return;
         }
       }
@@ -142,7 +148,8 @@ class AIService {
     if (error is GeminiAPIException) {
       switch (error.type) {
         case GeminiErrorType.regionUnavailable:
-          return '$providerName is unavailable in your region. AIOrbit is switching...';
+          return '$providerName is unavailable in your region. '
+              'AIOrbit is switching...';
 
         case GeminiErrorType.rateLimited:
           return '$providerName is temporarily busy. AIOrbit is switching...';
@@ -154,7 +161,8 @@ class AIService {
           return 'Cannot connect to $providerName. AIOrbit is switching...';
 
         case GeminiErrorType.unknown:
-          return '$providerName is temporarily unavailable. AIOrbit is switching...';
+          return '$providerName is temporarily unavailable. '
+              'AIOrbit is switching...';
       }
     }
 
