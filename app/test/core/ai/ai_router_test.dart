@@ -139,6 +139,42 @@ void main() {
       expect(result.provider, same(gemini));
     },
   );
+
+  test('throws a clean error when no provider is available or supported', () {
+    final gemini = _TestAIProvider(
+      type: ProviderType.gemini,
+      displayName: 'Gemini',
+      isConfigured: false,
+    );
+
+    final openAI = _TestAIProvider(
+      type: ProviderType.openAI,
+      displayName: 'OpenAI',
+      isConfigured: true,
+      isSupported: false,
+    );
+
+    final claude = _TestAIProvider(
+      type: ProviderType.claude,
+      displayName: 'Claude',
+      isConfigured: false,
+    );
+
+    final router = AIRouter(providers: <AIProvider>[gemini, openAI, claude]);
+
+    expect(
+      () => router.route(
+        AIRequest.fromPrompt(prompt: 'Research the latest AI market trends'),
+      ),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          'No available AI provider.',
+        ),
+      ),
+    );
+  });
 }
 
 class _TestAIProvider implements AIProvider {
