@@ -175,6 +175,67 @@ void main() {
       ),
     );
   });
+
+  test(
+    'preferred provider routing reason identifies the selected provider',
+    () {
+      final openAI = _TestAIProvider(
+        type: ProviderType.openAI,
+        displayName: 'OpenAI',
+        isConfigured: true,
+      );
+
+      final gemini = _TestAIProvider(
+        type: ProviderType.gemini,
+        displayName: 'Gemini',
+        isConfigured: true,
+      );
+
+      final router = AIRouter(providers: <AIProvider>[openAI, gemini]);
+
+      final result = router.route(
+        AIRequest.fromPrompt(
+          prompt: 'Hello',
+          preferredProvider: ProviderType.gemini,
+        ),
+      );
+
+      expect(result.provider, same(gemini));
+      expect(result.reason, 'User selected Gemini.');
+    },
+  );
+
+  test(
+    'alternate fallback routing reason identifies the fallback provider',
+    () {
+      final gemini = _TestAIProvider(
+        type: ProviderType.gemini,
+        displayName: 'Gemini',
+        isConfigured: false,
+      );
+
+      final openAI = _TestAIProvider(
+        type: ProviderType.openAI,
+        displayName: 'OpenAI',
+        isConfigured: false,
+      );
+
+      final claude = _TestAIProvider(
+        type: ProviderType.claude,
+        displayName: 'Claude',
+        isConfigured: true,
+      );
+
+      final router = AIRouter(providers: <AIProvider>[gemini, openAI, claude]);
+
+      final result = router.route(
+        AIRequest.fromPrompt(prompt: 'Research the latest AI market trends'),
+      );
+
+      expect(result.provider, same(claude));
+      expect(result.reason, 'Used fallback provider Claude.');
+    },
+  );
 }
 
 class _TestAIProvider implements AIProvider {
