@@ -296,6 +296,174 @@ void main() {
     expect(request.metadata.containsKey('userContext'), isFalse);
   });
 
+  test('build includes only the latest three accepted previous results', () {
+    final createdAt = DateTime(2026);
+
+    MissionTask completedTask({
+      required String id,
+      required String title,
+      required int order,
+      required String output,
+    }) {
+      return MissionTask(
+        id: id,
+        missionId: 'mission-1',
+        title: title,
+        description: 'Completed task $order',
+        order: order,
+        status: TaskStatus.completed,
+        taskType: 'research',
+        output: output,
+        createdAt: createdAt,
+        completedAt: DateTime(2026, 1, 1, 0, order + 1),
+      );
+    }
+
+    final mission = Mission(
+      id: 'mission-1',
+      title: 'Long mission',
+      goal: 'Complete a multi-step mission',
+      category: MissionCategory.productivity,
+      status: MissionStatus.active,
+      createdAt: createdAt,
+      updatedAt: createdAt,
+      currentTaskIndex: 4,
+      progressPercent: 0.8,
+      tasks: <MissionTask>[
+        completedTask(
+          id: 'task-1',
+          title: 'Oldest result',
+          order: 0,
+          output: 'OUTPUT_ONE',
+        ),
+        completedTask(
+          id: 'task-2',
+          title: 'Second result',
+          order: 1,
+          output: 'OUTPUT_TWO',
+        ),
+        completedTask(
+          id: 'task-3',
+          title: 'Third result',
+          order: 2,
+          output: 'OUTPUT_THREE',
+        ),
+        completedTask(
+          id: 'task-4',
+          title: 'Latest result',
+          order: 3,
+          output: 'OUTPUT_FOUR',
+        ),
+        MissionTask(
+          id: 'current',
+          missionId: 'mission-1',
+          title: 'Current task',
+          description: 'Use relevant previous work',
+          order: 4,
+          status: TaskStatus.pending,
+          taskType: 'planning',
+          createdAt: createdAt,
+        ),
+      ],
+    );
+
+    const builder = MissionTaskAIRequestBuilder();
+
+    final request = builder.build(mission: mission, task: mission.tasks.last);
+
+    final prompt = request.latestUserPrompt;
+
+    expect(prompt, isNot(contains('OUTPUT_ONE')));
+    expect(prompt, contains('OUTPUT_TWO'));
+    expect(prompt, contains('OUTPUT_THREE'));
+    expect(prompt, contains('OUTPUT_FOUR'));
+
+    expect(request.metadata['previousAcceptedResultCount'], 3);
+  });
+
+  test('build caps total previous accepted result context', () {
+    final createdAt = DateTime(2026);
+
+    final mission = Mission(
+      id: 'mission-1',
+      title: 'Large context mission',
+      goal: 'Complete a mission without excessive context',
+      category: MissionCategory.productivity,
+      status: MissionStatus.active,
+      createdAt: createdAt,
+      updatedAt: createdAt,
+      currentTaskIndex: 3,
+      progressPercent: 0.75,
+      tasks: <MissionTask>[
+        MissionTask(
+          id: 'task-1',
+          missionId: 'mission-1',
+          title: 'Large result one',
+          description: 'Produce a large result',
+          order: 0,
+          status: TaskStatus.completed,
+          taskType: 'research',
+          output: 'A' * 4000,
+          createdAt: createdAt,
+          completedAt: DateTime(2026, 1, 1, 0, 1),
+        ),
+        MissionTask(
+          id: 'task-2',
+          missionId: 'mission-1',
+          title: 'Large result two',
+          description: 'Produce another large result',
+          order: 1,
+          status: TaskStatus.completed,
+          taskType: 'research',
+          output: 'B' * 4000,
+          createdAt: createdAt,
+          completedAt: DateTime(2026, 1, 1, 0, 2),
+        ),
+        MissionTask(
+          id: 'task-3',
+          missionId: 'mission-1',
+          title: 'Latest result',
+          description: 'Produce the latest result',
+          order: 2,
+          status: TaskStatus.completed,
+          taskType: 'research',
+          output: 'LATEST_RESULT',
+          createdAt: createdAt,
+          completedAt: DateTime(2026, 1, 1, 0, 3),
+        ),
+        MissionTask(
+          id: 'current',
+          missionId: 'mission-1',
+          title: 'Current task',
+          description: 'Use bounded previous context',
+          order: 3,
+          status: TaskStatus.pending,
+          taskType: 'planning',
+          createdAt: createdAt,
+        ),
+      ],
+    );
+
+    const builder = MissionTaskAIRequestBuilder();
+
+    final request = builder.build(mission: mission, task: mission.tasks.last);
+
+    final prompt = request.latestUserPrompt;
+
+    final contextStart = prompt.indexOf('Previous accepted results:');
+    final currentTaskStart = prompt.indexOf('Title: Current task');
+
+    expect(contextStart, greaterThanOrEqualTo(0));
+    expect(currentTaskStart, greaterThan(contextStart));
+
+    final previousContext = prompt.substring(contextStart, currentTaskStart);
+
+    expect(previousContext.length, lessThanOrEqualTo(6100));
+
+    // The newest accepted result must survive the context budget.
+    expect(previousContext, contains('LATEST_RESULT'));
+  });
+
   test('build rejects a task that belongs to another mission', () {
     final mission = Mission(
       id: 'mission-1',
