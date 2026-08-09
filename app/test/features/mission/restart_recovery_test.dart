@@ -285,6 +285,186 @@ void main() {
     },
   );
 
+  testWidgets(
+    'restart restores only task executions that were actually attempted',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1024, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final baseMission = _mission(
+        id: 'mission-partial-execution',
+        conversationId: 'conversation-partial-execution',
+        title: 'Partially Executed Mission',
+        updatedAt: DateTime(2026, 4, 4, 10),
+        taskStatus: TaskStatus.pending,
+      );
+      final mission = baseMission.copyWith(
+        tasks: List<MissionTask>.generate(3, (index) {
+          final taskNumber = index + 1;
+
+          return MissionTask(
+            id: '${baseMission.id}-task-$taskNumber',
+            missionId: baseMission.id,
+            title: 'Task $taskNumber',
+            description: 'Complete task $taskNumber.',
+            order: index,
+            status: TaskStatus.pending,
+            taskType: 'research',
+            createdAt: baseMission.createdAt.add(Duration(minutes: index)),
+          );
+        }),
+      );
+      final task1 = mission.tasks[0];
+      final task2 = mission.tasks[1];
+      final task3 = mission.tasks[2];
+      final initialContainer = ProviderContainer(
+        overrides: <Override>[
+          missionTaskExecutorProvider.overrideWithValue(
+            const _ImmediateMissionTaskExecutor(),
+          ),
+        ],
+      );
+      final initialRepository = initialContainer.read(
+        missionRepositoryProvider,
+      );
+      final initialExecutionNotifier = initialContainer.read(
+        missionTaskExecutionProvider.notifier,
+      );
+
+      await tester.runAsync(() => initialRepository.saveMission(mission));
+      await tester.runAsync(
+        () => initialExecutionNotifier.executeTask(
+          missionId: mission.id,
+          taskId: task1.id,
+        ),
+      );
+      await tester.runAsync(
+        () => initialExecutionNotifier.acceptResult(
+          missionId: mission.id,
+          taskId: task1.id,
+        ),
+      );
+      await tester.runAsync(
+        () => initialExecutionNotifier.executeTask(
+          missionId: mission.id,
+          taskId: task2.id,
+        ),
+      );
+      await tester.runAsync(
+        () => initialExecutionNotifier.acceptResult(
+          missionId: mission.id,
+          taskId: task2.id,
+        ),
+      );
+
+      expect(
+        initialExecutionNotifier.executionFor(
+          missionId: mission.id,
+          taskId: task3.id,
+        ),
+        isNull,
+      );
+
+      initialContainer.dispose();
+      await tester.runAsync(() async {
+        await IsarService.close();
+        await IsarService.initialize(
+          directoryPath: databaseDirectory.path,
+          name: databaseName,
+          inspector: false,
+        );
+      });
+
+      final restoredContainer = ProviderContainer();
+      addTearDown(restoredContainer.dispose);
+      final restoredController = restoredContainer.read(
+        missionControllerProvider,
+      );
+      final restoredMission = await tester.runAsync(
+        () => restoredController.getMission(mission.id),
+      );
+
+      expect(restoredMission, isNotNull);
+      expect(restoredMission!.tasks.map((task) => task.status), <TaskStatus>[
+        TaskStatus.completed,
+        TaskStatus.completed,
+        TaskStatus.pending,
+      ]);
+      expect(restoredMission.tasks[2].completedAt, isNull);
+      expect(restoredMission.tasks[2].output, isNull);
+      expect(restoredContainer.read(missionTaskExecutionProvider), isEmpty);
+
+      final restoredExecutionNotifier = restoredContainer.read(
+        missionTaskExecutionProvider.notifier,
+      );
+      await tester.runAsync(
+        () => restoredExecutionNotifier.restoreMissionExecutions(mission.id),
+      );
+
+      final restoredExecutions = restoredContainer.read(
+        missionTaskExecutionProvider,
+      );
+      expect(restoredExecutions, hasLength(2));
+      expect(
+        restoredExecutions.map((execution) => execution.taskId).toSet(),
+        <String>{task1.id, task2.id},
+      );
+      expect(
+        restoredExecutions.every(
+          (execution) => execution.status == ExecutionStatus.completed,
+        ),
+        isTrue,
+      );
+      expect(
+        restoredExecutionNotifier.executionFor(
+          missionId: mission.id,
+          taskId: task3.id,
+        ),
+        isNull,
+      );
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: restoredContainer,
+          child: MaterialApp(
+            home: MissionDetailScreen(
+              mission: restoredMission,
+              missionController: restoredController,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final task3Card = find.byKey(
+        ValueKey<String>('mission-task-${task3.id}'),
+      );
+      expect(task3Card, findsOneWidget);
+      expect(
+        find.descendant(of: task3Card, matching: find.text('Run Task')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: task3Card, matching: find.text('Retry Task')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: task3Card,
+          matching: find.text('Task execution failed'),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.byKey(ValueKey<String>('task-execution-result-${task3.id}')),
+        findsNothing,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    },
+  );
+
   testWidgets('restart with missing linked mission falls back to Preview', (
     tester,
   ) async {
