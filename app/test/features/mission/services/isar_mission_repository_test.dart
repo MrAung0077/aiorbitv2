@@ -238,6 +238,56 @@ void main() {
     expect(restored?.tasks.last.status, TaskStatus.inProgress);
   });
 
+  test('an older mission snapshot cannot overwrite a newer save', () async {
+    final newer = _mission(
+      id: 'mission-stale-save',
+      title: 'Newest state',
+      updatedAt: DateTime.utc(2026, 3, 10, 12),
+    );
+    final stale = newer.copyWith(
+      title: 'Stale state',
+      updatedAt: DateTime.utc(2026, 3, 10, 11),
+    );
+
+    await repository.saveMission(newer);
+    await repository.saveMission(stale);
+
+    final records = await isar.missionRecords
+        .where()
+        .missionIdEqualTo(newer.id)
+        .findAll();
+    final restored = await repository.getMission(newer.id);
+
+    expect(records, hasLength(1));
+    expect(restored?.title, newer.title);
+    expect(restored?.updatedAt.isAtSameMomentAs(newer.updatedAt), isTrue);
+  });
+
+  test('equal-timestamp overlapping saves preserve invocation order', () async {
+    final timestamp = DateTime.utc(2026, 3, 10, 13);
+    final first = _mission(
+      id: 'mission-equal-timestamp',
+      title: 'First state',
+      updatedAt: timestamp,
+    );
+    final second = first.copyWith(title: 'Second state');
+
+    await Future.wait<void>(<Future<void>>[
+      repository.saveMission(first),
+      repository.saveMission(second),
+    ]);
+
+    final records = await isar.missionRecords
+        .where()
+        .missionIdEqualTo(first.id)
+        .findAll();
+    final restored = await repository.getMission(first.id);
+
+    expect(records, hasLength(1));
+    expect(restored?.title, second.title);
+    expect(restored?.updatedAt.isAtSameMomentAs(timestamp), isTrue);
+  });
+
   test(
     'duplicate and corrupted records resolve to latest valid mission',
     () async {

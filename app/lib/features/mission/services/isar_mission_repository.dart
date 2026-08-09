@@ -15,11 +15,31 @@ class IsarMissionRepository implements MissionRepository {
 
   final Isar _isar;
   final MissionRecordMapper _mapper;
+  final Map<String, Future<void>> _pendingSaves = <String, Future<void>>{};
 
   @override
   Future<void> saveMission(Mission mission) async {
     final record = _mapper.toRecord(mission);
+    final missionId = record.missionId;
+    final previousSave = _pendingSaves[missionId] ?? Future<void>.value();
 
+    late final Future<void> currentSave;
+    currentSave = previousSave.then<void>(
+      (_) => _saveRecord(record),
+      onError: (Object _, StackTrace __) => _saveRecord(record),
+    );
+    _pendingSaves[missionId] = currentSave;
+
+    try {
+      await currentSave;
+    } finally {
+      if (identical(_pendingSaves[missionId], currentSave)) {
+        _pendingSaves.remove(missionId);
+      }
+    }
+  }
+
+  Future<void> _saveRecord(MissionRecord record) async {
     await _isar.writeTxn(() async {
       final allRecords = await _isar.missionRecords.where().findAll();
       final existingRecords =
@@ -30,11 +50,32 @@ class IsarMissionRepository implements MissionRepository {
               .toList(growable: false)
             ..sort((left, right) => left.id.compareTo(right.id));
 
-      if (existingRecords.isNotEmpty) {
-        record.id = existingRecords.first.id;
+      _MissionRecordCandidate? latestExisting;
+      for (final candidate in _validCandidates(existingRecords)) {
+        if (latestExisting == null || _isNewer(candidate, latestExisting)) {
+          latestExisting = candidate;
+        }
       }
 
-      await _isar.missionRecords.put(record);
+      final isStale =
+          latestExisting != null &&
+          record.updatedAt.isBefore(latestExisting.mission.updatedAt);
+
+      if (existingRecords.isNotEmpty) {
+        final canonicalId = existingRecords.first.id;
+        if (isStale) {
+          if (existingRecords.length > 1) {
+            await _isar.missionRecords.put(
+              _mapper.toRecord(latestExisting.mission, databaseId: canonicalId),
+            );
+          }
+        } else {
+          record.id = canonicalId;
+          await _isar.missionRecords.put(record);
+        }
+      } else {
+        await _isar.missionRecords.put(record);
+      }
 
       if (existingRecords.length > 1) {
         await _isar.missionRecords.deleteAll(
