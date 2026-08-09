@@ -99,45 +99,31 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   }
 
   Future<void> _runExecution() async {
-    final notifier = ref.read(missionExecutionProvider.notifier);
-    var execution = ref.read(missionExecutionProvider);
+    try {
+      final updatedMission = await ref
+          .read(missionExecutionProvider.notifier)
+          .runMission(missionId: mission.id);
 
-    if (execution == null || execution.missionId != mission.id) {
-      notifier.createExecution(
-        executionId: 'execution-${mission.id}',
-        missionId: mission.id,
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _mission = updatedMission;
+      });
+    } catch (_) {
+      final latestMission = await widget.missionController.getMission(
+        mission.id,
       );
 
-      execution = ref.read(missionExecutionProvider);
+      if (!mounted || latestMission == null) {
+        return;
+      }
+
+      setState(() {
+        _mission = latestMission;
+      });
     }
-
-    if (execution == null ||
-        execution.status == ExecutionStatus.preparing ||
-        execution.status == ExecutionStatus.running ||
-        execution.status == ExecutionStatus.completed) {
-      return;
-    }
-
-    notifier.prepare();
-
-    await Future<void>.delayed(const Duration(milliseconds: 700));
-
-    notifier.start();
-
-    final taskCount = mission.tasks.length;
-
-    for (var index = 0; index < taskCount; index++) {
-      await Future<void>.delayed(const Duration(milliseconds: 900));
-
-      notifier.updateProgress(
-        progress: (index + 1) / taskCount,
-        currentTaskId: mission.tasks[index].id,
-      );
-    }
-
-    await Future<void>.delayed(const Duration(milliseconds: 500));
-
-    notifier.complete();
   }
 
   Future<void> _runTask(String taskId) async {
@@ -198,9 +184,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
     final isExecutionCompleted =
         currentExecution?.status == ExecutionStatus.completed;
-    final isAnyTaskRunning = taskExecutions.any(
+    final hasRunningTaskExecution = taskExecutions.any(
       (execution) => execution.status == ExecutionStatus.running,
     );
+    final shouldBlockTaskActions = isExecuting || hasRunningTaskExecution;
 
     final finalResults = _finalResultsForMission(
       mission,
@@ -265,7 +252,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                         missionId: mission.id,
                         taskId: task.id,
                       ),
-                      isAnyTaskRunning: isAnyTaskRunning,
+                      isAnyTaskRunning: shouldBlockTaskActions,
                       isAccepting: _acceptingTaskId == task.id,
                       isCurrent:
                           currentExecution?.currentTaskId == task.id &&
@@ -292,6 +279,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                   onPressed:
                       mission.tasks.isEmpty ||
                           isExecuting ||
+                          hasRunningTaskExecution ||
                           isExecutionCompleted
                       ? null
                       : _runExecution,

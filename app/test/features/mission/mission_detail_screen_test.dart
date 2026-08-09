@@ -193,6 +193,50 @@ void main() {
     expect(find.text('Execution Completed'), findsOneWidget);
   });
 
+  testWidgets('Run Mission executes and accepts the existing workflow', (
+    tester,
+  ) async {
+    final mission = _mission(<MissionTask>[
+      _task('research', TaskStatus.pending, 0),
+    ]);
+    final repository = MemoryMissionRepository();
+    final controller = MissionController(repository: repository);
+    final container = _taskExecutionContainer(
+      repository: repository,
+      executor: const _ImmediateMissionTaskExecutor(),
+    );
+    addTearDown(container.dispose);
+
+    await repository.saveMission(mission);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: MissionDetailScreen(
+            mission: mission,
+            missionController: controller,
+          ),
+        ),
+      ),
+    );
+
+    final runMission = find.text('Run Mission');
+    await tester.ensureVisible(runMission);
+    await tester.tap(runMission);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Execution Completed'), findsOneWidget);
+    expect(find.text('Mission Completed'), findsOneWidget);
+    expect(find.text('1 / 1 Tasks Completed'), findsOneWidget);
+    expect(find.text('Output for research'), findsWidgets);
+    expect(find.text('Accept Result'), findsNothing);
+    expect(find.text('Run Task'), findsNothing);
+
+    final persisted = await repository.getMission(mission.id);
+    expect(persisted?.tasks.single.status, TaskStatus.completed);
+    expect(persisted?.tasks.single.output, 'Output for research');
+  });
+
   testWidgets(
     'timeline shows mission dates and missing timestamp placeholders',
     (tester) async {

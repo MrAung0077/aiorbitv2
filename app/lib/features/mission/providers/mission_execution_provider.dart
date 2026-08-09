@@ -1,8 +1,13 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../controllers/mission_execution_controller.dart';
+import '../models/execution_status.dart';
+import '../models/mission.dart';
 import '../models/mission_execution.dart';
+import '../models/mission_task.dart';
 import '../models/mission_task_execution.dart';
+import '../models/task_status.dart';
+import 'mission_provider.dart';
 import 'mission_task_execution_provider.dart';
 
 final missionExecutionControllerProvider = Provider<MissionExecutionController>(
@@ -17,6 +22,8 @@ final missionExecutionProvider =
     );
 
 class MissionExecutionNotifier extends Notifier<MissionExecution?> {
+  String? _activeMissionId;
+
   MissionExecutionController get _controller {
     return ref.read(missionExecutionControllerProvider);
   }
@@ -121,5 +128,159 @@ class MissionExecutionNotifier extends Notifier<MissionExecution?> {
     return ref
         .read(missionTaskExecutionProvider.notifier)
         .executeTask(missionId: missionId, taskId: taskId);
+  }
+
+  Future<Mission> runMission({required String missionId}) async {
+    final normalizedMissionId = missionId.trim();
+    final currentExecution = state;
+
+    if (normalizedMissionId.isEmpty) {
+      throw StateError('Mission ID is required.');
+    }
+
+    if (_activeMissionId != null ||
+        currentExecution?.status == ExecutionStatus.preparing ||
+        currentExecution?.status == ExecutionStatus.running) {
+      throw StateError('A mission is already running.');
+    }
+
+    if (ref
+        .read(missionTaskExecutionProvider)
+        .any((execution) => execution.status == ExecutionStatus.running)) {
+      throw StateError('A task is already running.');
+    }
+
+    _activeMissionId = normalizedMissionId;
+
+    try {
+      final missionController = ref.read(missionControllerProvider);
+      final initialMission = await missionController.getMission(
+        normalizedMissionId,
+      );
+
+      if (initialMission == null) {
+        throw StateError('Mission "$normalizedMissionId" was not found.');
+      }
+
+      var mission = initialMission;
+
+      createExecution(
+        executionId:
+            'execution-$normalizedMissionId-'
+            '${DateTime.now().microsecondsSinceEpoch}',
+        missionId: normalizedMissionId,
+      );
+      prepare();
+      start();
+
+      final orderedTasks = _orderedTasks(mission.tasks);
+      final totalTasks = orderedTasks.length;
+
+      if (totalTasks == 0) {
+        complete();
+        return mission;
+      }
+
+      _updateMissionProgress(mission, totalTasks: totalTasks);
+      final taskExecutionNotifier = ref.read(
+        missionTaskExecutionProvider.notifier,
+      );
+
+      for (final orderedTask in orderedTasks) {
+        final latestMission = await missionController.getMission(
+          normalizedMissionId,
+        );
+
+        if (latestMission == null) {
+          throw StateError('Mission "$normalizedMissionId" was not found.');
+        }
+
+        mission = latestMission;
+
+        final taskIndex = mission.tasks.indexWhere(
+          (task) => task.id == orderedTask.id,
+        );
+
+        if (taskIndex < 0) {
+          throw StateError('Task "${orderedTask.id}" was not found.');
+        }
+
+        final task = mission.tasks[taskIndex];
+
+        if (task.status == TaskStatus.completed) {
+          _updateMissionProgress(mission, totalTasks: totalTasks);
+          continue;
+        }
+
+        if (!_isTaskEligible(task)) {
+          continue;
+        }
+
+        updateProgress(
+          progress: mission.taskProgress.completedTasks / totalTasks,
+          currentTaskId: task.id,
+        );
+
+        final result = await taskExecutionNotifier.executeTask(
+          missionId: normalizedMissionId,
+          taskId: task.id,
+        );
+
+        if (result.status != ExecutionStatus.completed ||
+            !_hasUsableResult(result)) {
+          fail();
+          return await missionController.getMission(normalizedMissionId) ??
+              mission;
+        }
+
+        mission = await taskExecutionNotifier.acceptResult(
+          missionId: normalizedMissionId,
+          taskId: task.id,
+        );
+        _updateMissionProgress(mission, totalTasks: totalTasks);
+      }
+
+      complete();
+
+      return await missionController.getMission(normalizedMissionId) ?? mission;
+    } catch (_) {
+      final execution = state;
+
+      if (execution?.status == ExecutionStatus.preparing ||
+          execution?.status == ExecutionStatus.running) {
+        fail();
+      }
+
+      rethrow;
+    } finally {
+      _activeMissionId = null;
+    }
+  }
+
+  List<MissionTask> _orderedTasks(List<MissionTask> tasks) {
+    final indexedTasks = tasks.indexed.toList(growable: false)
+      ..sort((left, right) {
+        final orderComparison = left.$2.order.compareTo(right.$2.order);
+
+        return orderComparison != 0
+            ? orderComparison
+            : left.$1.compareTo(right.$1);
+      });
+
+    return indexedTasks.map((entry) => entry.$2).toList(growable: false);
+  }
+
+  bool _isTaskEligible(MissionTask task) {
+    return task.status == TaskStatus.pending ||
+        task.status == TaskStatus.inProgress;
+  }
+
+  bool _hasUsableResult(MissionTaskExecution execution) {
+    return execution.outputText?.trim().isNotEmpty == true ||
+        execution.structuredResultReference?.trim().isNotEmpty == true;
+  }
+
+  void _updateMissionProgress(Mission mission, {required int totalTasks}) {
+    updateProgress(progress: mission.taskProgress.completedTasks / totalTasks);
   }
 }
