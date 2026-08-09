@@ -6,17 +6,10 @@ import '../ai_request.dart';
 import '../ai_response.dart';
 import '../provider_type.dart';
 import 'gemini_api_client.dart';
-import '../gemini_config.dart';
 import 'dart:developer';
 
 class RealGeminiProvider implements AIProvider {
-  RealGeminiProvider({GeminiAPIClient? client})
-    : _client =
-          client ??
-          GeminiAPIClient(
-            apiKey: GeminiConfig.apiKey,
-            defaultModel: GeminiConfig.model,
-          );
+  RealGeminiProvider(this._client);
 
   final GeminiAPIClient _client;
 

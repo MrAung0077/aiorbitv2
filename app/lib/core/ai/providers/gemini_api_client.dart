@@ -5,7 +5,6 @@ import 'dart:developer';
 import 'package:http/http.dart' as http;
 
 import '../ai_message.dart';
-import '../gemini_config.dart';
 
 class GeminiAPIClient {
   GeminiAPIClient({
@@ -14,13 +13,6 @@ class GeminiAPIClient {
     http.Client? httpClient,
   }) : _apiKey = apiKey.trim(),
        _httpClient = httpClient ?? http.Client();
-
-  factory GeminiAPIClient.fromConfig() {
-    return GeminiAPIClient(
-      apiKey: GeminiConfig.apiKey,
-      defaultModel: GeminiConfig.model,
-    );
-  }
 
   final String _apiKey;
   final String defaultModel;

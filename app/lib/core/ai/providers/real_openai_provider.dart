@@ -6,16 +6,9 @@ import '../ai_request.dart';
 import '../ai_response.dart';
 import '../provider_type.dart';
 import 'openai_api_client.dart';
-import '../openai_config.dart';
 
 class RealOpenAIProvider implements AIProvider {
-  RealOpenAIProvider({OpenAIAPIClient? client})
-    : _client =
-          client ??
-          OpenAIAPIClient(
-            apiKey: OpenAIConfig.apiKey,
-            defaultModel: OpenAIConfig.model,
-          );
+  RealOpenAIProvider(this._client);
 
   final OpenAIAPIClient _client;
 

@@ -2,13 +2,8 @@ import '../config/app_config.dart';
 import 'ai_provider.dart';
 import 'mock_ai_provider.dart';
 import 'provider_type.dart';
-import 'providers/claude_provider.dart';
-import 'providers/deepseek_provider.dart';
-import 'providers/grok_provider.dart';
-import 'providers/mistral_provider.dart';
-import 'providers/ollama_provider.dart';
-import 'providers/real_gemini_provider.dart';
-import 'providers/real_openai_provider.dart';
+import 'providers/ovexiq_backend_api_client.dart';
+import 'providers/ovexiq_backend_provider.dart';
 
 class AIProviderRegistry {
   const AIProviderRegistry._();
@@ -23,17 +18,13 @@ class AIProviderRegistry {
       ];
     }
 
-    final openai = RealOpenAIProvider();
-    final gemini = RealGeminiProvider();
-
     return <AIProvider>[
-      openai,
-      gemini,
-      const ClaudeProvider(),
-      const DeepSeekProvider(),
-      const GrokProvider(),
-      const MistralProvider(),
-      const OllamaProvider(),
+      OvexiqBackendProvider(
+        OvexiqBackendApiClient(
+          baseUrl: AppConfig.ovexiqApiBaseUrl,
+          betaAccessToken: AppConfig.ovexiqBetaAccessToken,
+        ),
+      ),
     ];
   }
 }
