@@ -180,6 +180,32 @@ void main() {
       expect(restoredContainer.read(missionExecutionProvider), isNull);
       expect(restoredContainer.read(missionTaskExecutionProvider), isEmpty);
 
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: restoredContainer,
+          child: MaterialApp(
+            home: MissionDetailScreen(
+              mission: restoredMission!,
+              missionController: restoredController,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MissionFinalResultsCard), findsOneWidget);
+      expect(find.text('Final Results'), findsOneWidget);
+      expect(find.text('Session-only execution result'), findsOneWidget);
+      expect(
+        find.byKey(
+          ValueKey<String>(
+            'open-final-result-${latestMission.tasks.single.id}',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(restoredContainer.read(missionTaskExecutionProvider), isEmpty);
+
       await tester.runAsync(() async {
         await restoredContainer
             .read(chatControllerProvider.notifier)
@@ -278,6 +304,14 @@ void main() {
       expect(find.text('Final Results'), findsOneWidget);
       expect(find.text('1 finished result is ready.'), findsOneWidget);
       expect(find.text('Session-only execution result'), findsNWidgets(2));
+      expect(
+        find.byKey(
+          ValueKey<String>(
+            'open-final-result-${latestMission.tasks.single.id}',
+          ),
+        ),
+        findsOneWidget,
+      );
       expect(find.text('Open Final Result'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox.shrink());

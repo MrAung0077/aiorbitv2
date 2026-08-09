@@ -3,23 +3,24 @@ import 'package:flutter/services.dart';
 
 import 'mission_task_output_screen.dart';
 import 'models/mission_task.dart';
-import 'models/mission_task_execution.dart';
+import 'models/task_status.dart';
 
 class MissionFinalResult {
-  const MissionFinalResult({
-    required this.task,
-    required this.execution,
-  });
+  const MissionFinalResult({required this.task});
 
   final MissionTask task;
-  final MissionTaskExecution execution;
+
+  String? get outputText {
+    final output = task.output?.trim();
+    return output?.isNotEmpty == true ? output : null;
+  }
+
+  bool get isUsable =>
+      task.status == TaskStatus.completed && outputText != null;
 }
 
 class MissionFinalResultsCard extends StatelessWidget {
-  const MissionFinalResultsCard({
-    super.key,
-    required this.results,
-  });
+  const MissionFinalResultsCard({super.key, required this.results});
 
   final List<MissionFinalResult> results;
 
@@ -28,9 +29,9 @@ class MissionFinalResultsCard extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    final usableResults = results.where((result) {
-      return result.execution.outputText?.trim().isNotEmpty == true;
-    }).toList(growable: false);
+    final usableResults = results
+        .where((result) => result.isUsable)
+        .toList(growable: false);
 
     if (usableResults.isEmpty) {
       return const SizedBox.shrink();
@@ -40,15 +41,13 @@ class MissionFinalResultsCard extends StatelessWidget {
       final text = usableResults
           .map((result) {
             final title = result.task.title.trim();
-            final output = result.execution.outputText!.trim();
+            final output = result.outputText!;
 
             return '$title\n\n$output';
           })
           .join('\n\n---\n\n');
 
-      await Clipboard.setData(
-        ClipboardData(text: text),
-      );
+      await Clipboard.setData(ClipboardData(text: text));
 
       if (!context.mounted) {
         return;
@@ -57,9 +56,7 @@ class MissionFinalResultsCard extends StatelessWidget {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          const SnackBar(
-            content: Text('All final results copied'),
-          ),
+          const SnackBar(content: Text('All final results copied')),
         );
     }
 
@@ -70,9 +67,7 @@ class MissionFinalResultsCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: colorScheme.tertiaryContainer.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: colorScheme.tertiary.withValues(alpha: 0.25),
-        ),
+        border: Border.all(color: colorScheme.tertiary.withValues(alpha: 0.25)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -120,28 +115,22 @@ class MissionFinalResultsCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          ...usableResults.indexed.map(
-            (entry) {
-              final index = entry.$1;
-              final result = entry.$2;
+          ...usableResults.indexed.map((entry) {
+            final index = entry.$1;
+            final result = entry.$2;
 
-              return Padding(
-                padding: EdgeInsets.only(
-                  bottom: index == usableResults.length - 1 ? 0 : 8,
-                ),
-                child: _FinalResultTile(
-                  result: result,
-                ),
-              );
-            },
-          ),
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: index == usableResults.length - 1 ? 0 : 8,
+              ),
+              child: _FinalResultTile(result: result),
+            );
+          }),
           const SizedBox(height: 14),
           SizedBox(
             width: double.infinity,
             child: FilledButton.tonalIcon(
-              key: const ValueKey<String>(
-                'copy-all-final-results-button',
-              ),
+              key: const ValueKey<String>('copy-all-final-results-button'),
               onPressed: copyAllResults,
               icon: const Icon(Icons.copy_all_rounded),
               label: const Text('Copy All Results'),
@@ -154,9 +143,7 @@ class MissionFinalResultsCard extends StatelessWidget {
 }
 
 class _FinalResultTile extends StatelessWidget {
-  const _FinalResultTile({
-    required this.result,
-  });
+  const _FinalResultTile({required this.result});
 
   final MissionFinalResult result;
 
@@ -166,15 +153,13 @@ class _FinalResultTile extends StatelessWidget {
     final colorScheme = theme.colorScheme;
 
     final taskTitle = result.task.title.trim();
-    final outputText = result.execution.outputText!.trim();
+    final outputText = result.outputText!;
 
     return Material(
       color: colorScheme.surface.withValues(alpha: 0.7),
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
-        key: ValueKey<String>(
-          'open-final-result-${result.task.id}',
-        ),
+        key: ValueKey<String>('open-final-result-${result.task.id}'),
         borderRadius: BorderRadius.circular(12),
         onTap: () {
           Navigator.of(context).push(
@@ -187,10 +172,7 @@ class _FinalResultTile extends StatelessWidget {
           );
         },
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 12,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

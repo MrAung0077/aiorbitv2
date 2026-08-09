@@ -189,10 +189,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     );
     final shouldBlockTaskActions = isExecuting || hasRunningTaskExecution;
 
-    final finalResults = _finalResultsForMission(
-      mission,
-      taskExecutions,
-    );
+    final finalResults = _finalResultsForMission(mission);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Mission')),
@@ -206,9 +203,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
               if (finalResults.isNotEmpty) ...[
                 const SizedBox(height: 16),
-                MissionFinalResultsCard(
-                  results: finalResults,
-                ),
+                MissionFinalResultsCard(results: finalResults),
               ],
 
               const SizedBox(height: 16),
@@ -959,6 +954,7 @@ class _MissionTaskTile extends StatelessWidget {
                   _TaskExecutionResultPanel(
                     taskId: task.id,
                     taskTitle: task.title,
+                    acceptedOutput: task.output,
                     execution: taskExecution!,
                     taskStatus: task.status,
                     isAccepting: isAccepting,
@@ -998,6 +994,7 @@ class _TaskExecutionResultPanel extends StatelessWidget {
   const _TaskExecutionResultPanel({
     required this.taskId,
     required this.taskTitle,
+    required this.acceptedOutput,
     required this.execution,
     required this.taskStatus,
     required this.isAccepting,
@@ -1006,6 +1003,7 @@ class _TaskExecutionResultPanel extends StatelessWidget {
 
   final String taskId;
   final String taskTitle;
+  final String? acceptedOutput;
   final MissionTaskExecution execution;
   final TaskStatus taskStatus;
   final bool isAccepting;
@@ -1038,11 +1036,18 @@ class _TaskExecutionResultPanel extends StatelessWidget {
         (taskStatus == TaskStatus.pending ||
             taskStatus == TaskStatus.inProgress);
 
-    final isAccepted = !failed && taskStatus == TaskStatus.completed;
+    final persistedOutput = acceptedOutput?.trim();
+    final hasAcceptedOutput = persistedOutput?.isNotEmpty == true;
+    final isTaskCompleted = !failed && taskStatus == TaskStatus.completed;
+    final hasPersistedAcceptedResult = isTaskCompleted && hasAcceptedOutput;
+
+    final fullOutput = hasPersistedAcceptedResult
+        ? persistedOutput
+        : execution.outputText?.trim();
 
     final canViewFullOutput =
         execution.status == ExecutionStatus.completed &&
-        execution.outputText?.trim().isNotEmpty == true;
+        fullOutput?.isNotEmpty == true;
 
     return Container(
       key: ValueKey<String>('task-execution-result-$taskId'),
@@ -1095,7 +1100,7 @@ class _TaskExecutionResultPanel extends StatelessWidget {
                         MaterialPageRoute<void>(
                           builder: (_) => MissionTaskOutputScreen(
                             taskTitle: taskTitle,
-                            outputText: execution.outputText!,
+                            outputText: fullOutput!,
                           ),
                         ),
                       );
@@ -1108,13 +1113,13 @@ class _TaskExecutionResultPanel extends StatelessWidget {
                       ),
                     ),
                     icon: Icon(
-                      isAccepted
+                      hasPersistedAcceptedResult
                           ? Icons.description_rounded
                           : Icons.open_in_new_rounded,
                       size: 18,
                     ),
                     label: Text(
-                      isAccepted
+                      hasPersistedAcceptedResult
                           ? 'Open Final Result'
                           : 'View Full Output',
                     ),
@@ -1135,7 +1140,7 @@ class _TaskExecutionResultPanel extends StatelessWidget {
                     icon: const Icon(Icons.check_rounded, size: 18),
                     label: Text(isAccepting ? 'Accepting…' : 'Accept Result'),
                   ),
-                ] else if (isAccepted) ...[
+                ] else if (isTaskCompleted) ...[
                   const SizedBox(height: 8),
                   Row(
                     mainAxisSize: MainAxisSize.min,
@@ -1165,10 +1170,7 @@ class _TaskExecutionResultPanel extends StatelessWidget {
   }
 }
 
-List<MissionFinalResult> _finalResultsForMission(
-  Mission mission,
-  List<MissionTaskExecution> executions,
-) {
+List<MissionFinalResult> _finalResultsForMission(Mission mission) {
   if (!mission.taskProgress.isComplete) {
     return const <MissionFinalResult>[];
   }
@@ -1176,28 +1178,12 @@ List<MissionFinalResult> _finalResultsForMission(
   final results = <MissionFinalResult>[];
 
   for (final task in mission.tasks) {
-    if (task.status != TaskStatus.completed) {
+    if (task.status != TaskStatus.completed ||
+        task.output?.trim().isNotEmpty != true) {
       continue;
     }
 
-    final execution = _taskExecutionFor(
-      executions,
-      missionId: mission.id,
-      taskId: task.id,
-    );
-
-    if (execution == null ||
-        execution.status != ExecutionStatus.completed ||
-        execution.outputText?.trim().isNotEmpty != true) {
-      continue;
-    }
-
-    results.add(
-      MissionFinalResult(
-        task: task,
-        execution: execution,
-      ),
-    );
+    results.add(MissionFinalResult(task: task));
   }
 
   return List<MissionFinalResult>.unmodifiable(results);

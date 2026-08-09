@@ -72,6 +72,85 @@ void main() {
     expect(indicators.any((indicator) => indicator.value == 0.5), isTrue);
   });
 
+  testWidgets(
+    'Final Results use persisted accepted outputs without execution state',
+    (tester) async {
+      final mission = _mission(<MissionTask>[
+        _task(
+          'first',
+          TaskStatus.completed,
+          0,
+          output: '  Accepted first output  ',
+        ),
+        _task(
+          'second',
+          TaskStatus.completed,
+          1,
+          output: 'Accepted second output',
+        ),
+        _task('empty', TaskStatus.completed, 2, output: '  \n\t '),
+      ]);
+      final repository = MemoryMissionRepository();
+      final controller = MissionController(repository: repository);
+
+      await repository.saveMission(mission);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            home: MissionDetailScreen(
+              mission: mission,
+              missionController: controller,
+            ),
+          ),
+        ),
+      );
+
+      final finalResults = find.byKey(
+        const ValueKey<String>('mission-final-results'),
+      );
+      expect(finalResults, findsOneWidget);
+      expect(
+        find.descendant(
+          of: finalResults,
+          matching: find.text('Accepted first output'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: finalResults,
+          matching: find.text('Accepted second output'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: finalResults, matching: find.text('empty')),
+        findsNothing,
+      );
+
+      final firstResult = find.byKey(
+        const ValueKey<String>('open-final-result-first'),
+      );
+      final secondResult = find.byKey(
+        const ValueKey<String>('open-final-result-second'),
+      );
+      expect(
+        tester.getTopLeft(firstResult).dy,
+        lessThan(tester.getTopLeft(secondResult).dy),
+      );
+
+      await tester.tap(firstResult);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MissionTaskOutputScreen), findsOneWidget);
+      expect(
+        tester.widget<SelectableText>(find.byType(SelectableText)).data,
+        'Accepted first output',
+      );
+    },
+  );
+
   testWidgets('task status changes rebuild task progress and keep content', (
     tester,
   ) async {
@@ -663,13 +742,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Mission Completed'), findsOneWidget);
-    expect(find.text('Late execution output'), findsNWidgets(2));
+    expect(find.text('Late execution output'), findsOneWidget);
+    expect(find.text('Final Results'), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('mission-final-results')),
+      findsNothing,
+    );
+    expect(find.text('Open Final Result'), findsNothing);
+    expect(find.text('View Full Output'), findsOneWidget);
     expect(find.text('Task completed'), findsOneWidget);
     expect(find.text('Accept Result'), findsNothing);
-    expect(
-      (await repository.getMission(mission.id))?.tasks.single.status,
-      TaskStatus.completed,
-    );
+    final persistedMission = await repository.getMission(mission.id);
+    expect(persistedMission?.tasks.single.status, TaskStatus.completed);
+    expect(persistedMission?.tasks.single.output, isNull);
     expect(container.read(missionExecutionProvider), isNull);
   });
 
@@ -880,7 +965,7 @@ Mission _mission(
   );
 }
 
-MissionTask _task(String id, TaskStatus status, int order) {
+MissionTask _task(String id, TaskStatus status, int order, {String? output}) {
   return MissionTask(
     id: id,
     missionId: 'mission',
@@ -889,6 +974,7 @@ MissionTask _task(String id, TaskStatus status, int order) {
     order: order,
     status: status,
     taskType: 'test',
+    output: output,
     createdAt: DateTime(2026),
   );
 }

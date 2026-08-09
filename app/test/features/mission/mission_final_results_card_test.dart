@@ -1,9 +1,6 @@
 import 'package:aiorbit/features/mission/mission_final_results_card.dart';
 import 'package:aiorbit/features/mission/mission_task_output_screen.dart';
-import 'package:aiorbit/features/mission/models/execution_status.dart';
-import 'package:aiorbit/features/mission/models/mission_execution.dart';
 import 'package:aiorbit/features/mission/models/mission_task.dart';
-import 'package:aiorbit/features/mission/models/mission_task_execution.dart';
 import 'package:aiorbit/features/mission/models/task_status.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -17,24 +14,14 @@ void main() {
       id: 'research',
       title: 'Research competitors',
       order: 0,
-    );
-
-    final taskExecution = _execution(
-      task: task,
-      id: 'execution-research',
-      outputText: '  Finished competitor research  ',
+      output: '  Finished competitor research  ',
     );
 
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: MissionFinalResultsCard(
-            results: [
-              MissionFinalResult(
-                task: task,
-                execution: taskExecution,
-              ),
-            ],
+            results: [MissionFinalResult(task: task)],
           ),
         ),
       ),
@@ -47,9 +34,7 @@ void main() {
     expect(find.text('Copy All Results'), findsOneWidget);
 
     await tester.tap(
-      find.byKey(
-        const ValueKey<String>('open-final-result-research'),
-      ),
+      find.byKey(const ValueKey<String>('open-final-result-research')),
     );
 
     await tester.pumpAndSettle();
@@ -86,24 +71,14 @@ void main() {
       id: 'research',
       title: '  Research competitors  ',
       order: 0,
+      output: '  Finished competitor research  ',
     );
 
     final secondTask = _task(
       id: 'caption',
       title: 'Write launch caption',
       order: 1,
-    );
-
-    final firstExecution = _execution(
-      task: firstTask,
-      id: 'execution-research',
-      outputText: '  Finished competitor research  ',
-    );
-
-    final secondExecution = _execution(
-      task: secondTask,
-      id: 'execution-caption',
-      outputText: '  Launch Ovexiq today.  ',
+      output: '  Launch Ovexiq today.  ',
     );
 
     await tester.pumpWidget(
@@ -111,14 +86,8 @@ void main() {
         home: Scaffold(
           body: MissionFinalResultsCard(
             results: [
-              MissionFinalResult(
-                task: firstTask,
-                execution: firstExecution,
-              ),
-              MissionFinalResult(
-                task: secondTask,
-                execution: secondExecution,
-              ),
+              MissionFinalResult(task: firstTask),
+              MissionFinalResult(task: secondTask),
             ],
           ),
         ),
@@ -128,60 +97,46 @@ void main() {
     expect(find.text('2 finished results are ready.'), findsOneWidget);
 
     await tester.tap(
-      find.byKey(
-        const ValueKey<String>('copy-all-final-results-button'),
-      ),
+      find.byKey(const ValueKey<String>('copy-all-final-results-button')),
     );
 
     await tester.pump();
 
     expect(clipboardMessages, hasLength(1));
 
-    expect(
-      clipboardMessages.single.arguments,
-      <String, dynamic>{
-        'text':
-            'Research competitors\n\n'
-            'Finished competitor research\n\n'
-            '---\n\n'
-            'Write launch caption\n\n'
-            'Launch Ovexiq today.',
-      },
-    );
+    expect(clipboardMessages.single.arguments, <String, dynamic>{
+      'text':
+          'Research competitors\n\n'
+          'Finished competitor research\n\n'
+          '---\n\n'
+          'Write launch caption\n\n'
+          'Launch Ovexiq today.',
+    });
 
     expect(find.text('All final results copied'), findsOneWidget);
   });
 
-  testWidgets('results without usable text are excluded', (tester) async {
+  testWidgets('empty and incomplete task outputs are excluded', (tester) async {
     final usableTask = _task(
       id: 'usable',
       title: 'Usable result',
       order: 0,
+      output: 'Finished usable output',
     );
 
-    final structuredTask = _task(
-      id: 'structured',
-      title: 'Structured result',
+    final emptyTask = _task(
+      id: 'empty',
+      title: 'Empty result',
       order: 1,
+      output: '  \n\t ',
     );
 
-    final usableExecution = _execution(
-      task: usableTask,
-      id: 'execution-usable',
-      outputText: 'Finished usable output',
-    );
-
-    final structuredExecution = MissionTaskExecution(
-      execution: MissionExecution(
-        id: 'execution-structured',
-        missionId: 'mission',
-        status: ExecutionStatus.completed,
-        progress: 1,
-        startedAt: DateTime(2026),
-        finishedAt: DateTime(2026, 1, 1, 0, 2),
-        currentTaskId: structuredTask.id,
-      ),
-      structuredResultReference: 'artifact://structured-result',
+    final pendingTask = _task(
+      id: 'pending',
+      title: 'Pending result',
+      order: 2,
+      status: TaskStatus.pending,
+      output: 'This output has not been accepted.',
     );
 
     await tester.pumpWidget(
@@ -189,14 +144,9 @@ void main() {
         home: Scaffold(
           body: MissionFinalResultsCard(
             results: [
-              MissionFinalResult(
-                task: usableTask,
-                execution: usableExecution,
-              ),
-              MissionFinalResult(
-                task: structuredTask,
-                execution: structuredExecution,
-              ),
+              MissionFinalResult(task: usableTask),
+              MissionFinalResult(task: emptyTask),
+              MissionFinalResult(task: pendingTask),
             ],
           ),
         ),
@@ -207,55 +157,39 @@ void main() {
     expect(find.text('Usable result'), findsOneWidget);
     expect(find.text('Finished usable output'), findsOneWidget);
 
-    expect(find.text('Structured result'), findsNothing);
+    expect(find.text('Empty result'), findsNothing);
+    expect(find.text('Pending result'), findsNothing);
 
     expect(
-      find.byKey(
-        const ValueKey<String>('open-final-result-structured'),
-      ),
+      find.byKey(const ValueKey<String>('open-final-result-empty')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('open-final-result-pending')),
       findsNothing,
     );
   });
 
-  testWidgets('only non-text results render nothing', (tester) async {
+  testWidgets('only unusable persisted outputs render nothing', (tester) async {
     final task = _task(
-      id: 'structured',
-      title: 'Structured result',
+      id: 'empty',
+      title: 'Empty result',
       order: 0,
-    );
-
-    final execution = MissionTaskExecution(
-      execution: MissionExecution(
-        id: 'execution-structured',
-        missionId: 'mission',
-        status: ExecutionStatus.completed,
-        progress: 1,
-        startedAt: DateTime(2026),
-        finishedAt: DateTime(2026, 1, 1, 0, 1),
-        currentTaskId: task.id,
-      ),
-      structuredResultReference: 'artifact://structured-result',
+      output: '   ',
     );
 
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: MissionFinalResultsCard(
-            results: [
-              MissionFinalResult(
-                task: task,
-                execution: execution,
-              ),
-            ],
+            results: [MissionFinalResult(task: task)],
           ),
         ),
       ),
     );
 
     expect(
-      find.byKey(
-        const ValueKey<String>('mission-final-results'),
-      ),
+      find.byKey(const ValueKey<String>('mission-final-results')),
       findsNothing,
     );
 
@@ -266,13 +200,9 @@ void main() {
   testWidgets('long title and output stay compact in the final results card', (
     tester,
   ) async {
-    await tester.binding.setSurfaceSize(
-      const Size(360, 800),
-    );
+    await tester.binding.setSurfaceSize(const Size(360, 800));
 
-    addTearDown(
-      () => tester.binding.setSurfaceSize(null),
-    );
+    addTearDown(() => tester.binding.setSurfaceSize(null));
 
     const longTitle =
         'Create a complete market research summary for the Ovexiq '
@@ -289,12 +219,7 @@ void main() {
       id: 'long-result',
       title: longTitle,
       order: 0,
-    );
-
-    final execution = _execution(
-      task: task,
-      id: 'execution-long-result',
-      outputText: longOutput,
+      output: longOutput,
     );
 
     await tester.pumpWidget(
@@ -302,12 +227,7 @@ void main() {
         home: Scaffold(
           body: SingleChildScrollView(
             child: MissionFinalResultsCard(
-              results: [
-                MissionFinalResult(
-                  task: task,
-                  execution: execution,
-                ),
-              ],
+              results: [MissionFinalResult(task: task)],
             ),
           ),
         ),
@@ -316,24 +236,18 @@ void main() {
 
     expect(tester.takeException(), isNull);
 
-    final titleWidget = tester.widget<Text>(
-      find.text(longTitle),
-    );
+    final titleWidget = tester.widget<Text>(find.text(longTitle));
 
     expect(titleWidget.maxLines, 1);
     expect(titleWidget.overflow, TextOverflow.ellipsis);
 
-    final outputWidget = tester.widget<Text>(
-      find.text(longOutput),
-    );
+    final outputWidget = tester.widget<Text>(find.text(longOutput));
 
     expect(outputWidget.maxLines, 2);
     expect(outputWidget.overflow, TextOverflow.ellipsis);
 
     await tester.tap(
-      find.byKey(
-        const ValueKey<String>('open-final-result-long-result'),
-      ),
+      find.byKey(const ValueKey<String>('open-final-result-long-result')),
     );
 
     await tester.pumpAndSettle();
@@ -347,42 +261,26 @@ void main() {
   });
 
   testWidgets('multiple final results fit without overflow', (tester) async {
-    await tester.binding.setSurfaceSize(
-      const Size(360, 900),
-    );
+    await tester.binding.setSurfaceSize(const Size(360, 900));
 
-    addTearDown(
-      () => tester.binding.setSurfaceSize(null),
-    );
+    addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    final results = List<MissionFinalResult>.generate(
-      5,
-      (index) {
-        final task = _task(
-          id: 'task-$index',
-          title: 'Finished result ${index + 1}',
-          order: index,
-        );
+    final results = List<MissionFinalResult>.generate(5, (index) {
+      final task = _task(
+        id: 'task-$index',
+        title: 'Finished result ${index + 1}',
+        order: index,
+        output: 'Completed output for finished result ${index + 1}.',
+      );
 
-        return MissionFinalResult(
-          task: task,
-          execution: _execution(
-            task: task,
-            id: 'execution-$index',
-            outputText:
-                'Completed output for finished result ${index + 1}.',
-          ),
-        );
-      },
-    );
+      return MissionFinalResult(task: task);
+    });
 
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: SingleChildScrollView(
-            child: MissionFinalResultsCard(
-              results: results,
-            ),
+            child: MissionFinalResultsCard(results: results),
           ),
         ),
       ),
@@ -392,15 +290,10 @@ void main() {
     expect(find.text('5 finished results are ready.'), findsOneWidget);
 
     for (var index = 0; index < 5; index++) {
-      expect(
-        find.text('Finished result ${index + 1}'),
-        findsOneWidget,
-      );
+      expect(find.text('Finished result ${index + 1}'), findsOneWidget);
 
       expect(
-        find.byKey(
-          ValueKey<String>('open-final-result-task-$index'),
-        ),
+        find.byKey(ValueKey<String>('open-final-result-task-$index')),
         findsOneWidget,
       );
     }
@@ -411,18 +304,12 @@ void main() {
   testWidgets('empty final results render nothing', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
-        home: Scaffold(
-          body: MissionFinalResultsCard(
-            results: [],
-          ),
-        ),
+        home: Scaffold(body: MissionFinalResultsCard(results: [])),
       ),
     );
 
     expect(
-      find.byKey(
-        const ValueKey<String>('mission-final-results'),
-      ),
+      find.byKey(const ValueKey<String>('mission-final-results')),
       findsNothing,
     );
 
@@ -435,6 +322,8 @@ MissionTask _task({
   required String id,
   required String title,
   required int order,
+  String? output,
+  TaskStatus status = TaskStatus.completed,
 }) {
   return MissionTask(
     id: id,
@@ -442,27 +331,9 @@ MissionTask _task({
     title: title,
     description: title,
     order: order,
-    status: TaskStatus.completed,
+    status: status,
     taskType: 'research',
+    output: output,
     createdAt: DateTime(2026),
-  );
-}
-
-MissionTaskExecution _execution({
-  required MissionTask task,
-  required String id,
-  required String outputText,
-}) {
-  return MissionTaskExecution(
-    execution: MissionExecution(
-      id: id,
-      missionId: 'mission',
-      status: ExecutionStatus.completed,
-      progress: 1,
-      startedAt: DateTime(2026),
-      finishedAt: DateTime(2026, 1, 1, 0, 1),
-      currentTaskId: task.id,
-    ),
-    outputText: outputText,
   );
 }
