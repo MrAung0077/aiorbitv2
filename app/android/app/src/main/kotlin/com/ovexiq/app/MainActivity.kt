@@ -1,4 +1,4 @@
-package com.example.aiorbit
+package com.ovexiq.app
 
 import io.flutter.embedding.android.FlutterActivity
 
