@@ -1,15 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+enum MissionTaskOutputMode { review, accepted }
+
 class MissionTaskOutputScreen extends StatelessWidget {
   const MissionTaskOutputScreen({
     super.key,
     required this.taskTitle,
     required this.outputText,
+    required this.mode,
   });
 
   final String taskTitle;
   final String outputText;
+  final MissionTaskOutputMode mode;
 
   @override
   Widget build(BuildContext context) {
@@ -17,6 +21,7 @@ class MissionTaskOutputScreen extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final trimmedTitle = taskTitle.trim();
     final trimmedOutput = outputText.trim();
+    final isAccepted = mode == MissionTaskOutputMode.accepted;
 
     final wordCount = trimmedOutput.isEmpty
         ? 0
@@ -149,13 +154,17 @@ class MissionTaskOutputScreen extends StatelessWidget {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(
-                                  Icons.check_circle_rounded,
+                                  isAccepted
+                                      ? Icons.check_circle_rounded
+                                      : Icons.rate_review_outlined,
                                   size: 17,
                                   color: colorScheme.primary,
                                 ),
                                 const SizedBox(width: 7),
                                 Text(
-                                  'Completed Output',
+                                  isAccepted
+                                      ? 'Accepted Result'
+                                      : 'Execution Output',
                                   style: theme.textTheme.labelMedium?.copyWith(
                                     color: colorScheme.primary,
                                     fontWeight: FontWeight.w700,
@@ -164,6 +173,16 @@ class MissionTaskOutputScreen extends StatelessWidget {
                               ],
                             ),
                           ),
+                          if (!isAccepted) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              'Review before accepting',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 20),
                           SelectableText(
                             trimmedOutput,

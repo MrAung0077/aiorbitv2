@@ -206,6 +206,23 @@ void main() {
       );
       expect(restoredContainer.read(missionTaskExecutionProvider), isEmpty);
 
+      await tester.tap(
+        find.byKey(
+          ValueKey<String>(
+            'open-final-result-${latestMission.tasks.single.id}',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Accepted Result'), findsOneWidget);
+      expect(find.text('Execution Output'), findsNothing);
+      expect(find.text('Review before accepting'), findsNothing);
+      expect(restoredContainer.read(missionTaskExecutionProvider), isEmpty);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
       await tester.runAsync(() async {
         await restoredContainer
             .read(chatControllerProvider.notifier)

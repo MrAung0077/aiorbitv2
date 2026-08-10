@@ -599,6 +599,10 @@ void main() {
     expect(find.byType(MissionTaskOutputScreen), findsOneWidget);
     expect(find.text('Task Output'), findsOneWidget);
     expect(find.text('research'), findsOneWidget);
+    expect(find.text('Execution Output'), findsOneWidget);
+    expect(find.text('Review before accepting'), findsOneWidget);
+    expect(find.text('Accepted Result'), findsNothing);
+    expect(find.text('Completed Output'), findsNothing);
     expect(
       tester.widget<SelectableText>(find.byType(SelectableText)).data,
       'Research execution output',
@@ -641,6 +645,22 @@ void main() {
     expect(acceptedMission?.tasks.single.completedAt, isNotNull);
     expect(acceptedMission?.taskProgress.percentage, 100);
     expect(acceptedMission?.taskProgress.isComplete, isTrue);
+
+    await tester.ensureVisible(viewFullOutput);
+    await tester.tap(viewFullOutput);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(MissionTaskOutputScreen), findsOneWidget);
+    expect(find.text('Accepted Result'), findsOneWidget);
+    expect(find.text('Execution Output'), findsNothing);
+    expect(find.text('Review before accepting'), findsNothing);
+    expect(
+      tester.widget<SelectableText>(find.byType(SelectableText)).data,
+      'Research execution output',
+    );
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
 
     final statusControl = find.byKey(
       const ValueKey<String>('task-status-research'),

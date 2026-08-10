@@ -1101,6 +1101,9 @@ class _TaskExecutionResultPanel extends StatelessWidget {
                           builder: (_) => MissionTaskOutputScreen(
                             taskTitle: taskTitle,
                             outputText: fullOutput!,
+                            mode: hasPersistedAcceptedResult
+                                ? MissionTaskOutputMode.accepted
+                                : MissionTaskOutputMode.review,
                           ),
                         ),
                       );

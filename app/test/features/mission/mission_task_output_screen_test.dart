@@ -4,14 +4,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('shows trimmed output with task title and metadata', (
-    tester,
-  ) async {
+  testWidgets('review mode shows temporary output guidance', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
         home: MissionTaskOutputScreen(
           taskTitle: '  Write launch caption  ',
           outputText: '  Launch Ovexiq today with confidence.  ',
+          mode: MissionTaskOutputMode.review,
         ),
       ),
     );
@@ -20,7 +19,11 @@ void main() {
     expect(find.text('Task'), findsOneWidget);
     expect(find.text('Write launch caption'), findsOneWidget);
     expect(find.text('Output'), findsOneWidget);
-    expect(find.text('Completed Output'), findsOneWidget);
+    expect(find.text('Execution Output'), findsOneWidget);
+    expect(find.text('Review before accepting'), findsOneWidget);
+    expect(find.text('Accepted Result'), findsNothing);
+    expect(find.text('Completed Output'), findsNothing);
+    expect(find.textContaining('Final Result'), findsNothing);
     expect(find.text('5 words'), findsOneWidget);
     expect(find.text('36 characters'), findsOneWidget);
     expect(find.text('Copy Output'), findsOneWidget);
@@ -53,6 +56,7 @@ void main() {
         home: MissionTaskOutputScreen(
           taskTitle: 'Research competitors',
           outputText: '  Finished competitor research  ',
+          mode: MissionTaskOutputMode.review,
         ),
       ),
     );
@@ -69,7 +73,7 @@ void main() {
     expect(find.text('Output copied'), findsOneWidget);
   });
 
-  testWidgets('copy with task title copies the complete result', (
+  testWidgets('accepted mode shows and copies the accepted result', (
     tester,
   ) async {
     final clipboardMessages = <MethodCall>[];
@@ -93,8 +97,17 @@ void main() {
         home: MissionTaskOutputScreen(
           taskTitle: '  Research competitors  ',
           outputText: '  Finished competitor research  ',
+          mode: MissionTaskOutputMode.accepted,
         ),
       ),
+    );
+
+    expect(find.text('Accepted Result'), findsOneWidget);
+    expect(find.text('Execution Output'), findsNothing);
+    expect(find.text('Review before accepting'), findsNothing);
+    expect(
+      tester.widget<SelectableText>(find.byType(SelectableText)).data,
+      'Finished competitor research',
     );
 
     final copyButton = find.byKey(

@@ -167,6 +167,7 @@ class _FinalResultTile extends StatelessWidget {
               builder: (_) => MissionTaskOutputScreen(
                 taskTitle: taskTitle,
                 outputText: outputText,
+                mode: MissionTaskOutputMode.accepted,
               ),
             ),
           );

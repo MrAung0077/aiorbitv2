@@ -41,6 +41,9 @@ void main() {
 
     expect(find.byType(MissionTaskOutputScreen), findsOneWidget);
     expect(find.text('Task Output'), findsOneWidget);
+    expect(find.text('Accepted Result'), findsOneWidget);
+    expect(find.text('Execution Output'), findsNothing);
+    expect(find.text('Review before accepting'), findsNothing);
 
     expect(
       tester.widget<SelectableText>(find.byType(SelectableText)).data,
