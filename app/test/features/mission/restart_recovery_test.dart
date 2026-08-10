@@ -426,6 +426,7 @@ void main() {
       ]);
       expect(restoredMission.tasks[2].completedAt, isNull);
       expect(restoredMission.tasks[2].output, isNull);
+      expect(restoredMission.taskProgress.isComplete, isFalse);
       expect(restoredContainer.read(missionTaskExecutionProvider), isEmpty);
 
       final restoredExecutionNotifier = restoredContainer.read(
@@ -474,6 +475,8 @@ void main() {
         ValueKey<String>('mission-task-${task3.id}'),
       );
       expect(task3Card, findsOneWidget);
+      expect(find.text('Mission Completed'), findsNothing);
+      expect(find.text('Final Results'), findsNothing);
       expect(
         find.descendant(of: task3Card, matching: find.text('Run Task')),
         findsOneWidget,
@@ -496,6 +499,74 @@ void main() {
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();
+    },
+  );
+
+  testWidgets(
+    'restart keeps completed task status without accepted output incomplete',
+    (tester) async {
+      final mission = _mission(
+        id: 'mission-unaccepted-completion',
+        conversationId: 'conversation-unaccepted-completion',
+        title: 'Unaccepted Completion',
+        updatedAt: DateTime(2026, 4, 5, 10),
+        taskStatus: TaskStatus.completed,
+        completedAt: DateTime(2026, 4, 5, 9),
+      );
+      final initialContainer = ProviderContainer();
+
+      await tester.runAsync(
+        () => initialContainer
+            .read(missionRepositoryProvider)
+            .saveMission(mission),
+      );
+      expect(mission.taskProgress.isComplete, isFalse);
+
+      initialContainer.dispose();
+      await tester.runAsync(() async {
+        await IsarService.close();
+        await IsarService.initialize(
+          directoryPath: databaseDirectory.path,
+          name: databaseName,
+          inspector: false,
+        );
+      });
+
+      final restoredContainer = ProviderContainer();
+      addTearDown(restoredContainer.dispose);
+      final restoredController = restoredContainer.read(
+        missionControllerProvider,
+      );
+      final restoredMission = await tester.runAsync(
+        () => restoredController.getMission(mission.id),
+      );
+
+      expect(restoredMission, isNotNull);
+      expect(restoredMission!.tasks.single.status, TaskStatus.completed);
+      expect(restoredMission.tasks.single.completedAt, isNotNull);
+      expect(restoredMission.tasks.single.output, isNull);
+      expect(restoredMission.taskProgress.percentage, 100);
+      expect(restoredMission.taskProgress.isComplete, isFalse);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: restoredContainer,
+          child: MaterialApp(
+            home: MissionDetailScreen(
+              mission: restoredMission,
+              missionController: restoredController,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Mission Completed'), findsNothing);
+      expect(find.text('Final Results'), findsNothing);
+      expect(
+        find.byKey(const ValueKey<String>('mission-final-results')),
+        findsNothing,
+      );
     },
   );
 

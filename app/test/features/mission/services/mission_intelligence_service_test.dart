@@ -154,6 +154,7 @@ MissionTask _task(String id, {required int order, required TaskStatus status}) {
     order: order,
     status: status,
     taskType: 'test',
+    output: status == TaskStatus.completed ? 'Accepted output for $id' : null,
     createdAt: DateTime.utc(2026, 7, 1, 10),
     completedAt: status == TaskStatus.completed
         ? DateTime.utc(2026, 7, 1, 11)

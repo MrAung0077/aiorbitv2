@@ -49,6 +49,7 @@ void main() {
     expect(completed.tasks.single.status, TaskStatus.completed);
     expect(completed.tasks.single.completedAt, isNotNull);
     expect(completed.taskProgress.percentage, 100);
+    expect(completed.taskProgress.isComplete, isFalse);
 
     final reopened = await controller.updateTaskStatus(
       missionId: 'mission',
@@ -101,6 +102,7 @@ void main() {
       expect(accepted.tasks.single.completedAt, isNotNull);
       expect(accepted.tasks.single.output, 'Accepted task output');
       expect(accepted.taskProgress.percentage, 100);
+      expect(accepted.taskProgress.isComplete, isTrue);
 
       final persisted = await repository.getMission('mission');
       expect(persisted?.tasks.single.status, TaskStatus.completed);

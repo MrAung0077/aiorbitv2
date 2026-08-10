@@ -11,8 +11,8 @@ class AIRouter {
     required List<AIProvider> providers,
     AITaskAnalyzer? analyzer,
     this.defaultProvider = ProviderType.openAI,
-  })  : _providers = List<AIProvider>.unmodifiable(providers),
-        _analyzer = analyzer ?? const AITaskAnalyzer();
+  }) : _providers = List<AIProvider>.unmodifiable(providers),
+       _analyzer = analyzer ?? const AITaskAnalyzer();
 
   final List<AIProvider> _providers;
   final ProviderType defaultProvider;
@@ -43,10 +43,7 @@ class AIRouter {
 
     final ProviderType taskProvider = _providerForTask(analysis.task);
 
-    final AIProvider? selected = _findAvailableProvider(
-      taskProvider,
-      request,
-    );
+    final AIProvider? selected = _findAvailableProvider(taskProvider, request);
 
     if (selected != null) {
       return AIRoutingResult(
@@ -86,10 +83,7 @@ class AIRouter {
     throw StateError('No available AI provider.');
   }
 
-  AIProvider? _findAvailableProvider(
-    ProviderType type,
-    AIRequest request,
-  ) {
+  AIProvider? _findAvailableProvider(ProviderType type, AIRequest request) {
     for (final AIProvider provider in _providers) {
       if (provider.type == type &&
           provider.isConfigured &&

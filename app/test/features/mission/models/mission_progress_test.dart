@@ -18,7 +18,7 @@ void main() {
 
   test('mission progress counts only completed tasks', () {
     final progress = _mission(<MissionTask>[
-      _task('completed', TaskStatus.completed),
+      _task('completed', TaskStatus.completed, output: 'Accepted output'),
       _task('pending', TaskStatus.pending),
       _task('skipped', TaskStatus.skipped),
       _task('failed', TaskStatus.failed),
@@ -31,10 +31,23 @@ void main() {
     expect(progress.isComplete, isFalse);
   });
 
-  test('mission with all tasks completed has full progress', () {
+  test('completed task statuses without accepted output are not complete', () {
     final progress = _mission(<MissionTask>[
       _task('first', TaskStatus.completed),
-      _task('second', TaskStatus.completed),
+      _task('second', TaskStatus.completed, output: '   '),
+    ]).taskProgress;
+
+    expect(progress.completedTasks, 2);
+    expect(progress.totalTasks, 2);
+    expect(progress.percent, 1);
+    expect(progress.percentage, 100);
+    expect(progress.isComplete, isFalse);
+  });
+
+  test('mission with all accepted completed tasks has full progress', () {
+    final progress = _mission(<MissionTask>[
+      _task('first', TaskStatus.completed, output: 'Accepted first output'),
+      _task('second', TaskStatus.completed, output: 'Accepted second output'),
     ]).taskProgress;
 
     expect(progress.completedTasks, 2);
@@ -42,6 +55,21 @@ void main() {
     expect(progress.percent, 1);
     expect(progress.percentage, 100);
     expect(progress.isComplete, isTrue);
+  });
+
+  test('failed, pending, and in-progress tasks prevent completion', () {
+    for (final status in <TaskStatus>[
+      TaskStatus.failed,
+      TaskStatus.pending,
+      TaskStatus.inProgress,
+    ]) {
+      final progress = _mission(<MissionTask>[
+        _task('accepted', TaskStatus.completed, output: 'Accepted output'),
+        _task('incomplete', status),
+      ]).taskProgress;
+
+      expect(progress.isComplete, isFalse, reason: status.name);
+    }
   });
 }
 
@@ -62,7 +90,7 @@ Mission _mission(List<MissionTask> tasks) {
   );
 }
 
-MissionTask _task(String id, TaskStatus status) {
+MissionTask _task(String id, TaskStatus status, {String? output}) {
   return MissionTask(
     id: id,
     missionId: 'mission',
@@ -71,6 +99,7 @@ MissionTask _task(String id, TaskStatus status) {
     order: 0,
     status: status,
     taskType: 'test',
+    output: output,
     createdAt: DateTime(2026),
   );
 }

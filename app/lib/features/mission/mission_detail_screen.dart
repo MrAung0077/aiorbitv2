@@ -13,6 +13,7 @@ import 'models/mission_timeline.dart';
 import 'models/task_status.dart';
 import 'providers/mission_execution_provider.dart';
 import 'providers/mission_task_execution_provider.dart';
+import 'services/mission_intelligence_service.dart';
 
 class MissionDetailScreen extends ConsumerStatefulWidget {
   const MissionDetailScreen({
@@ -98,34 +99,6 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     }
   }
 
-  Future<void> _runExecution() async {
-    try {
-      final updatedMission = await ref
-          .read(missionExecutionProvider.notifier)
-          .runMission(missionId: mission.id);
-
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _mission = updatedMission;
-      });
-    } catch (_) {
-      final latestMission = await widget.missionController.getMission(
-        mission.id,
-      );
-
-      if (!mounted || latestMission == null) {
-        return;
-      }
-
-      setState(() {
-        _mission = latestMission;
-      });
-    }
-  }
-
   Future<void> _runTask(String taskId) async {
     try {
       await ref
@@ -182,14 +155,32 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         currentExecution?.status == ExecutionStatus.preparing ||
         currentExecution?.status == ExecutionStatus.running;
 
-    final isExecutionCompleted =
-        currentExecution?.status == ExecutionStatus.completed;
     final hasRunningTaskExecution = taskExecutions.any(
       (execution) => execution.status == ExecutionStatus.running,
     );
     final shouldBlockTaskActions = isExecuting || hasRunningTaskExecution;
 
     final finalResults = _finalResultsForMission(mission);
+    final nextTask = const MissionIntelligenceService()
+        .analyze(mission)
+        .nextRecommendedTask;
+    final nextTaskExecution = nextTask == null
+        ? null
+        : _taskExecutionFor(
+            taskExecutions,
+            missionId: mission.id,
+            taskId: nextTask.id,
+          );
+    final isNextTaskRunning =
+        nextTaskExecution?.status == ExecutionStatus.running;
+    final didNextTaskFail = nextTaskExecution?.status == ExecutionStatus.failed;
+    final isNextTaskAwaitingAcceptance =
+        nextTaskExecution?.status == ExecutionStatus.completed &&
+        _hasUsableTaskExecutionResult(nextTaskExecution!);
+    final canRunNextTask =
+        nextTask != null &&
+        _isTaskExecutionEligible(nextTask) &&
+        !isNextTaskAwaitingAcceptance;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Mission')),
@@ -230,6 +221,38 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                 ),
               ),
               const SizedBox(height: 12),
+              if (canRunNextTask) ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    key: ValueKey<String>('run-next-task-${nextTask.id}'),
+                    onPressed: shouldBlockTaskActions
+                        ? null
+                        : () {
+                            _runTask(nextTask.id);
+                          },
+                    icon: isNextTaskRunning
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(
+                            didNextTaskFail
+                                ? Icons.refresh_rounded
+                                : Icons.play_arrow_rounded,
+                          ),
+                    label: Text(
+                      isNextTaskRunning
+                          ? 'Running…'
+                          : didNextTaskFail
+                          ? 'Retry Task'
+                          : 'Run Next Task',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               if (mission.tasks.isEmpty)
                 _EmptyWorkflowCard(
                   onBackToChat: () {
@@ -247,6 +270,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                         missionId: mission.id,
                         taskId: task.id,
                       ),
+                      isExecutionAvailable:
+                          nextTask?.id == task.id &&
+                          !isNextTaskAwaitingAcceptance,
                       isAnyTaskRunning: shouldBlockTaskActions,
                       isAccepting: _acceptingTaskId == task.id,
                       isCurrent:
@@ -267,37 +293,6 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                     ),
                   ),
                 ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed:
-                      mission.tasks.isEmpty ||
-                          isExecuting ||
-                          hasRunningTaskExecution ||
-                          isExecutionCompleted
-                      ? null
-                      : _runExecution,
-                  icon: isExecuting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Icon(
-                          isExecutionCompleted
-                              ? Icons.check_rounded
-                              : Icons.play_arrow_rounded,
-                        ),
-                  label: Text(
-                    isExecuting
-                        ? 'Mission Running...'
-                        : isExecutionCompleted
-                        ? 'Execution Completed'
-                        : 'Run Mission',
-                  ),
-                ),
-              ),
             ],
           ),
         ),
@@ -741,6 +736,7 @@ class _MissionTaskTile extends StatelessWidget {
   const _MissionTaskTile({
     required this.task,
     required this.taskExecution,
+    required this.isExecutionAvailable,
     required this.isAnyTaskRunning,
     required this.isAccepting,
     required this.isCurrent,
@@ -753,6 +749,7 @@ class _MissionTaskTile extends StatelessWidget {
 
   final MissionTask task;
   final MissionTaskExecution? taskExecution;
+  final bool isExecutionAvailable;
   final bool isAnyTaskRunning;
   final bool isAccepting;
   final bool isCurrent;
@@ -916,7 +913,10 @@ class _MissionTaskTile extends StatelessWidget {
                     alignment: Alignment.centerLeft,
                     child: OutlinedButton.icon(
                       key: ValueKey<String>('run-task-${task.id}'),
-                      onPressed: isTaskRunning || isAnyTaskRunning
+                      onPressed:
+                          !isExecutionAvailable ||
+                              isTaskRunning ||
+                              isAnyTaskRunning
                           ? null
                           : onRunTask,
                       style: OutlinedButton.styleFrom(

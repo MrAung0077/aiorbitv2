@@ -26,7 +26,12 @@ void main() {
     tester,
   ) async {
     final mission = _mission(<MissionTask>[
-      _task('completed', TaskStatus.completed, 0),
+      _task(
+        'completed',
+        TaskStatus.completed,
+        0,
+        output: 'Accepted completed output',
+      ),
       _task('pending', TaskStatus.pending, 1),
     ]);
     final repository = MemoryMissionRepository();
@@ -88,7 +93,6 @@ void main() {
           1,
           output: 'Accepted second output',
         ),
-        _task('empty', TaskStatus.completed, 2, output: '  \n\t '),
       ]);
       final repository = MemoryMissionRepository();
       final controller = MissionController(repository: repository);
@@ -124,10 +128,7 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(
-        find.descendant(of: finalResults, matching: find.text('empty')),
-        findsNothing,
-      );
+      expect(find.text('Mission Completed'), findsOneWidget);
 
       final firstResult = find.byKey(
         const ValueKey<String>('open-final-result-first'),
@@ -202,10 +203,11 @@ void main() {
       find.descendant(of: statusControl, matching: find.text('Completed')),
       findsOneWidget,
     );
-    expect(find.text('Mission Completed'), findsOneWidget);
-    expect(find.text('All tasks completed successfully.'), findsOneWidget);
+    expect(find.text('Mission Completed'), findsNothing);
+    expect(find.text('All tasks completed successfully.'), findsNothing);
     expect(find.text('1 / 1 Tasks Completed'), findsOneWidget);
-    expect(find.text('Task progress'), findsNothing);
+    expect(find.text('Task progress'), findsOneWidget);
+    expect(find.text('Final Results'), findsNothing);
     expect(find.text('Complete the mission'), findsOneWidget);
     expect(find.text('Mission Timeline'), findsOneWidget);
     expect(find.text('Mission Execution'), findsOneWidget);
@@ -214,6 +216,8 @@ void main() {
 
     final persistedMission = await repository.getMission(mission.id);
     expect(persistedMission?.tasks.single.status, TaskStatus.completed);
+    expect(persistedMission?.tasks.single.output, isNull);
+    expect(persistedMission?.taskProgress.isComplete, isFalse);
 
     await tester.tap(statusControl);
     await tester.pumpAndSettle();
@@ -269,10 +273,10 @@ void main() {
     expect(find.text('0%'), findsOneWidget);
     expect(find.text('0 / 1 Tasks Completed'), findsOneWidget);
     expect(find.text('100% executed'), findsOneWidget);
-    expect(find.text('Execution Completed'), findsOneWidget);
+    expect(find.text('Execution Completed'), findsNothing);
   });
 
-  testWidgets('Run Mission executes and accepts the existing workflow', (
+  testWidgets('Mission Detail has no mission-wide execution action', (
     tester,
   ) async {
     final mission = _mission(<MissionTask>[
@@ -280,9 +284,10 @@ void main() {
     ]);
     final repository = MemoryMissionRepository();
     final controller = MissionController(repository: repository);
+    final executor = _ControllableMissionTaskExecutor();
     final container = _taskExecutionContainer(
       repository: repository,
-      executor: const _ImmediateMissionTaskExecutor(),
+      executor: executor,
     );
     addTearDown(container.dispose);
 
@@ -299,22 +304,136 @@ void main() {
       ),
     );
 
-    final runMission = find.text('Run Mission');
-    await tester.ensureVisible(runMission);
-    await tester.tap(runMission);
-    await tester.pumpAndSettle();
-
-    expect(find.text('Execution Completed'), findsOneWidget);
-    expect(find.text('Mission Completed'), findsOneWidget);
-    expect(find.text('1 / 1 Tasks Completed'), findsOneWidget);
-    expect(find.text('Output for research'), findsWidgets);
+    expect(find.text('Run Mission'), findsNothing);
+    expect(find.text('Mission Running...'), findsNothing);
+    expect(find.text('Execution Completed'), findsNothing);
+    expect(find.text('Mission Completed'), findsNothing);
+    expect(find.text('0 / 1 Tasks Completed'), findsOneWidget);
+    expect(find.text('Run Task'), findsOneWidget);
     expect(find.text('Accept Result'), findsNothing);
-    expect(find.text('Run Task'), findsNothing);
+    expect(executor.callCount, 0);
+    expect(container.read(missionExecutionProvider), isNull);
 
     final persisted = await repository.getMission(mission.id);
-    expect(persisted?.tasks.single.status, TaskStatus.completed);
-    expect(persisted?.tasks.single.output, 'Output for research');
+    expect(persisted?.tasks.single.status, TaskStatus.pending);
+    expect(persisted?.tasks.single.output, isNull);
   });
+
+  testWidgets(
+    'Run Next Task follows order and waits for explicit result acceptance',
+    (tester) async {
+      final secondTask = _task('second', TaskStatus.pending, 1);
+      final firstTask = _task('first', TaskStatus.pending, 0);
+      final mission = _mission(<MissionTask>[secondTask, firstTask]);
+      final repository = MemoryMissionRepository();
+      final controller = MissionController(repository: repository);
+      final executor = _ControllableMissionTaskExecutor();
+      final container = _taskExecutionContainer(
+        repository: repository,
+        executor: executor,
+      );
+      addTearDown(container.dispose);
+
+      await repository.saveMission(mission);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: MissionDetailScreen(
+              mission: mission,
+              missionController: controller,
+            ),
+          ),
+        ),
+      );
+
+      final runFirst = find.byKey(
+        const ValueKey<String>('run-next-task-first'),
+      );
+      final runSecondTile = find.byKey(
+        const ValueKey<String>('run-task-second'),
+      );
+
+      expect(runFirst, findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('run-next-task-second')),
+        findsNothing,
+      );
+      expect(tester.widget<OutlinedButton>(runSecondTile).onPressed, isNull);
+
+      await tester.ensureVisible(runFirst);
+      await tester.tap(runFirst);
+      await tester.tap(runFirst);
+      await executor.waitForCalls(1);
+      await tester.pump();
+
+      expect(executor.callCount, 1);
+      expect(executor.taskIds, <String>['first']);
+      expect(tester.widget<FilledButton>(runFirst).onPressed, isNull);
+      expect(tester.widget<OutlinedButton>(runSecondTile).onPressed, isNull);
+
+      executor.complete(
+        0,
+        _taskExecutionResult(
+          task: firstTask,
+          status: ExecutionStatus.completed,
+          outputText: 'First result to review',
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('First result to review'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('accept-task-result-first')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('run-next-task-first')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('run-next-task-second')),
+        findsNothing,
+      );
+      expect(tester.widget<OutlinedButton>(runSecondTile).onPressed, isNull);
+      expect(executor.callCount, 1);
+
+      final beforeAcceptance = await repository.getMission(mission.id);
+      expect(
+        beforeAcceptance?.tasks
+            .singleWhere((task) => task.id == 'first')
+            .status,
+        TaskStatus.pending,
+      );
+
+      final acceptFirst = find.byKey(
+        const ValueKey<String>('accept-task-result-first'),
+      );
+      await tester.ensureVisible(acceptFirst);
+      await tester.tap(acceptFirst);
+      await tester.pumpAndSettle();
+
+      final runSecond = find.byKey(
+        const ValueKey<String>('run-next-task-second'),
+      );
+      expect(runSecond, findsOneWidget);
+      expect(tester.widget<FilledButton>(runSecond).onPressed, isNotNull);
+      expect(tester.widget<OutlinedButton>(runSecondTile).onPressed, isNotNull);
+      expect(executor.callCount, 1);
+
+      final afterAcceptance = await repository.getMission(mission.id);
+      expect(
+        afterAcceptance?.tasks.singleWhere((task) => task.id == 'first').status,
+        TaskStatus.completed,
+      );
+      expect(
+        afterAcceptance?.tasks
+            .singleWhere((task) => task.id == 'second')
+            .status,
+        TaskStatus.pending,
+      );
+    },
+  );
 
   testWidgets(
     'timeline shows mission dates and missing timestamp placeholders',
@@ -441,7 +560,7 @@ void main() {
     await tester.pump();
 
     expect(executor.callCount, 1);
-    expect(find.text('Running…'), findsOneWidget);
+    expect(find.text('Running…'), findsNWidgets(2));
     expect(find.text('Accept Result'), findsNothing);
     expect(tester.widget<OutlinedButton>(runTask).onPressed, isNull);
     expect(container.read(missionExecutionProvider), isNull);
@@ -458,6 +577,8 @@ void main() {
 
     expect(find.text('Task execution completed'), findsOneWidget);
     expect(find.text('Research execution output'), findsOneWidget);
+    expect(find.text('Mission Completed'), findsNothing);
+    expect(find.text('Final Results'), findsNothing);
     expect(find.text('Run Task'), findsOneWidget);
     expect(find.text('Accept Result'), findsOneWidget);
     expect(find.text('View Full Output'), findsOneWidget);
@@ -489,6 +610,7 @@ void main() {
     final persistedMission = await repository.getMission(mission.id);
     expect(persistedMission?.tasks.single.status, TaskStatus.pending);
     expect(persistedMission?.taskProgress.percentage, 0);
+    expect(persistedMission?.taskProgress.isComplete, isFalse);
 
     final acceptResult = find.byKey(
       const ValueKey<String>('accept-task-result-research'),
@@ -518,6 +640,7 @@ void main() {
     expect(acceptedMission?.tasks.single.status, TaskStatus.completed);
     expect(acceptedMission?.tasks.single.completedAt, isNotNull);
     expect(acceptedMission?.taskProgress.percentage, 100);
+    expect(acceptedMission?.taskProgress.isComplete, isTrue);
 
     final statusControl = find.byKey(
       const ValueKey<String>('task-status-research'),
@@ -592,17 +715,25 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('provider-specific detail'), findsNothing);
-    expect(find.text('Retry Task'), findsOneWidget);
+    expect(find.text('Retry Task'), findsNWidgets(2));
     expect(find.text('Accept Result'), findsNothing);
     expect(find.text('View Full Output'), findsNothing);
 
-    await tester.tap(runTask);
-    await tester.tap(runTask);
+    final retryNextTask = find.byKey(
+      const ValueKey<String>('run-next-task-research'),
+    );
+    expect(
+      find.descendant(of: retryNextTask, matching: find.text('Retry Task')),
+      findsOneWidget,
+    );
+    await tester.ensureVisible(retryNextTask);
+    await tester.tap(retryNextTask);
+    await tester.tap(retryNextTask);
     await executor.waitForCalls(2);
     await tester.pump();
 
     expect(executor.callCount, 2);
-    expect(find.text('Running…'), findsOneWidget);
+    expect(find.text('Running…'), findsNWidgets(2));
     expect(tester.widget<OutlinedButton>(runTask).onPressed, isNull);
 
     executor.complete(
@@ -741,7 +872,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Mission Completed'), findsOneWidget);
+    expect(find.text('Mission Completed'), findsNothing);
     expect(find.text('Late execution output'), findsOneWidget);
     expect(find.text('Final Results'), findsNothing);
     expect(
@@ -755,6 +886,7 @@ void main() {
     final persistedMission = await repository.getMission(mission.id);
     expect(persistedMission?.tasks.single.status, TaskStatus.completed);
     expect(persistedMission?.tasks.single.output, isNull);
+    expect(persistedMission?.taskProgress.isComplete, isFalse);
     expect(container.read(missionExecutionProvider), isNull);
   });
 
@@ -1052,8 +1184,10 @@ class _MemoryMissionTaskExecutionRepository
 
 class _ControllableMissionTaskExecutor implements MissionTaskExecutor {
   final _calls = <Completer<MissionTaskExecution>>[];
+  final _taskIds = <String>[];
 
   int get callCount => _calls.length;
+  List<String> get taskIds => List<String>.unmodifiable(_taskIds);
 
   @override
   Future<MissionTaskExecution> execute({
@@ -1062,6 +1196,7 @@ class _ControllableMissionTaskExecutor implements MissionTaskExecutor {
   }) {
     final call = Completer<MissionTaskExecution>();
     _calls.add(call);
+    _taskIds.add(task.id);
     return call.future;
   }
 

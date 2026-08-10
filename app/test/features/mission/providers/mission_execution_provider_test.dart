@@ -470,6 +470,7 @@ void main() {
     expect(savedMission?.tasks.single.status, TaskStatus.completed);
     expect(savedMission?.tasks.single.completedAt, isNotNull);
     expect(savedMission?.taskProgress.percentage, 100);
+    expect(savedMission?.taskProgress.isComplete, isFalse);
     expect(container.read(missionExecutionProvider), isNull);
   });
 
@@ -502,6 +503,7 @@ void main() {
     expect(acceptedMission.tasks.single.status, TaskStatus.completed);
     expect(acceptedMission.tasks.single.completedAt, isNotNull);
     expect(acceptedMission.tasks.single.output, 'Output for task');
+    expect(acceptedMission.taskProgress.isComplete, isTrue);
     expect(container.read(missionExecutionProvider), isNull);
 
     await repository.saveMission(_mission());

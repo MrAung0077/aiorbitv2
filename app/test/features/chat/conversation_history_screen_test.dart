@@ -172,6 +172,7 @@ void main() {
         tasks: <MissionTask>[
           linkedMission.tasks.single.copyWith(
             status: TaskStatus.completed,
+            output: 'Accepted linked task output',
             completedAt: DateTime(2026, 1, 4),
           ),
         ],
