@@ -40,43 +40,23 @@ class AppConfig {
   );
 
   static bool get useMockProviders => isDevelopment && _mockProvidersEnabled;
+
   // ---------------------------------------------------------------------------
-  // OpenAI
+  // Ovexiq AI Gateway
   // ---------------------------------------------------------------------------
 
-  static const String openAiApiKey = String.fromEnvironment(
-    'OPENAI_API_KEY',
+  static const String ovexiqApiBaseUrl = String.fromEnvironment(
+    'OVEXIQ_API_BASE_URL',
     defaultValue: '',
   );
 
-  static const String openAiModel = String.fromEnvironment(
-    'OPENAI_MODEL',
-    defaultValue: 'gpt-5.6-sol',
-  );
-
-  static bool get hasOpenAiKey => openAiApiKey.trim().isNotEmpty;
-
-  // ---------------------------------------------------------------------------
-  // Future Providers
-  // ---------------------------------------------------------------------------
-
-  static const String geminiApiKey = String.fromEnvironment(
-    'GEMINI_API_KEY',
-    defaultValue: '',
-  );
-
-  static const String claudeApiKey = String.fromEnvironment(
-    'CLAUDE_API_KEY',
-    defaultValue: '',
-  );
-
-  static const String deepSeekApiKey = String.fromEnvironment(
-    'DEEPSEEK_API_KEY',
-    defaultValue: '',
-  );
-
-  static const String grokApiKey = String.fromEnvironment(
-    'GROK_API_KEY',
+  /// Identifies a revocable private-beta tester to the gateway.
+  ///
+  /// This value is shipped in the app and is therefore not a secret. The
+  /// gateway must rate-limit it and must never treat it as authority for
+  /// unlimited provider spend.
+  static const String ovexiqBetaAccessToken = String.fromEnvironment(
+    'OVEXIQ_BETA_ACCESS_TOKEN',
     defaultValue: '',
   );
 }
