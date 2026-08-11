@@ -116,17 +116,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final recentConversations = selectRecentConversations(conversations);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Ovexiq'),
-        centerTitle: false,
-        actions: [
-          IconButton(
-            tooltip: 'Account',
-            onPressed: () {},
-            icon: const Icon(Icons.account_circle_outlined),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Ovexiq'), centerTitle: false),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
