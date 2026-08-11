@@ -352,6 +352,7 @@ class ChatController extends StateNotifier<ChatState> {
           error.toString(),
           cause: error,
           stackTrace: stackTrace,
+          canRetryLastResponse: true,
         ),
       );
     }
@@ -542,6 +543,7 @@ class ChatController extends StateNotifier<ChatState> {
           error.toString(),
           cause: error,
           stackTrace: stackTrace,
+          canRetryLastResponse: true,
         ),
       );
     }
@@ -708,11 +710,17 @@ class ChatState {
 }
 
 class ChatControllerException implements Exception {
-  const ChatControllerException(this.message, {this.cause, this.stackTrace});
+  const ChatControllerException(
+    this.message, {
+    this.cause,
+    this.stackTrace,
+    this.canRetryLastResponse = false,
+  });
 
   final String message;
   final Object? cause;
   final StackTrace? stackTrace;
+  final bool canRetryLastResponse;
 
   @override
   String toString() => message;

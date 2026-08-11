@@ -194,6 +194,85 @@ void main() {
         'Summarize it in 3 bullets',
       );
     });
+
+    test(
+      'retries the latest response with ordered context and no duplicate prompt',
+      () async {
+        final repository = _MemoryConversationRepository();
+        final aiChatService = _FakeAIChatService(
+          failingRequestNumbers: <int>{2},
+        );
+        final controller = _createController(
+          repository,
+          aiChatService: aiChatService,
+        );
+        addTearDown(controller.dispose);
+
+        await controller.createNewConversation();
+        await controller.sendMessage('Research Kaspa smart contracts');
+        await controller.sendMessage('Summarize it in 3 bullets');
+
+        expect(controller.state.error, isNotNull);
+        expect(controller.state.error!.canRetryLastResponse, isTrue);
+        expect(controller.state.messages.last.content, 'Partial response');
+
+        await controller.regenerateLastResponse();
+
+        expect(aiChatService.requests, hasLength(3));
+        expect(
+          aiChatService.requests.last
+              .map((message) => (message.role, message.content))
+              .toList(),
+          <(AIMessageRole, String)>[
+            (AIMessageRole.user, 'Research Kaspa smart contracts'),
+            (
+              AIMessageRole.assistant,
+              'Response to: Research Kaspa smart contracts',
+            ),
+            (AIMessageRole.user, 'Summarize it in 3 bullets'),
+          ],
+        );
+        expect(
+          aiChatService.requests.last.where(
+            (message) => message.content == 'Summarize it in 3 bullets',
+          ),
+          hasLength(1),
+        );
+        expect(controller.state.error, isNull);
+        expect(
+          controller.state.messages.map((message) => message.content),
+          isNot(contains('Partial response')),
+        );
+
+        final persisted = await repository.getConversation(
+          controller.state.conversation!.id,
+        );
+        expect(
+          persisted!.messages
+              .where(
+                (message) => message.content == 'Summarize it in 3 bullets',
+              )
+              .length,
+          1,
+        );
+        expect(
+          persisted.messages.last.content,
+          'Response to: Summarize it in 3 bullets',
+        );
+      },
+    );
+
+    test('validation errors are not response-retryable', () async {
+      final repository = _MemoryConversationRepository();
+      final controller = _createController(repository);
+      addTearDown(controller.dispose);
+
+      await controller.createNewConversation();
+      await controller.loadConversation('');
+
+      expect(controller.state.error, isNotNull);
+      expect(controller.state.error!.canRetryLastResponse, isFalse);
+    });
   });
 }
 
@@ -209,7 +288,11 @@ ChatController _createController(
 }
 
 class _FakeAIChatService extends AIChatService {
+  _FakeAIChatService({Set<int> failingRequestNumbers = const <int>{}})
+    : _failingRequestNumbers = <int>{...failingRequestNumbers};
+
   final List<List<AIMessage>> requests = <List<AIMessage>>[];
+  final Set<int> _failingRequestNumbers;
 
   @override
   Stream<AIChunk> sendMessages(List<AIMessage> messages) async* {
@@ -220,6 +303,19 @@ class _FakeAIChatService extends AIChatService {
       provider: ProviderType.openAI,
       text: 'Generating',
     );
+
+    if (_failingRequestNumbers.remove(requests.length)) {
+      yield const AIChunk.text(
+        provider: ProviderType.openAI,
+        text: 'Partial response',
+      );
+      yield const AIChunk.error(
+        provider: ProviderType.openAI,
+        error: 'Temporary failure',
+      );
+      return;
+    }
+
     yield AIChunk.text(
       provider: ProviderType.openAI,
       text: 'Response to: $prompt',

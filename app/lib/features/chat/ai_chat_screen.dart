@@ -285,6 +285,8 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
 
     final messages = chatState.messages;
     final hasError = chatState.error != null;
+    final canRetryLastResponse =
+        chatState.error?.canRetryLastResponse == true && !chatState.isSending;
     final conversationId = chatState.conversation?.id;
     final linkedMissionState = conversationId == null
         ? null
@@ -397,6 +399,13 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                               onCopy: () {
                                 _copyMessage(errorMessage);
                               },
+                              onRetry: canRetryLastResponse
+                                  ? () {
+                                      ref
+                                          .read(chatControllerProvider.notifier)
+                                          .regenerateLastResponse();
+                                    }
+                                  : null,
                             );
                           },
                         ),
