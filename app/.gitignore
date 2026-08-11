@@ -47,3 +47,4 @@ openai.dev.json
 gemini.dev.json
 deepseek.dev.json
 dev.env.json
+/config/beta.dart-defines.json
