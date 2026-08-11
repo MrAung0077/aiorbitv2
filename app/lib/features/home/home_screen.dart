@@ -107,9 +107,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final chatState = ref.watch(chatControllerProvider);
+    final conversationList = ref.watch(conversationListProvider);
     final conversations =
-        ref.watch(conversationListProvider).asData?.value ??
-        const <Conversation>[];
+        conversationList.asData?.value ?? const <Conversation>[];
+    final hasConversationLoadError = conversationList.hasError;
     final continueConversation = conversations.isEmpty
         ? null
         : conversations.first;
@@ -191,7 +192,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ],
                 ),
 
-                if (continueConversation != null) ...[
+                if (hasConversationLoadError) ...[
+                  const SizedBox(height: AppSpacing.xxl),
+                  _ConversationHistoryErrorCard(
+                    onRetry: () {
+                      ref.invalidate(conversationListProvider);
+                    },
+                  ),
+                ] else if (continueConversation != null) ...[
                   const SizedBox(height: AppSpacing.xxl),
 
                   Row(
@@ -323,6 +331,66 @@ class _QuickAction extends StatelessWidget {
       avatar: Icon(icon, size: 18),
       label: Text(label),
       onPressed: onTap,
+    );
+  }
+}
+
+class _ConversationHistoryErrorCard extends StatelessWidget {
+  const _ConversationHistoryErrorCard({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: AppSpacing.card,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.error_outline_rounded,
+                  color: theme.colorScheme.error,
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Could not load conversations',
+                        style: theme.textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        'Please try again.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Try again'),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

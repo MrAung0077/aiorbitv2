@@ -9,6 +9,107 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets(
+    'Home history failure keeps goal actions and retry restores history',
+    (tester) async {
+      final latest = _conversation(
+        id: 'latest',
+        title: 'Continue beta mission',
+        updatedAt: DateTime(2026, 8, 11),
+      );
+      final older = _conversation(
+        id: 'older',
+        title: 'Earlier beta mission',
+        updatedAt: DateTime(2026, 8, 10),
+      );
+      final repository = _FailOnceConversationRepository(<Conversation>[
+        latest,
+        older,
+      ]);
+      final container = ProviderContainer(
+        overrides: <Override>[
+          conversationRepositoryProvider.overrideWithValue(repository),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(chatControllerProvider.notifier)
+          .loadConversation(latest.id);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: HomeScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Send'), findsOneWidget);
+      expect(find.text('Quick start'), findsOneWidget);
+      expect(find.text('Create'), findsOneWidget);
+
+      await tester.scrollUntilVisible(
+        find.text('Could not load conversations'),
+        400,
+        scrollable: find.byType(Scrollable).first,
+      );
+
+      expect(find.text('Please try again.'), findsOneWidget);
+      expect(find.text('Try again'), findsOneWidget);
+      expect(find.text('Continue'), findsNothing);
+      expect(repository.readCount, 1);
+
+      await tester.tap(find.text('Try again'));
+      await tester.pumpAndSettle();
+
+      expect(repository.readCount, 2);
+      await tester.scrollUntilVisible(
+        find.text('Continue beta mission'),
+        400,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Continue'), findsOneWidget);
+      expect(find.text('Continue beta mission'), findsOneWidget);
+
+      await tester.scrollUntilVisible(
+        find.text('Earlier beta mission'),
+        400,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Recent'), findsOneWidget);
+      expect(find.text('Earlier beta mission'), findsOneWidget);
+      expect(find.text('Could not load conversations'), findsNothing);
+    },
+  );
+
+  testWidgets('Home preserves genuinely empty history behavior', (
+    tester,
+  ) async {
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(
+          _MemoryConversationRepository(const <Conversation>[]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: HomeScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('Send'), findsOneWidget);
+    expect(find.text('Quick start'), findsOneWidget);
+    expect(find.text('Continue'), findsNothing);
+    expect(find.text('Could not load conversations'), findsNothing);
+    expect(find.text('Try again'), findsNothing);
+  });
+
+  testWidgets(
     'Home keeps its core actions without a placeholder Account action',
     (tester) async {
       final updatedAt = DateTime(2026, 8, 11);
@@ -93,4 +194,42 @@ class _MemoryConversationRepository extends ConversationRepository {
   Future<void> saveConversation(Conversation conversation) async {
     _items[conversation.id] = conversation;
   }
+}
+
+class _FailOnceConversationRepository extends _MemoryConversationRepository {
+  _FailOnceConversationRepository(super.conversations);
+
+  int readCount = 0;
+
+  @override
+  Future<List<Conversation>> getAllConversations() async {
+    readCount++;
+
+    if (readCount == 1) {
+      throw StateError('Temporary read failure');
+    }
+
+    return super.getAllConversations();
+  }
+}
+
+Conversation _conversation({
+  required String id,
+  required String title,
+  required DateTime updatedAt,
+}) {
+  return Conversation(
+    id: id,
+    title: title,
+    messages: <ChatMessage>[
+      ChatMessage(
+        id: '$id-message',
+        role: ChatRole.user,
+        content: 'Prompt for $title',
+        createdAt: updatedAt,
+      ),
+    ],
+    createdAt: updatedAt,
+    updatedAt: updatedAt,
+  );
 }

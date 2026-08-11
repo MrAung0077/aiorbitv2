@@ -19,6 +19,46 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('loading failure can retry and restore conversation content', (
+    tester,
+  ) async {
+    final conversation = _conversation(
+      id: 'restored',
+      title: 'Restored conversation',
+      updatedAt: DateTime(2026, 1, 2),
+      prompt: 'Restore my saved work',
+    );
+    final repository = _FailOnceConversationRepository(<Conversation>[
+      conversation,
+    ]);
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(repository),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ConversationHistoryScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Could not load conversations'), findsOneWidget);
+    expect(find.text('Please try again.'), findsOneWidget);
+    expect(find.text('Try again'), findsOneWidget);
+    expect(repository.readCount, 1);
+
+    await tester.tap(find.text('Try again'));
+    await tester.pumpAndSettle();
+
+    expect(repository.readCount, 2);
+    expect(find.text('Restored conversation'), findsOneWidget);
+    expect(find.text('Could not load conversations'), findsNothing);
+  });
+
   testWidgets('tapping a History item reopens the exact conversation', (
     tester,
   ) async {
@@ -342,5 +382,22 @@ class _MemoryConversationRepository extends ConversationRepository {
   @override
   Future<Conversation?> getConversation(String conversationId) async {
     return _items[conversationId];
+  }
+}
+
+class _FailOnceConversationRepository extends _MemoryConversationRepository {
+  _FailOnceConversationRepository(super.conversations);
+
+  int readCount = 0;
+
+  @override
+  Future<List<Conversation>> getAllConversations() async {
+    readCount++;
+
+    if (readCount == 1) {
+      throw StateError('Temporary read failure');
+    }
+
+    return super.getAllConversations();
   }
 }

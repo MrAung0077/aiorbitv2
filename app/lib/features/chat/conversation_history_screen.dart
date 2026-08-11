@@ -18,10 +18,15 @@ class ConversationHistoryScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Library')),
       body: conversations.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (_, _) => const _HistoryMessage(
+        error: (_, _) => _HistoryMessage(
           icon: Icons.error_outline_rounded,
           title: 'Could not load conversations',
           message: 'Please try again.',
+          actionLabel: 'Try again',
+          actionIcon: Icons.refresh_rounded,
+          onAction: () {
+            ref.invalidate(conversationListProvider);
+          },
         ),
         data: (items) {
           if (items.isEmpty) {
@@ -81,6 +86,7 @@ class _HistoryMessage extends StatelessWidget {
     required this.title,
     required this.message,
     this.actionLabel,
+    this.actionIcon = Icons.chat_bubble_outline_rounded,
     this.onAction,
   });
 
@@ -88,6 +94,7 @@ class _HistoryMessage extends StatelessWidget {
   final String title;
   final String message;
   final String? actionLabel;
+  final IconData actionIcon;
   final VoidCallback? onAction;
 
   @override
@@ -115,7 +122,7 @@ class _HistoryMessage extends StatelessWidget {
               const SizedBox(height: AppSpacing.xl),
               FilledButton.icon(
                 onPressed: onAction,
-                icon: const Icon(Icons.chat_bubble_outline_rounded),
+                icon: Icon(actionIcon),
                 label: Text(actionLabel!),
               ),
             ],
