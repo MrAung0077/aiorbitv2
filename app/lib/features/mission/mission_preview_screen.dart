@@ -160,7 +160,7 @@ class _MissionPreviewScreenState extends ConsumerState<MissionPreviewScreen> {
                     Expanded(
                       child: Text(
                         _isCreated
-                            ? 'Your mission has been created and saved for this session.'
+                            ? 'Your mission has been created and saved.'
                             : 'This is only a preview. No mission has been created or saved yet.',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: _isCreated
