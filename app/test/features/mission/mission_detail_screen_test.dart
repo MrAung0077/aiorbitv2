@@ -791,6 +791,73 @@ void main() {
     expect(container.read(missionExecutionProvider), isNull);
   });
 
+  testWidgets('acceptance failure shows safe feedback and can be retried', (
+    tester,
+  ) async {
+    final mission = _mission(<MissionTask>[
+      _task('research', TaskStatus.pending, 0),
+    ]);
+    final repository = _FailingAcceptanceMissionRepository();
+    final controller = MissionController(repository: repository);
+    final container = _taskExecutionContainer(
+      repository: repository,
+      executor: const _ImmediateMissionTaskExecutor(),
+    );
+    addTearDown(container.dispose);
+
+    await repository.saveMission(mission);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: MissionDetailScreen(
+            mission: mission,
+            missionController: controller,
+          ),
+        ),
+      ),
+    );
+
+    final runTask = find.byKey(const ValueKey<String>('run-task-research'));
+    await tester.ensureVisible(runTask);
+    await tester.tap(runTask);
+    await tester.pumpAndSettle();
+
+    final acceptResult = find.byKey(
+      const ValueKey<String>('accept-task-result-research'),
+    );
+    await tester.ensureVisible(acceptResult);
+
+    repository.failNextSave = true;
+    await tester.tap(acceptResult);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(
+      find.text('Unable to accept the result. Please try again.'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('internal acceptance write failure'),
+      findsNothing,
+    );
+
+    final failedMission = await repository.getMission(mission.id);
+    expect(failedMission?.tasks.single.status, TaskStatus.pending);
+    expect(failedMission?.tasks.single.output, isNull);
+    expect(tester.widget<FilledButton>(acceptResult).onPressed, isNotNull);
+
+    await tester.tap(acceptResult);
+    await tester.pumpAndSettle();
+
+    final acceptedMission = await repository.getMission(mission.id);
+    expect(acceptedMission?.tasks.single.status, TaskStatus.completed);
+    expect(acceptedMission?.tasks.single.output, 'Output for research');
+    expect(find.text('Mission Completed'), findsOneWidget);
+    expect(find.text('Accept Result'), findsNothing);
+  });
+
   testWidgets('whitespace-only task output has no full output action', (
     tester,
   ) async {
@@ -1199,6 +1266,20 @@ class _MemoryMissionTaskExecutionRepository
     _executions.removeWhere(
       (_, execution) => execution.missionId == normalizedMissionId,
     );
+  }
+}
+
+class _FailingAcceptanceMissionRepository extends MemoryMissionRepository {
+  bool failNextSave = false;
+
+  @override
+  Future<void> saveMission(Mission mission) async {
+    if (failNextSave) {
+      failNextSave = false;
+      throw StateError('internal acceptance write failure');
+    }
+
+    return super.saveMission(mission);
   }
 }
 

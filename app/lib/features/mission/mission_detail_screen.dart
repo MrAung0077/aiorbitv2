@@ -131,7 +131,15 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         _mission = updatedMission;
       });
     } catch (_) {
-      return;
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to accept the result. Please try again.'),
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() {
