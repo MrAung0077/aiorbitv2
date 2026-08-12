@@ -115,6 +115,7 @@ test("normalizes a successful provider response", async () => {
 
   assert.equal(response.status, 200);
   assert.deepEqual(upstreamBody.input, validBody().messages);
+  assert.equal(upstreamBody.store, false);
   assert.equal(upstreamBody.temperature, 0.4);
   assert.equal(upstreamBody.max_output_tokens, 800);
   assert.deepEqual(payload, {

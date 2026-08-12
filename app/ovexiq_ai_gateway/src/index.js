@@ -236,6 +236,7 @@ async function callProvider(input, env, fetchProvider) {
   const providerBody = {
     model,
     input: input.messages,
+    store: false,
     max_output_tokens: input.maxTokens ?? MAX_OUTPUT_TOKENS,
     ...(input.temperature === undefined ? {} : { temperature: input.temperature }),
   };
