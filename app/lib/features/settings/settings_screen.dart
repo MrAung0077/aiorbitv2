@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../l10n/app_localizations.dart';
 import 'providers/settings_controller.dart';
@@ -100,13 +101,38 @@ class SettingsScreen extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: 20),
-              const _SettingsSection(
+              _SettingsSection(
                 title: 'About',
                 children: [
-                  ListTile(
+                  const ListTile(
                     leading: Icon(Icons.info_outline_rounded),
                     title: Text('Ovexiq'),
                     subtitle: Text('Version 1.0.0'),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.privacy_tip_outlined),
+                    title: const Text('Privacy Policy'),
+                    trailing: const Icon(Icons.open_in_new_rounded),
+                    onTap: () async {
+                      try {
+                        final opened = await launchUrl(
+                          Uri.parse('https://ovexiq.com/privacy'),
+                          mode: LaunchMode.externalApplication,
+                        );
+
+                        if (!opened) {
+                          throw Exception('Could not open Privacy Policy.');
+                        }
+                      } catch (_) {
+                        if (!context.mounted) return;
+
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Could not open Privacy Policy.'),
+                          ),
+                        );
+                      }
+                    },
                   ),
                 ],
               ),
