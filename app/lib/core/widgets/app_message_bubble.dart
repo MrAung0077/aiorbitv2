@@ -103,7 +103,14 @@ class AppMessageBubble extends StatelessWidget {
                       _ProviderBadge(providerName: providerName!.trim()),
                       const SizedBox(height: 10),
                     ],
-                    if (_isUser || message.isError)
+                    if (_isUser)
+                      SelectableText(
+                        messageContent,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: foreground,
+                        ),
+                      )
+                    else if (message.isError)
                       Text(
                         messageContent,
                         style: theme.textTheme.bodyMedium?.copyWith(

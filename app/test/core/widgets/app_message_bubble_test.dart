@@ -64,7 +64,11 @@ This has **bold text** and a [source](https://example.com).
     );
 
     expect(find.byType(AppMarkdown), findsNothing);
-    expect(find.text(markdown), findsOneWidget);
+    expect(find.byType(SelectableText), findsOneWidget);
+    expect(
+      tester.widget<SelectableText>(find.byType(SelectableText)).data,
+      markdown,
+    );
   });
 }
 
