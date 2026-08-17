@@ -5,7 +5,10 @@ const MAX_MESSAGE_CHARS = 12_000;
 const MAX_TOTAL_MESSAGE_CHARS = 40_000;
 const MAX_METADATA_CHARS = 4_096;
 const MAX_OUTPUT_TOKENS = 4_096;
-const PROVIDER_TIMEOUT_MS = 45_000;
+const OPENAI_TIMEOUT_MS = 30_000;
+const GEMINI_TIMEOUT_MS = 20_000;
+const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
+const GEMINI_GENERATE_CONTENT_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
 const ALLOWED_ROLES = new Set(["system", "user", "assistant"]);
 
 export default {
@@ -222,15 +225,25 @@ async function parseRequest(request) {
 }
 
 async function callProvider(input, env, fetchProvider) {
-  const providerApiKey = typeof env.OPENAI_API_KEY === "string" ? env.OPENAI_API_KEY.trim() : "";
-  const model = typeof env.OPENAI_MODEL === "string" ? env.OPENAI_MODEL.trim() : "";
+  const openAiResult = await callOpenAi(input, env, fetchProvider);
+  if (openAiResult.response !== null) {
+    return openAiResult.response;
+  }
+
+  if (!openAiResult.canFallback) {
+    return openAiResult.failureResponse;
+  }
+
+  const geminiResponse = await callGemini(input, env, fetchProvider);
+  return geminiResponse ?? openAiResult.failureResponse;
+}
+
+async function callOpenAi(input, env, fetchProvider) {
+  const providerApiKey = configuredValue(env.OPENAI_API_KEY);
+  const model = configuredValue(env.OPENAI_MODEL);
 
   if (providerApiKey.length === 0 || model.length === 0) {
-    return errorResponse(
-      503,
-      "provider_unavailable",
-      "Ovexiq AI is temporarily unavailable.",
-    );
+    return providerFailure(503, "provider_unavailable", "Ovexiq AI is temporarily unavailable.");
   }
 
   const providerBody = {
@@ -240,64 +253,62 @@ async function callProvider(input, env, fetchProvider) {
     max_output_tokens: input.maxTokens ?? MAX_OUTPUT_TOKENS,
   };
 
-  const abortController = new AbortController();
-  const timeoutId = setTimeout(() => abortController.abort(), PROVIDER_TIMEOUT_MS);
-
-  let providerResponse;
-  try {
-    providerResponse = await fetchProvider("https://api.openai.com/v1/responses", {
+  const fetchResult = await fetchWithTimeout(
+    fetchProvider,
+    OPENAI_RESPONSES_URL,
+    {
       method: "POST",
       headers: {
         Authorization: `Bearer ${providerApiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(providerBody),
-      signal: abortController.signal,
-    });
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      return errorResponse(504, "provider_timeout", "Ovexiq AI timed out. Please try again.");
+    },
+    OPENAI_TIMEOUT_MS,
+  );
+
+  if (fetchResult.error !== null) {
+    if (fetchResult.timedOut) {
+      return providerFailure(504, "provider_timeout", "Ovexiq AI timed out. Please try again.", true);
     }
 
-    return errorResponse(
+    return providerFailure(502, "provider_failure", "Ovexiq AI is temporarily unavailable.", true);
+  }
+
+  const providerResponse = fetchResult.response;
+  if (!providerResponse.ok) {
+    return providerFailure(
       502,
       "provider_failure",
       "Ovexiq AI is temporarily unavailable.",
+      providerResponse.status === 429 || providerResponse.status >= 500,
     );
-  } finally {
-    clearTimeout(timeoutId);
   }
 
   let providerPayload;
   try {
     providerPayload = await providerResponse.json();
   } catch {
-    return errorResponse(
+    return providerFailure(
       502,
       "invalid_provider_response",
       "Ovexiq AI returned an invalid response.",
-    );
-  }
-
-  if (!providerResponse.ok) {
-    return errorResponse(
-      502,
-      "provider_failure",
-      "Ovexiq AI is temporarily unavailable.",
+      true,
     );
   }
 
   const content = extractOutputText(providerPayload);
   if (content.length === 0) {
-    return errorResponse(
+    return providerFailure(
       502,
       "empty_provider_response",
       "Ovexiq AI returned an empty response.",
+      true,
     );
   }
 
   const usage = providerPayload?.usage;
-  return jsonResponse({
+  return providerSuccess({
     content,
     ...(typeof providerPayload?.model === "string" ? { model: providerPayload.model } : {}),
     ...(typeof providerPayload?.id === "string" ? { requestId: providerPayload.id } : {}),
@@ -314,6 +325,99 @@ async function callProvider(input, env, fetchProvider) {
         }
       : {}),
   });
+}
+
+async function callGemini(input, env, fetchProvider) {
+  const providerApiKey = configuredValue(env.GEMINI_API_KEY);
+  const model = configuredValue(env.GEMINI_MODEL);
+
+  if (providerApiKey.length === 0 || model.length === 0) {
+    return null;
+  }
+
+  const fetchResult = await fetchWithTimeout(
+    fetchProvider,
+    `${GEMINI_GENERATE_CONTENT_URL}${encodeURIComponent(model)}:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": providerApiKey,
+      },
+      body: JSON.stringify(toGeminiRequest(input)),
+    },
+    GEMINI_TIMEOUT_MS,
+  );
+
+  if (fetchResult.error !== null || !fetchResult.response.ok) {
+    return null;
+  }
+
+  let providerPayload;
+  try {
+    providerPayload = await fetchResult.response.json();
+  } catch {
+    return null;
+  }
+
+  const content = extractGeminiOutputText(providerPayload);
+  if (content.length === 0) {
+    return null;
+  }
+
+  const usage = providerPayload?.usageMetadata;
+  return jsonResponse({
+    content,
+    ...(usage !== null && typeof usage === "object"
+      ? {
+          usage: {
+            ...(Number.isInteger(usage.promptTokenCount)
+              ? { promptTokens: usage.promptTokenCount }
+              : {}),
+            ...(Number.isInteger(usage.candidatesTokenCount)
+              ? { completionTokens: usage.candidatesTokenCount }
+              : {}),
+          },
+        }
+      : {}),
+  });
+}
+
+async function fetchWithTimeout(fetchProvider, url, options, timeoutMs) {
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), timeoutMs);
+
+  try {
+    const response = await fetchProvider(url, { ...options, signal: abortController.signal });
+    return { response, error: null, timedOut: false };
+  } catch (error) {
+    return {
+      response: null,
+      error,
+      timedOut: abortController.signal.aborted || error?.name === "AbortError",
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function toGeminiRequest(input) {
+  const systemMessages = input.messages
+    .filter((message) => message.role === "system")
+    .map((message) => message.content);
+
+  return {
+    contents: input.messages
+      .filter((message) => message.role !== "system")
+      .map((message) => ({
+        role: message.role === "assistant" ? "model" : "user",
+        parts: [{ text: message.content }],
+      })),
+    ...(systemMessages.length > 0
+      ? { systemInstruction: { parts: [{ text: systemMessages.join("\n\n") }] } }
+      : {}),
+    generationConfig: { maxOutputTokens: input.maxTokens ?? MAX_OUTPUT_TOKENS },
+  };
 }
 
 function extractOutputText(payload) {
@@ -335,6 +439,38 @@ function extractOutputText(payload) {
   }
 
   return result.trim();
+}
+
+function extractGeminiOutputText(payload) {
+  if (!Array.isArray(payload?.candidates) || payload.candidates.length === 0) {
+    return "";
+  }
+
+  const parts = payload.candidates[0]?.content?.parts;
+  if (!Array.isArray(parts)) {
+    return "";
+  }
+
+  return parts
+    .map((part) => (typeof part?.text === "string" ? part.text : ""))
+    .join("")
+    .trim();
+}
+
+function configuredValue(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function providerSuccess(response) {
+  return { response: jsonResponse(response), failureResponse: null, canFallback: false };
+}
+
+function providerFailure(status, code, message, canFallback = false) {
+  return {
+    response: null,
+    failureResponse: errorResponse(status, code, message),
+    canFallback,
+  };
 }
 
 function failure(status, code, message) {
