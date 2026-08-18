@@ -119,6 +119,56 @@ void main() {
     expect(find.text('All final results copied'), findsOneWidget);
   });
 
+  testWidgets('copies an individual final result without opening its output', (
+    tester,
+  ) async {
+    final clipboardMessages = <MethodCall>[];
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          if (call.method == 'Clipboard.setData') {
+            clipboardMessages.add(call);
+          }
+
+          return null;
+        });
+
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    final task = _task(
+      id: 'research',
+      title: 'Research competitors',
+      order: 0,
+      output: '  Finished competitor research  ',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MissionFinalResultsCard(
+            results: [MissionFinalResult(task: task)],
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('copy-final-result-research')),
+    );
+
+    await tester.pump();
+
+    expect(clipboardMessages, hasLength(1));
+    expect(clipboardMessages.single.arguments, <String, dynamic>{
+      'text': 'Finished competitor research',
+    });
+    expect(find.text('Result copied'), findsOneWidget);
+    expect(find.byType(MissionTaskOutputScreen), findsNothing);
+  });
+
   testWidgets('empty and incomplete task outputs are excluded', (tester) async {
     final usableTask = _task(
       id: 'usable',

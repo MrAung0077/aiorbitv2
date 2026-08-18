@@ -155,79 +155,106 @@ class _FinalResultTile extends StatelessWidget {
     final taskTitle = result.task.title.trim();
     final outputText = result.outputText!;
 
+    Future<void> copyResult() async {
+      await Clipboard.setData(ClipboardData(text: outputText));
+
+      if (!context.mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('Result copied')));
+    }
+
     return Material(
       color: colorScheme.surface.withValues(alpha: 0.7),
       borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        key: ValueKey<String>('open-final-result-${result.task.id}'),
-        borderRadius: BorderRadius.circular(12),
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => MissionTaskOutputScreen(
-                taskTitle: taskTitle,
-                outputText: outputText,
-                mode: MissionTaskOutputMode.accepted,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: InkWell(
+              key: ValueKey<String>('open-final-result-${result.task.id}'),
+              borderRadius: const BorderRadius.horizontal(
+                left: Radius.circular(12),
               ),
-            ),
-          );
-        },
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: colorScheme.tertiaryContainer,
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Icon(
-                  Icons.description_rounded,
-                  size: 18,
-                  color: colorScheme.onTertiaryContainer,
-                ),
-              ),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => MissionTaskOutputScreen(
+                      taskTitle: taskTitle,
+                      outputText: outputText,
+                      mode: MissionTaskOutputMode.accepted,
+                    ),
+                  ),
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 2, 12),
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      taskTitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
+                    Container(
+                      width: 34,
+                      height: 34,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: colorScheme.tertiaryContainer,
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: Icon(
+                        Icons.description_rounded,
+                        size: 18,
+                        color: colorScheme.onTertiaryContainer,
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      outputText,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            taskTitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            outputText,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Icon(
+                        Icons.chevron_right_rounded,
                         color: colorScheme.onSurfaceVariant,
-                        height: 1.4,
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 10),
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Icon(
-                  Icons.chevron_right_rounded,
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+          IconButton(
+            key: ValueKey<String>('copy-final-result-${result.task.id}'),
+            tooltip: 'Copy result',
+            onPressed: copyResult,
+            icon: const Icon(Icons.copy_rounded),
+          ),
+        ],
       ),
     );
   }
