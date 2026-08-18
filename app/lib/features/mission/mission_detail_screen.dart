@@ -1163,7 +1163,9 @@ class _TaskExecutionResultPanel extends StatelessWidget {
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        'Task completed',
+                        hasPersistedAcceptedResult
+                            ? 'Result accepted'
+                            : 'Task completed',
                         style: theme.textTheme.labelMedium?.copyWith(
                           color: contentColor,
                           fontWeight: FontWeight.w700,

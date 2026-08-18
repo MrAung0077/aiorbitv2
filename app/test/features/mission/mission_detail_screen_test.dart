@@ -625,7 +625,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Mission Completed'), findsOneWidget);
-    expect(find.text('Task completed'), findsOneWidget);
+    expect(find.text('Result accepted'), findsOneWidget);
+    expect(find.text('Task completed'), findsNothing);
     expect(find.text('Final Results'), findsOneWidget);
     expect(
       find.byKey(const ValueKey<String>('mission-final-results')),
@@ -781,7 +782,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Mission Completed'), findsOneWidget);
-    expect(find.text('Task completed'), findsOneWidget);
+    expect(find.text('Result accepted'), findsOneWidget);
+    expect(find.text('Task completed'), findsNothing);
     expect(find.text('Accept Result'), findsNothing);
     expect(find.text('1 / 1 Tasks Completed'), findsOneWidget);
     expect(
