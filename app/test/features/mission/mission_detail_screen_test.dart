@@ -309,7 +309,7 @@ void main() {
     expect(find.text('Execution Completed'), findsNothing);
     expect(find.text('Mission Completed'), findsNothing);
     expect(find.text('0 / 1 Tasks Completed'), findsOneWidget);
-    expect(find.text('Run Task'), findsOneWidget);
+    expect(find.text('Run Next Task'), findsNWidgets(2));
     expect(find.text('Accept Result'), findsNothing);
     expect(executor.callCount, 0);
     expect(container.read(missionExecutionProvider), isNull);
@@ -478,7 +478,7 @@ void main() {
     },
   );
 
-  testWidgets('only eligible tasks show Run Task', (tester) async {
+  testWidgets('the next eligible task is clearly labelled', (tester) async {
     final mission = _mission(<MissionTask>[
       _task('pending', TaskStatus.pending, 0),
       _task('in-progress', TaskStatus.inProgress, 1),
@@ -502,7 +502,8 @@ void main() {
       ),
     );
 
-    expect(find.text('Run Task'), findsNWidgets(2));
+    expect(find.text('Run Next Task'), findsNWidgets(2));
+    expect(find.text('Run Task'), findsOneWidget);
     expect(find.text('Accept Result'), findsNothing);
     expect(
       find.byKey(const ValueKey<String>('run-task-pending')),
@@ -511,6 +512,36 @@ void main() {
     expect(
       find.byKey(const ValueKey<String>('run-task-in-progress')),
       findsOneWidget,
+    );
+    final pendingTask = find.byKey(
+      const ValueKey<String>('mission-task-pending'),
+    );
+    final inProgressTask = find.byKey(
+      const ValueKey<String>('mission-task-in-progress'),
+    );
+    expect(
+      find.descendant(of: pendingTask, matching: find.text('Run Next Task')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: inProgressTask, matching: find.text('Run Task')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey<String>('run-task-pending')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey<String>('run-task-in-progress')),
+          )
+          .onPressed,
+      isNull,
     );
     expect(
       find.byKey(const ValueKey<String>('run-task-completed')),

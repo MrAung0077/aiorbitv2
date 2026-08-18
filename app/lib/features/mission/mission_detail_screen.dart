@@ -951,6 +951,8 @@ class _MissionTaskTile extends StatelessWidget {
                             ? 'Running…'
                             : didTaskFail
                             ? 'Retry Task'
+                            : isExecutionAvailable
+                            ? 'Run Next Task'
                             : 'Run Task',
                       ),
                     ),
