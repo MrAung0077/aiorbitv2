@@ -495,7 +495,7 @@ void main() {
       expect(find.text('Mission Completed'), findsNothing);
       expect(find.text('Final Results'), findsNothing);
       expect(
-        find.descendant(of: task3Card, matching: find.text('Run Task')),
+        find.descendant(of: task3Card, matching: find.text('Run Next Task')),
         findsOneWidget,
       );
       expect(
