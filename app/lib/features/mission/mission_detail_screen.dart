@@ -772,13 +772,21 @@ class _MissionTaskTile extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final stepNumber = task.order + 1;
-    final statusColor = _taskStatusColor(task.status, colorScheme);
     final canChangeStatus = _interactiveTaskStatuses.any(
       (status) => canTransition(task.status, status),
     );
     final isTaskRunning = taskExecution?.status == ExecutionStatus.running;
     final didTaskFail = taskExecution?.status == ExecutionStatus.failed;
     final canRunTask = _isTaskExecutionEligible(task);
+    final statusColor = isTaskRunning
+        ? colorScheme.primary
+        : _taskStatusColor(task.status, colorScheme);
+    final statusIcon = isTaskRunning
+        ? Icons.play_circle_outline_rounded
+        : _taskStatusIcon(task.status);
+    final statusLabel = isTaskRunning
+        ? 'Running'
+        : _formatName(task.status.name);
 
     return Container(
       key: ValueKey<String>('mission-task-${task.id}'),
@@ -879,14 +887,10 @@ class _MissionTaskTile extends StatelessWidget {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            _taskStatusIcon(task.status),
-                            size: 16,
-                            color: statusColor,
-                          ),
+                          Icon(statusIcon, size: 16, color: statusColor),
                           const SizedBox(width: 6),
                           Text(
-                            _formatName(task.status.name),
+                            statusLabel,
                             style: theme.textTheme.labelMedium?.copyWith(
                               color: statusColor,
                               fontWeight: FontWeight.w700,

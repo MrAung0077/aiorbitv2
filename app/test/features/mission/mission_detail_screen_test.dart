@@ -592,6 +592,13 @@ void main() {
 
     expect(executor.callCount, 1);
     expect(find.text('Running…'), findsNWidgets(2));
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('task-status-research')),
+        matching: find.text('Running'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Accept Result'), findsNothing);
     expect(tester.widget<OutlinedButton>(runTask).onPressed, isNull);
     expect(container.read(missionExecutionProvider), isNull);
