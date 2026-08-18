@@ -6,9 +6,9 @@ const MAX_TOTAL_MESSAGE_CHARS = 40_000;
 const MAX_METADATA_CHARS = 4_096;
 const MAX_OUTPUT_TOKENS = 4_096;
 const OPENAI_TIMEOUT_MS = 30_000;
-const GEMINI_TIMEOUT_MS = 20_000;
+const OPENROUTER_TIMEOUT_MS = 20_000;
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
-const GEMINI_GENERATE_CONTENT_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
+const OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions";
 const ALLOWED_ROLES = new Set(["system", "user", "assistant"]);
 
 export default {
@@ -234,8 +234,8 @@ async function callProvider(input, env, fetchProvider) {
     return openAiResult.failureResponse;
   }
 
-  const geminiResponse = await callGemini(input, env, fetchProvider);
-  return geminiResponse ?? openAiResult.failureResponse;
+  const openRouterResponse = await callOpenRouter(input, env, fetchProvider);
+  return openRouterResponse ?? openAiResult.failureResponse;
 }
 
 async function callOpenAi(input, env, fetchProvider) {
@@ -327,9 +327,9 @@ async function callOpenAi(input, env, fetchProvider) {
   });
 }
 
-async function callGemini(input, env, fetchProvider) {
-  const providerApiKey = configuredValue(env.GEMINI_API_KEY);
-  const model = configuredValue(env.GEMINI_MODEL);
+async function callOpenRouter(input, env, fetchProvider) {
+  const providerApiKey = configuredValue(env.OPENROUTER_API_KEY);
+  const model = configuredValue(env.OPENROUTER_MODEL);
 
   if (providerApiKey.length === 0 || model.length === 0) {
     return null;
@@ -337,16 +337,21 @@ async function callGemini(input, env, fetchProvider) {
 
   const fetchResult = await fetchWithTimeout(
     fetchProvider,
-    `${GEMINI_GENERATE_CONTENT_URL}${encodeURIComponent(model)}:generateContent`,
+    OPENROUTER_CHAT_COMPLETIONS_URL,
     {
       method: "POST",
       headers: {
+        Authorization: `Bearer ${providerApiKey}`,
         "Content-Type": "application/json",
-        "x-goog-api-key": providerApiKey,
       },
-      body: JSON.stringify(toGeminiRequest(input)),
+      body: JSON.stringify({
+        model,
+        messages: input.messages,
+        max_tokens: input.maxTokens ?? MAX_OUTPUT_TOKENS,
+        ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
+      }),
     },
-    GEMINI_TIMEOUT_MS,
+    OPENROUTER_TIMEOUT_MS,
   );
 
   if (fetchResult.error !== null || !fetchResult.response.ok) {
@@ -360,22 +365,22 @@ async function callGemini(input, env, fetchProvider) {
     return null;
   }
 
-  const content = extractGeminiOutputText(providerPayload);
+  const content = extractOpenRouterOutputText(providerPayload);
   if (content.length === 0) {
     return null;
   }
 
-  const usage = providerPayload?.usageMetadata;
+  const usage = providerPayload?.usage;
   return jsonResponse({
     content,
     ...(usage !== null && typeof usage === "object"
       ? {
           usage: {
-            ...(Number.isInteger(usage.promptTokenCount)
-              ? { promptTokens: usage.promptTokenCount }
+            ...(Number.isInteger(usage.prompt_tokens)
+              ? { promptTokens: usage.prompt_tokens }
               : {}),
-            ...(Number.isInteger(usage.candidatesTokenCount)
-              ? { completionTokens: usage.candidatesTokenCount }
+            ...(Number.isInteger(usage.completion_tokens)
+              ? { completionTokens: usage.completion_tokens }
               : {}),
           },
         }
@@ -401,25 +406,6 @@ async function fetchWithTimeout(fetchProvider, url, options, timeoutMs) {
   }
 }
 
-function toGeminiRequest(input) {
-  const systemMessages = input.messages
-    .filter((message) => message.role === "system")
-    .map((message) => message.content);
-
-  return {
-    contents: input.messages
-      .filter((message) => message.role !== "system")
-      .map((message) => ({
-        role: message.role === "assistant" ? "model" : "user",
-        parts: [{ text: message.content }],
-      })),
-    ...(systemMessages.length > 0
-      ? { systemInstruction: { parts: [{ text: systemMessages.join("\n\n") }] } }
-      : {}),
-    generationConfig: { maxOutputTokens: input.maxTokens ?? MAX_OUTPUT_TOKENS },
-  };
-}
-
 function extractOutputText(payload) {
   if (!Array.isArray(payload?.output)) {
     return "";
@@ -441,20 +427,13 @@ function extractOutputText(payload) {
   return result.trim();
 }
 
-function extractGeminiOutputText(payload) {
-  if (!Array.isArray(payload?.candidates) || payload.candidates.length === 0) {
+function extractOpenRouterOutputText(payload) {
+  if (!Array.isArray(payload?.choices) || payload.choices.length === 0) {
     return "";
   }
 
-  const parts = payload.candidates[0]?.content?.parts;
-  if (!Array.isArray(parts)) {
-    return "";
-  }
-
-  return parts
-    .map((part) => (typeof part?.text === "string" ? part.text : ""))
-    .join("")
-    .trim();
+  const content = payload.choices[0]?.message?.content;
+  return typeof content === "string" ? content.trim() : "";
 }
 
 function configuredValue(value) {

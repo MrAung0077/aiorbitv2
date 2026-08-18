@@ -6,9 +6,9 @@ import { handleRequest } from "../src/index.js";
 const gatewayUrl = "https://gateway.example.test/v1/ai/complete";
 const betaToken = "revocable-tester-token";
 const openAiSecret = "openai-test-secret-must-not-leak";
-const geminiSecret = "gemini-test-secret-must-not-leak";
+const openRouterSecret = "openrouter-test-secret-must-not-leak";
 
-function createEnv({ rateLimitSuccess = true, includeGemini = true } = {}) {
+function createEnv({ rateLimitSuccess = true, includeOpenRouter = true } = {}) {
   const env = {
     OPENAI_API_KEY: openAiSecret,
     OPENAI_MODEL: "openai-test-model",
@@ -21,9 +21,9 @@ function createEnv({ rateLimitSuccess = true, includeGemini = true } = {}) {
     },
   };
 
-  if (includeGemini) {
-    env.GEMINI_API_KEY = geminiSecret;
-    env.GEMINI_MODEL = "gemini-3.6-flash";
+  if (includeOpenRouter) {
+    env.OPENROUTER_API_KEY = openRouterSecret;
+    env.OPENROUTER_MODEL = "mistralai/mistral-small-2603";
   }
 
   return env;
@@ -68,11 +68,11 @@ function openAiSuccess(text = "Normalized result") {
   );
 }
 
-function geminiSuccess(text = "Fallback result") {
+function openRouterSuccess(text = "Fallback result") {
   return new Response(
     JSON.stringify({
-      candidates: [{ content: { parts: [{ text }] } }],
-      usageMetadata: { promptTokenCount: 31, candidatesTokenCount: 13 },
+      choices: [{ message: { content: text } }],
+      usage: { prompt_tokens: 31, completion_tokens: 13 },
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
@@ -118,7 +118,7 @@ test("rejects malformed and oversized payloads", async () => {
   assert.equal(oversized.status, 413);
 });
 
-test("uses OpenAI as the primary provider when it succeeds", async () => {
+test("uses OpenAI as the primary provider without calling OpenRouter when it succeeds", async () => {
   let upstreamBody;
   let calls = 0;
   const providerFetch = async (url, options) => {
@@ -174,8 +174,8 @@ test("falls back after each allowed transient primary failure", async () => {
         return transientFailure.fetch();
       }
 
-      assert.match(url, /generativelanguage\.googleapis\.com/);
-      return geminiSuccess(transientFailure.name);
+      assert.equal(url, "https://openrouter.ai/api/v1/chat/completions");
+      return openRouterSuccess(transientFailure.name);
     };
 
     const response = await handleRequest(createRequest(validBody()), createEnv(), providerFetch);
@@ -187,15 +187,15 @@ test("falls back after each allowed transient primary failure", async () => {
   }
 });
 
-test("maps the neutral request to Gemini and keeps its credential backend-only", async () => {
-  let geminiRequest;
+test("maps the neutral request to OpenRouter and keeps its credential backend-only", async () => {
+  let openRouterRequest;
   const providerFetch = async (url, options) => {
     if (url === "https://api.openai.com/v1/responses") {
       return new Response("", { status: 503 });
     }
 
-    geminiRequest = { url, options, body: JSON.parse(options.body) };
-    return geminiSuccess();
+    openRouterRequest = { url, options, body: JSON.parse(options.body) };
+    return openRouterSuccess();
   };
 
   const response = await handleRequest(createRequest(validBody()), createEnv(), providerFetch);
@@ -203,30 +203,47 @@ test("maps the neutral request to Gemini and keeps its credential backend-only",
 
   assert.equal(response.status, 200);
   assert.equal(
-    geminiRequest.url,
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
+    openRouterRequest.url,
+    "https://openrouter.ai/api/v1/chat/completions",
   );
-  assert.equal(geminiRequest.url.includes(geminiSecret), false);
-  assert.equal(geminiRequest.options.headers["x-goog-api-key"], geminiSecret);
-  assert.equal("Authorization" in geminiRequest.options.headers, false);
-  assert.deepEqual(geminiRequest.body, {
-    contents: [
-      { role: "user", parts: [{ text: "Research Kaspa." }] },
-      { role: "model", parts: [{ text: "Prior accepted result." }] },
-      { role: "user", parts: [{ text: "Summarize it." }] },
-    ],
-    systemInstruction: { parts: [{ text: "Be concise." }] },
-    generationConfig: { maxOutputTokens: 800 },
+  assert.equal(openRouterRequest.url.includes(openRouterSecret), false);
+  assert.equal(openRouterRequest.options.headers.Authorization, `Bearer ${openRouterSecret}`);
+  assert.equal("x-goog-api-key" in openRouterRequest.options.headers, false);
+  assert.deepEqual(openRouterRequest.body, {
+    model: "mistralai/mistral-small-2603",
+    messages: validBody().messages,
+    max_tokens: 800,
+    temperature: 0.4,
   });
   assert.deepEqual(payload, {
     content: "Fallback result",
     usage: { promptTokens: 31, completionTokens: 13 },
   });
-  assert.equal(JSON.stringify(payload).toLowerCase().includes("gemini"), false);
-  assert.equal(JSON.stringify(payload).includes(geminiSecret), false);
+  assert.equal(JSON.stringify(payload).toLowerCase().includes("openrouter"), false);
+  assert.equal(JSON.stringify(payload).includes(openRouterSecret), false);
 });
 
-test("does not fall back when Gemini is not configured", async () => {
+test("omits OpenRouter temperature when the validated request does not include it", async () => {
+  let openRouterBody;
+  const requestBody = validBody();
+  delete requestBody.temperature;
+
+  const providerFetch = async (url, options) => {
+    if (url === "https://api.openai.com/v1/responses") {
+      return new Response("", { status: 503 });
+    }
+
+    openRouterBody = JSON.parse(options.body);
+    return openRouterSuccess();
+  };
+
+  const response = await handleRequest(createRequest(requestBody), createEnv(), providerFetch);
+
+  assert.equal(response.status, 200);
+  assert.equal("temperature" in openRouterBody, false);
+});
+
+test("does not fall back when OpenRouter is not configured", async () => {
   let calls = 0;
   const providerFetch = async () => {
     calls += 1;
@@ -235,14 +252,14 @@ test("does not fall back when Gemini is not configured", async () => {
 
   const response = await handleRequest(
     createRequest(validBody()),
-    createEnv({ includeGemini: false }),
+    createEnv({ includeOpenRouter: false }),
     providerFetch,
   );
   const body = await response.text();
 
   assert.equal(response.status, 502);
   assert.equal(calls, 1);
-  assert.equal(body.toLowerCase().includes("gemini"), false);
+  assert.equal(body.toLowerCase().includes("openrouter"), false);
 });
 
 test("does not fall back after primary request or authentication errors", async () => {
@@ -268,7 +285,7 @@ test("sanitizes credentials and raw failures when both providers fail", async ()
       return new Response(`Authorization Bearer ${openAiSecret}`, { status: 503 });
     }
 
-    return new Response(`x-goog-api-key ${geminiSecret}`, { status: 503 });
+    return new Response(`Authorization Bearer ${openRouterSecret}`, { status: 503 });
   };
 
   const response = await handleRequest(createRequest(validBody()), createEnv(), providerFetch);
@@ -278,10 +295,10 @@ test("sanitizes credentials and raw failures when both providers fail", async ()
   assert.equal(response.status, 502);
   assert.equal(calls, 2);
   assert.equal(body.includes(openAiSecret), false);
-  assert.equal(body.includes(geminiSecret), false);
+  assert.equal(body.includes(openRouterSecret), false);
   assert.equal(body.includes("Authorization"), false);
   assert.equal(lowerBody.includes("openai"), false);
-  assert.equal(lowerBody.includes("gemini"), false);
+  assert.equal(lowerBody.includes("openrouter"), false);
   assert.match(body, /temporarily unavailable/);
 });
 
