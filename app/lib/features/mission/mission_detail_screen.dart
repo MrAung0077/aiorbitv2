@@ -1049,6 +1049,11 @@ class _TaskExecutionResultPanel extends StatelessWidget {
         _hasUsableTaskExecutionResult(execution) &&
         (taskStatus == TaskStatus.pending ||
             taskStatus == TaskStatus.inProgress);
+    final resultPanelLabel = failed
+        ? 'Task execution failed'
+        : canAccept
+        ? 'Result ready for review'
+        : 'Task execution completed';
 
     final persistedOutput = acceptedOutput?.trim();
     final hasAcceptedOutput = persistedOutput?.isNotEmpty == true;
@@ -1087,7 +1092,7 @@ class _TaskExecutionResultPanel extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  failed ? 'Task execution failed' : 'Task execution completed',
+                  resultPanelLabel,
                   style: theme.textTheme.labelLarge?.copyWith(
                     color: contentColor,
                     fontWeight: FontWeight.w700,

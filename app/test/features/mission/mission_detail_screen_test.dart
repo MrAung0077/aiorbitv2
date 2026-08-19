@@ -613,7 +613,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Task execution completed'), findsOneWidget);
+    expect(find.text('Result ready for review'), findsOneWidget);
+    expect(find.text('Task execution completed'), findsNothing);
     expect(find.text('Research execution output'), findsOneWidget);
     expect(find.text('Mission Completed'), findsNothing);
     expect(find.text('Final Results'), findsNothing);
