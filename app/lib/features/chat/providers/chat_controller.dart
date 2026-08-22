@@ -7,6 +7,7 @@ import '../models/chat_message.dart';
 import '../models/conversation.dart';
 import '../repositories/conversation_repository.dart';
 import '../services/ai_chat_service.dart';
+import '../services/chat_action_dispatcher.dart';
 import '../services/mission_suggestion_service.dart';
 import '../models/message_feedback.dart';
 
@@ -39,14 +40,17 @@ class ChatController extends StateNotifier<ChatState> {
     required AIChatService aiChatService,
     required ConversationRepository conversationRepository,
     required MissionSuggestionService missionSuggestionService,
+    ChatActionDispatcher chatActionDispatcher = const ChatActionDispatcher(),
   }) : _aiChatService = aiChatService,
        _conversationRepository = conversationRepository,
        _missionSuggestionService = missionSuggestionService,
+       _chatActionDispatcher = chatActionDispatcher,
        super(const ChatState());
 
   final AIChatService _aiChatService;
   final ConversationRepository _conversationRepository;
   final MissionSuggestionService _missionSuggestionService;
+  final ChatActionDispatcher _chatActionDispatcher;
 
   int _operationRevision = 0;
   int _lastConversationIdMicros = 0;
@@ -237,12 +241,55 @@ class ChatController extends StateNotifier<ChatState> {
       isSending: true,
       clearError: true,
       clearMissionSuggestion: true,
+      clearImageActionRequest: true,
     );
 
     try {
       await _conversationRepository.saveConversation(conversation);
 
       if (!mounted || state.conversation?.id != conversationId) {
+        return;
+      }
+
+      final action = _chatActionDispatcher.dispatch(text);
+
+      if (action is ChatImageActionRequested) {
+        state = state.copyWith(
+          conversation: conversation,
+          isSending: false,
+          imageActionRequest: action,
+          clearMissionSuggestion: true,
+        );
+        return;
+      }
+
+      if (action is ChatActionClarification) {
+        final assistantCreatedAt = _nextActivityTime();
+        final clarifiedConversation = conversation.copyWith(
+          messages: <ChatMessage>[
+            ...conversation.messages,
+            ChatMessage(
+              id: assistantCreatedAt.microsecondsSinceEpoch.toString(),
+              role: ChatRole.assistant,
+              content: action.message,
+              createdAt: assistantCreatedAt,
+            ),
+          ],
+          updatedAt: _nextActivityTime(),
+        );
+
+        await _conversationRepository.saveConversation(clarifiedConversation);
+
+        if (!mounted || state.conversation?.id != conversationId) {
+          return;
+        }
+
+        state = state.copyWith(
+          conversation: clarifiedConversation,
+          isSending: false,
+          clearMissionSuggestion: true,
+          clearImageActionRequest: true,
+        );
         return;
       }
 
@@ -669,6 +716,7 @@ class ChatState {
     this.error,
     this.feedbackByMessageId = const <String, MessageFeedback>{},
     this.missionSuggestion,
+    this.imageActionRequest,
   });
 
   final Conversation? conversation;
@@ -677,6 +725,7 @@ class ChatState {
   final ChatControllerException? error;
   final Map<String, MessageFeedback> feedbackByMessageId;
   final MissionSuggestion? missionSuggestion;
+  final ChatImageActionRequested? imageActionRequest;
 
   List<ChatMessage> get messages =>
       conversation?.messages ?? const <ChatMessage>[];
@@ -690,9 +739,11 @@ class ChatState {
     ChatControllerException? error,
     Map<String, MessageFeedback>? feedbackByMessageId,
     MissionSuggestion? missionSuggestion,
+    ChatImageActionRequested? imageActionRequest,
     bool clearConversation = false,
     bool clearError = false,
     bool clearMissionSuggestion = false,
+    bool clearImageActionRequest = false,
   }) {
     return ChatState(
       conversation: clearConversation
@@ -705,6 +756,9 @@ class ChatState {
       missionSuggestion: clearMissionSuggestion
           ? null
           : missionSuggestion ?? this.missionSuggestion,
+      imageActionRequest: clearImageActionRequest
+          ? null
+          : imageActionRequest ?? this.imageActionRequest,
     );
   }
 }

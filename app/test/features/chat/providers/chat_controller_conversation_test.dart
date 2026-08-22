@@ -114,6 +114,64 @@ void main() {
       expect(controller.state.conversation!.title, originalTitle);
     });
 
+    test('routes an image action with a subject away from text completion', () async {
+      final repository = _MemoryConversationRepository();
+      final aiChatService = _FakeAIChatService();
+      final controller = _createController(
+        repository,
+        aiChatService: aiChatService,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.sendMessage('Help me create a picture of Buddha');
+
+      expect(aiChatService.requests, isEmpty);
+      expect(controller.state.imageActionRequest, isNotNull);
+      expect(controller.state.imageActionRequest!.subject, 'Buddha');
+      expect(controller.state.messages, hasLength(1));
+      expect(controller.state.messages.single.content, contains('Buddha'));
+    });
+
+    test('asks one concise question for an image action without a subject', () async {
+      final repository = _MemoryConversationRepository();
+      final aiChatService = _FakeAIChatService();
+      final controller = _createController(
+        repository,
+        aiChatService: aiChatService,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.sendMessage('Create a picture');
+
+      expect(aiChatService.requests, isEmpty);
+      expect(controller.state.imageActionRequest, isNull);
+      expect(
+        controller.state.messages.map((message) => message.content),
+        <String>[
+          'Create a picture',
+          'What should the image be of?',
+        ],
+      );
+    });
+
+    test('keeps ordinary text chat on the existing completion path', () async {
+      final repository = _MemoryConversationRepository();
+      final aiChatService = _FakeAIChatService();
+      final controller = _createController(
+        repository,
+        aiChatService: aiChatService,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.sendMessage('What is the capital of Thailand?');
+
+      expect(aiChatService.requests, hasLength(1));
+      expect(
+        controller.state.messages.last.content,
+        'Response to: What is the capital of Thailand?',
+      );
+    });
+
     test(
       'sends ordered context without duplicating the newest user message',
       () async {
