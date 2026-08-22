@@ -14,8 +14,10 @@ import 'providers/brain_provider.dart';
 import 'providers/chat_controller.dart';
 import 'services/router_preview_service.dart';
 import 'widgets/brain_overlay.dart';
+import 'widgets/finished_result_card.dart';
 import '../mission/providers/chat_mission_coordinator_provider.dart';
 import '../mission/services/chat_mission_coordinator.dart';
+import '../mission/services/chat_mission_result_adapter.dart';
 
 class AIChatScreen extends ConsumerStatefulWidget {
   const AIChatScreen({super.key});
@@ -34,6 +36,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
 
   RouterDecision? _routerDecision;
   _MissionWorkState _missionWorkState = _MissionWorkState.idle;
+  ChatMissionResult? _finishedMissionResult;
 
   @override
   void initState() {
@@ -81,6 +84,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     setState(() {
       _routerDecision = decision;
       _missionWorkState = _MissionWorkState.idle;
+      _finishedMissionResult = null;
     });
 
     _controller.clear();
@@ -179,14 +183,24 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     try {
       final result = await ref
           .read(chatMissionCoordinatorProvider)
-          .startOrResume(suggestion: suggestion, conversationId: conversationId);
+          .startOrResume(
+            suggestion: suggestion,
+            conversationId: conversationId,
+          );
 
       if (!mounted) {
         return;
       }
 
+      final packagedResult = result.outcome == ChatMissionRunOutcome.completed
+          ? const ChatMissionResultAdapter().fromMission(result.mission)
+          : null;
+
       setState(() {
-        _missionWorkState = result.outcome == ChatMissionRunOutcome.failed
+        _finishedMissionResult = packagedResult;
+        _missionWorkState =
+            result.outcome == ChatMissionRunOutcome.failed ||
+                packagedResult == null
             ? _MissionWorkState.failed
             : _MissionWorkState.idle;
       });
@@ -234,6 +248,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
         chatState.error?.canRetryLastResponse == true && !chatState.isSending;
     final isMissionWorking = _missionWorkState == _MissionWorkState.working;
     final hasMissionFailure = _missionWorkState == _MissionWorkState.failed;
+    final finishedMissionResult = _finishedMissionResult;
 
     return Scaffold(
       appBar: AppConversationHeader(
@@ -252,7 +267,11 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                           padding: const EdgeInsets.all(16),
                           itemCount:
                               messages.length +
-                              (isMissionWorking || hasMissionFailure ? 1 : 0) +
+                              (isMissionWorking ||
+                                      hasMissionFailure ||
+                                      finishedMissionResult != null
+                                  ? 1
+                                  : 0) +
                               (chatState.isSending && messages.isEmpty
                                   ? 1
                                   : 0) +
@@ -289,7 +308,8 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                                       .read(chatControllerProvider.notifier)
                                       .toggleDislike(message.id);
                                 },
-                                onRegenerate: isLastAssistantMessage && !isMissionWorking
+                                onRegenerate:
+                                    isLastAssistantMessage && !isMissionWorking
                                     ? () {
                                         ref
                                             .read(
@@ -301,8 +321,16 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                               );
                             }
 
-                            if ((isMissionWorking || hasMissionFailure) &&
+                            if ((isMissionWorking ||
+                                    hasMissionFailure ||
+                                    finishedMissionResult != null) &&
                                 index == messages.length) {
+                              if (finishedMissionResult != null) {
+                                return FinishedResultCard(
+                                  result: finishedMissionResult,
+                                );
+                              }
+
                               return _MissionWorkStatus(
                                 isWorking: isMissionWorking,
                               );
@@ -383,9 +411,7 @@ class _MissionWorkStatus extends StatelessWidget {
 
     return const Padding(
       padding: EdgeInsets.only(top: 12, bottom: 20),
-      child: Text(
-        "Ovexiq couldn't finish that request. Please try again.",
-      ),
+      child: Text("Ovexiq couldn't finish that request. Please try again."),
     );
   }
 }

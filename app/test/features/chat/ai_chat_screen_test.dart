@@ -147,6 +147,16 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(runCount, 1);
+      expect(
+        find.byKey(const ValueKey<String>('finished-result-card')),
+        findsOneWidget,
+      );
+      expect(find.text('Done'), findsOneWidget);
+      expect(find.text('Finished result'), findsWidgets);
+      expect(find.text('Mission'), findsNothing);
+      expect(find.text('Task 1'), findsNothing);
+      expect(find.text('Run Task'), findsNothing);
+      expect(find.text('Accept Result'), findsNothing);
     },
   );
 

@@ -1,0 +1,102 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../../mission/services/chat_mission_result_adapter.dart';
+
+class FinishedResultCard extends StatelessWidget {
+  const FinishedResultCard({super.key, required this.result});
+
+  final ChatMissionResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final deliverables = result.deliverables;
+
+    Future<void> copyAll() async {
+      final content = deliverables
+          .map(
+            (deliverable) => '${deliverable.title}\n\n${deliverable.content}',
+          )
+          .join('\n\n---\n\n');
+      await Clipboard.setData(ClipboardData(text: content));
+
+      if (!context.mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('Result copied')));
+    }
+
+    return Container(
+      key: const ValueKey<String>('finished-result-card'),
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 12, bottom: 20),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colorScheme.tertiaryContainer.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colorScheme.tertiary.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Done',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: colorScheme.onTertiaryContainer,
+            ),
+          ),
+          const SizedBox(height: 12),
+          ...deliverables.indexed.map((entry) {
+            final index = entry.$1;
+            final deliverable = entry.$2;
+            final showTitle = deliverables.length > 1;
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: index == deliverables.length - 1 ? 0 : 16,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (showTitle) ...[
+                    Text(
+                      deliverable.title,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: colorScheme.onTertiaryContainer,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                  ],
+                  SelectableText(
+                    deliverable.content,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onTertiaryContainer,
+                      height: 1.45,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+          const SizedBox(height: 14),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              key: const ValueKey<String>('copy-finished-result-button'),
+              onPressed: copyAll,
+              icon: const Icon(Icons.copy_rounded, size: 18),
+              label: const Text('Copy'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
