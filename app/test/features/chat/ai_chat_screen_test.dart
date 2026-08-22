@@ -160,6 +160,83 @@ void main() {
     },
   );
 
+  testWidgets('a resolved clarification still reaches Working and Done', (
+    tester,
+  ) async {
+    final missionRepository = MemoryMissionRepository();
+    final controller = MissionController(repository: missionRepository);
+    late final Future<Mission> Function(String) runMission;
+    var runCount = 0;
+    final coordinator = ChatMissionCoordinator(
+      missionController: controller,
+      restoreExecutions: (_) async {},
+      runMission: (missionId) => runMission(missionId),
+    );
+    final runCompleter = _MissionRunCompleter();
+    runMission = (_) {
+      runCount++;
+      return runCompleter.future;
+    };
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(
+          _MemoryConversationRepository(),
+        ),
+        aiChatServiceProvider.overrideWithValue(_SuccessfulAIChatService()),
+        missionRepositoryProvider.overrideWithValue(missionRepository),
+        chatMissionCoordinatorProvider.overrideWithValue(coordinator),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AIChatScreen()),
+      ),
+    );
+
+    await tester.enterText(
+      find.byType(TextField),
+      'Help me make TikTok videos to get more views and earn money',
+    );
+    await tester.tap(find.byTooltip('Send'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'Do you already have a content topic, or should Ovexiq choose one for you?',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Ovexiq is working...'), findsNothing);
+
+    await tester.enterText(
+      find.byType(TextField),
+      'A 30-day content calendar about easy home cooking',
+    );
+    await tester.tap(find.byTooltip('Send'));
+    await tester.pump(const Duration(seconds: 3));
+
+    expect(container.read(chatControllerProvider).missionSuggestion, isNotNull);
+    expect(runCount, 1);
+    await tester.scrollUntilVisible(
+      find.text('Ovexiq is working...'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Ovexiq is working...'), findsOneWidget);
+
+    final mission = (await missionRepository.getAllMissions()).single;
+    runCompleter.complete(_completedMission(mission));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('finished-result-card')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('automatic Mission failure becomes a safe Chat message', (
     tester,
   ) async {

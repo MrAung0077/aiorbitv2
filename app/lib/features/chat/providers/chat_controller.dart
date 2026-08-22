@@ -5,9 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/chat_message.dart';
 import '../models/conversation.dart';
+import '../models/pending_chat_clarification.dart';
 import '../repositories/conversation_repository.dart';
 import '../services/ai_chat_service.dart';
 import '../services/chat_action_dispatcher.dart';
+import '../services/chat_clarification_policy.dart';
 import '../services/mission_suggestion_service.dart';
 import '../models/message_feedback.dart';
 
@@ -41,16 +43,20 @@ class ChatController extends StateNotifier<ChatState> {
     required ConversationRepository conversationRepository,
     required MissionSuggestionService missionSuggestionService,
     ChatActionDispatcher chatActionDispatcher = const ChatActionDispatcher(),
+    ChatClarificationPolicy chatClarificationPolicy =
+        const ChatClarificationPolicy(),
   }) : _aiChatService = aiChatService,
        _conversationRepository = conversationRepository,
        _missionSuggestionService = missionSuggestionService,
        _chatActionDispatcher = chatActionDispatcher,
+       _chatClarificationPolicy = chatClarificationPolicy,
        super(const ChatState());
 
   final AIChatService _aiChatService;
   final ConversationRepository _conversationRepository;
   final MissionSuggestionService _missionSuggestionService;
   final ChatActionDispatcher _chatActionDispatcher;
+  final ChatClarificationPolicy _chatClarificationPolicy;
 
   int _operationRevision = 0;
   int _lastConversationIdMicros = 0;
@@ -217,6 +223,7 @@ class ChatController extends StateNotifier<ChatState> {
     }
 
     final conversationId = conversation.id;
+    final pendingClarification = state.pendingClarification;
     final now = _nextActivityTime();
 
     final userMessage = ChatMessage(
@@ -292,6 +299,46 @@ class ChatController extends StateNotifier<ChatState> {
         );
         return;
       }
+
+      final clarification = _chatClarificationPolicy.resolve(
+        prompt: text,
+        pendingClarification: pendingClarification,
+      );
+
+      if (clarification is ChatClarificationRequest) {
+        final assistantCreatedAt = _nextActivityTime();
+        final clarifiedConversation = conversation.copyWith(
+          messages: <ChatMessage>[
+            ...conversation.messages,
+            ChatMessage(
+              id: assistantCreatedAt.microsecondsSinceEpoch.toString(),
+              role: ChatRole.assistant,
+              content: clarification.question,
+              createdAt: assistantCreatedAt,
+            ),
+          ],
+          updatedAt: _nextActivityTime(),
+        );
+
+        await _conversationRepository.saveConversation(clarifiedConversation);
+
+        if (!mounted || state.conversation?.id != conversationId) {
+          return;
+        }
+
+        state = state.copyWith(
+          conversation: clarifiedConversation,
+          isSending: false,
+          pendingClarification: clarification.pendingIntent,
+          clearMissionSuggestion: true,
+          clearImageActionRequest: true,
+        );
+        return;
+      }
+
+      final resolvedPrompt =
+          (clarification as ChatClarificationProceed).resolvedPrompt;
+      state = state.copyWith(clearPendingClarification: true);
 
       final assistantCreatedAt = _nextActivityTime();
       final assistantMessageId = assistantCreatedAt.microsecondsSinceEpoch
@@ -375,7 +422,9 @@ class ChatController extends StateNotifier<ChatState> {
         return;
       }
 
-      final missionSuggestion = _missionSuggestionService.suggestFor(text);
+      final missionSuggestion = _missionSuggestionService.suggestFor(
+        resolvedPrompt,
+      );
 
       state = state.copyWith(
         conversation: streamingConversation,
@@ -717,6 +766,7 @@ class ChatState {
     this.feedbackByMessageId = const <String, MessageFeedback>{},
     this.missionSuggestion,
     this.imageActionRequest,
+    this.pendingClarification,
   });
 
   final Conversation? conversation;
@@ -726,6 +776,7 @@ class ChatState {
   final Map<String, MessageFeedback> feedbackByMessageId;
   final MissionSuggestion? missionSuggestion;
   final ChatImageActionRequested? imageActionRequest;
+  final PendingChatClarification? pendingClarification;
 
   List<ChatMessage> get messages =>
       conversation?.messages ?? const <ChatMessage>[];
@@ -740,10 +791,12 @@ class ChatState {
     Map<String, MessageFeedback>? feedbackByMessageId,
     MissionSuggestion? missionSuggestion,
     ChatImageActionRequested? imageActionRequest,
+    PendingChatClarification? pendingClarification,
     bool clearConversation = false,
     bool clearError = false,
     bool clearMissionSuggestion = false,
     bool clearImageActionRequest = false,
+    bool clearPendingClarification = false,
   }) {
     return ChatState(
       conversation: clearConversation
@@ -759,6 +812,9 @@ class ChatState {
       imageActionRequest: clearImageActionRequest
           ? null
           : imageActionRequest ?? this.imageActionRequest,
+      pendingClarification: clearPendingClarification
+          ? null
+          : pendingClarification ?? this.pendingClarification,
     );
   }
 }
