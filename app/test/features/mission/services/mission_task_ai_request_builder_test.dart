@@ -72,6 +72,121 @@ void main() {
         'Input context: Focus on Facebook, TikTok, and YouTube creators.',
       ),
     );
+
+    expect(
+      prompt,
+      contains(
+        'Do the requested work and give the usable finished result first',
+      ),
+    );
+    expect(prompt, contains('concise 100–180-word result'));
+    expect(prompt, contains('Return ready-to-use deliverables'));
+    expect(prompt, contains('plain, beginner-friendly language'));
+    expect(prompt, contains('internal reasoning or frameworks out'));
+    expect(prompt, contains('ask at most 1–3 short questions'));
+  });
+
+  test('build limits execution to the current Mission task', () {
+    final currentTask = MissionTask(
+      id: 'research',
+      missionId: 'mission-1',
+      title: 'Research the market and key message',
+      description: 'Find audience needs, pain points, and a key message.',
+      order: 0,
+      status: TaskStatus.pending,
+      taskType: 'research',
+      createdAt: DateTime(2026),
+    );
+    final futureTask = MissionTask(
+      id: 'posts',
+      missionId: 'mission-1',
+      title: 'Publish social posts',
+      description: 'Create launch social posts.',
+      order: 1,
+      status: TaskStatus.pending,
+      taskType: 'writing',
+      createdAt: DateTime(2026),
+    );
+    final mission = Mission(
+      id: 'mission-1',
+      title: 'Launch Ovexiq',
+      goal: 'Launch Ovexiq successfully',
+      category: MissionCategory.productivity,
+      status: MissionStatus.active,
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+      currentTaskIndex: 0,
+      progressPercent: 0,
+      tasks: <MissionTask>[currentTask, futureTask],
+    );
+
+    final prompt = const MissionTaskAIRequestBuilder()
+        .build(mission: mission, task: currentTask)
+        .latestUserPrompt;
+
+    expect(
+      prompt,
+      contains(
+        'Complete only the current task. Do not pre-complete future mission '
+        'tasks or include deliverables that clearly belong to later tasks.',
+      ),
+    );
+    expect(
+      prompt,
+      contains(
+        'Use mission context only to understand the current task, not to '
+        'answer the whole mission.',
+      ),
+    );
+    expect(
+      prompt,
+      contains('End the response once the current task is complete.'),
+    );
+    expect(prompt, contains('Title: Research the market and key message'));
+    expect(prompt, isNot(contains('Title: Publish social posts')));
+  });
+
+  test('build permits explicit long-form Mission work', () {
+    final task = MissionTask(
+      id: 'task-1',
+      missionId: 'mission-1',
+      title: 'Write a detailed 1,500-word launch report',
+      description: 'Create a long report with the full launch plan.',
+      order: 0,
+      status: TaskStatus.pending,
+      taskType: 'writing',
+      createdAt: DateTime(2026),
+    );
+    final mission = Mission(
+      id: 'mission-1',
+      title: 'Launch Ovexiq',
+      goal: 'Plan the launch',
+      category: MissionCategory.productivity,
+      status: MissionStatus.active,
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+      currentTaskIndex: 0,
+      progressPercent: 0,
+      tasks: <MissionTask>[task],
+    );
+
+    final prompt = const MissionTaskAIRequestBuilder()
+        .build(mission: mission, task: task)
+        .latestUserPrompt;
+
+    expect(prompt, contains('Output policy:'));
+    expect(
+      prompt,
+      contains(
+        'Provide longer output only when the user explicitly asks for detail, '
+        'explanation, long-form content or a report, or when the requested '
+        'artifact itself must be long.',
+      ),
+    );
+    expect(
+      prompt,
+      contains('Title: Write a detailed 1,500-word launch report'),
+    );
   });
 
   test('build includes mission context in request metadata', () {

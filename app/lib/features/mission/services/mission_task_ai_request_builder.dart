@@ -8,6 +8,19 @@ class MissionTaskAIRequestBuilder {
 
   static const int _maxPreviousResults = 3;
   static const int _maxPreviousContextChars = 6000;
+  static const List<String> _conciseOutputPolicy = <String>[
+    'Output policy:',
+    '- Complete only the current task. Do not pre-complete future mission tasks or include deliverables that clearly belong to later tasks.',
+    '- Use mission context only to understand the current task, not to answer the whole mission.',
+    '- Do the requested work and give the usable finished result first. Do not begin with background, strategy theory, or lengthy explanation.',
+    '- Default to a concise 100–180-word result and strongly prefer staying under 250 words unless the current task itself explicitly requires a long artifact.',
+    '- Use short headings or bullets only when they improve clarity. Return ready-to-use deliverables or short actionable plans, not consultant reports.',
+    '- Use plain, beginner-friendly language. Avoid unnecessary jargon and keep internal reasoning or frameworks out of the response.',
+    '- Avoid essays, repeated context, generic advice, unnecessary examples, and "If you want, I can..." filler.',
+    '- Make reasonable assumptions when safe. If genuinely blocked, state assumptions briefly and ask at most 1–3 short questions.',
+    '- Provide longer output only when the user explicitly asks for detail, explanation, long-form content or a report, or when the requested artifact itself must be long.',
+    '- End the response once the current task is complete.',
+  ];
 
   AIRequest build({required Mission mission, required MissionTask task}) {
     if (task.missionId != mission.id) {
@@ -29,6 +42,8 @@ class MissionTaskAIRequestBuilder {
 
     final promptLines = <String>[
       'Complete this mission task.',
+      '',
+      ..._conciseOutputPolicy,
       '',
       if (missionGoal.isNotEmpty) 'Mission goal: $missionGoal',
       if (userContext != null && userContext.isNotEmpty)

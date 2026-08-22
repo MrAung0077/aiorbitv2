@@ -33,16 +33,25 @@ void main() {
     expect(request.messages, hasLength(1));
     expect(request.messages.single.role, AIMessageRole.user);
 
+    final prompt = request.messages.single.content;
+
+    expect(prompt, contains('Complete this mission task.'));
+    expect(prompt, contains('Output policy:'));
     expect(
-      request.messages.single.content,
-      'Complete this mission task.\n'
-      '\n'
-      'Mission goal: Produce a sourced report\n'
-      'Title: Research sources\n'
-      'Description: Find credible primary sources.\n'
-      'Task type: research\n'
-      'Input context: Focus on official documentation.',
+      prompt,
+      contains(
+        'Complete only the current task. Do not pre-complete future mission tasks',
+      ),
     );
+    expect(prompt, contains('Default to a concise 100–180-word result'));
+    expect(prompt, contains('give the usable finished result first'));
+    expect(prompt, contains('Use plain, beginner-friendly language.'));
+    expect(prompt, contains('not consultant reports.'));
+    expect(prompt, contains('Mission goal: Produce a sourced report'));
+    expect(prompt, contains('Title: Research sources'));
+    expect(prompt, contains('Description: Find credible primary sources.'));
+    expect(prompt, contains('Task type: research'));
+    expect(prompt, contains('Input context: Focus on official documentation.'));
 
     expect(request.preferredProvider, isNull);
     expect(request.model, isNull);
