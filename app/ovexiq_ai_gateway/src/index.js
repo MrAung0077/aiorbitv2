@@ -1,5 +1,7 @@
 const COMPLETE_PATH = "/v1/ai/complete";
+const IMAGE_PATH = "/v1/ai/image";
 const MAX_BODY_BYTES = 64 * 1024;
+const MAX_IMAGE_PROMPT_CHARS = 4_000;
 const MAX_MESSAGES = 40;
 const MAX_MESSAGE_CHARS = 12_000;
 const MAX_TOTAL_MESSAGE_CHARS = 40_000;
@@ -8,7 +10,9 @@ const MAX_OUTPUT_TOKENS = 4_096;
 const OPENAI_TIMEOUT_MS = 30_000;
 const OPENROUTER_TIMEOUT_MS = 20_000;
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
+const OPENAI_IMAGES_URL = "https://api.openai.com/v1/images/generations";
 const OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions";
+const OPENAI_IMAGE_MODEL = "gpt-image-2";
 const ALLOWED_ROLES = new Set(["system", "user", "assistant"]);
 
 export default {
@@ -19,6 +23,10 @@ export default {
 
 export async function handleRequest(request, env, fetchProvider) {
   const url = new URL(request.url);
+
+  if (url.pathname === IMAGE_PATH) {
+    return handleImageRequest(request, env, fetchProvider);
+  }
 
   if (url.pathname !== COMPLETE_PATH) {
     return errorResponse(404, "not_found", "Endpoint not found.");
@@ -57,6 +65,42 @@ export async function handleRequest(request, env, fetchProvider) {
   }
 
   return callProvider(parsedRequest.value, env, fetchProvider);
+}
+
+async function handleImageRequest(request, env, fetchProvider) {
+  if (request.method !== "POST") {
+    return errorResponse(405, "method_not_allowed", "Use POST for this endpoint.", {
+      Allow: "POST",
+    });
+  }
+
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().startsWith("application/json")) {
+    return errorResponse(
+      415,
+      "unsupported_media_type",
+      "Content-Type must be application/json.",
+    );
+  }
+
+  const betaToken = request.headers.get("x-ovexiq-beta-token")?.trim() ?? "";
+  const testerId = findTesterId(env.OVEXIQ_BETA_TOKENS, betaToken);
+
+  if (testerId === null) {
+    return errorResponse(401, "unauthorized", "Invalid beta access token.");
+  }
+
+  const rateLimitResponse = await applyRateLimit(env.IMAGE_RATE_LIMITER, testerId);
+  if (rateLimitResponse !== null) {
+    return rateLimitResponse;
+  }
+
+  const parsedRequest = await parseImageRequest(request);
+  if (parsedRequest.response !== null) {
+    return parsedRequest.response;
+  }
+
+  return callOpenAiImage(parsedRequest.value, env, fetchProvider);
 }
 
 function findTesterId(configuredTokens, presentedToken) {
@@ -224,6 +268,45 @@ async function parseRequest(request) {
   };
 }
 
+async function parseImageRequest(request) {
+  let rawBody;
+  try {
+    rawBody = await request.text();
+  } catch {
+    return failure(400, "invalid_json", "Request body must be valid JSON.");
+  }
+
+  if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) {
+    return failure(413, "payload_too_large", "Request payload is too large.");
+  }
+
+  let body;
+  try {
+    body = JSON.parse(rawBody);
+  } catch {
+    return failure(400, "invalid_json", "Request body must be valid JSON.");
+  }
+
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return failure(400, "invalid_request", "Request body must be a JSON object.");
+  }
+
+  if (typeof body.prompt !== "string") {
+    return failure(400, "invalid_prompt", "A prompt is required.");
+  }
+
+  const prompt = body.prompt.trim();
+  if (prompt.length === 0) {
+    return failure(400, "empty_prompt", "A prompt is required.");
+  }
+
+  if (prompt.length > MAX_IMAGE_PROMPT_CHARS) {
+    return failure(413, "prompt_too_large", "Prompt is too large.");
+  }
+
+  return { response: null, value: { prompt } };
+}
+
 async function callProvider(input, env, fetchProvider) {
   const openAiResult = await callOpenAi(input, env, fetchProvider);
   if (openAiResult.response !== null) {
@@ -324,6 +407,84 @@ async function callOpenAi(input, env, fetchProvider) {
           },
         }
       : {}),
+  });
+}
+
+async function callOpenAiImage(input, env, fetchProvider) {
+  const providerApiKey = configuredValue(env.OPENAI_API_KEY);
+
+  if (providerApiKey.length === 0) {
+    return errorResponse(
+      503,
+      "image_generation_unavailable",
+      "Ovexiq image generation is temporarily unavailable.",
+    );
+  }
+
+  const fetchResult = await fetchWithTimeout(
+    fetchProvider,
+    OPENAI_IMAGES_URL,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${providerApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: OPENAI_IMAGE_MODEL,
+        prompt: input.prompt,
+        n: 1,
+        size: "1024x1024",
+        quality: "low",
+        output_format: "png",
+      }),
+    },
+    OPENAI_TIMEOUT_MS,
+  );
+
+  if (fetchResult.error !== null) {
+    return errorResponse(
+      fetchResult.timedOut ? 504 : 502,
+      "image_generation_failed",
+      fetchResult.timedOut
+        ? "Ovexiq image generation timed out. Please try again."
+        : "Ovexiq couldn't create that image. Please try again.",
+    );
+  }
+
+  if (!fetchResult.response.ok) {
+    return errorResponse(
+      502,
+      "image_generation_failed",
+      "Ovexiq couldn't create that image. Please try again.",
+    );
+  }
+
+  let providerPayload;
+  try {
+    providerPayload = await fetchResult.response.json();
+  } catch {
+    return errorResponse(
+      502,
+      "image_generation_failed",
+      "Ovexiq couldn't create that image. Please try again.",
+    );
+  }
+
+  const base64 = providerPayload?.data?.[0]?.b64_json;
+  if (typeof base64 !== "string" || base64.trim().length === 0) {
+    return errorResponse(
+      502,
+      "image_generation_failed",
+      "Ovexiq couldn't create that image. Please try again.",
+    );
+  }
+
+  return jsonResponse({
+    image: {
+      mimeType: "image/png",
+      base64: base64.trim(),
+    },
   });
 }
 

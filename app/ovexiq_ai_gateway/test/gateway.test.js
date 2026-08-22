@@ -4,11 +4,16 @@ import test from "node:test";
 import { handleRequest } from "../src/index.js";
 
 const gatewayUrl = "https://gateway.example.test/v1/ai/complete";
+const imageGatewayUrl = "https://gateway.example.test/v1/ai/image";
 const betaToken = "revocable-tester-token";
 const openAiSecret = "openai-test-secret-must-not-leak";
 const openRouterSecret = "openrouter-test-secret-must-not-leak";
 
-function createEnv({ rateLimitSuccess = true, includeOpenRouter = true } = {}) {
+function createEnv({
+  rateLimitSuccess = true,
+  imageRateLimitSuccess = true,
+  includeOpenRouter = true,
+} = {}) {
   const env = {
     OPENAI_API_KEY: openAiSecret,
     OPENAI_MODEL: "openai-test-model",
@@ -17,6 +22,12 @@ function createEnv({ rateLimitSuccess = true, includeOpenRouter = true } = {}) {
       async limit({ key }) {
         assert.equal(key, "beta:tester-one");
         return { success: rateLimitSuccess };
+      },
+    },
+    IMAGE_RATE_LIMITER: {
+      async limit({ key }) {
+        assert.equal(key, "beta:tester-one");
+        return { success: imageRateLimitSuccess };
       },
     },
   };
@@ -39,6 +50,28 @@ function createRequest(body, token = betaToken) {
     method: "POST",
     headers,
     body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+}
+
+function createImageRequest(
+  body,
+  token = betaToken,
+  { method = "POST", contentType = "application/json" } = {},
+) {
+  const headers = {};
+  if (contentType !== null) {
+    headers["Content-Type"] = contentType;
+  }
+  if (token !== null) {
+    headers["X-Ovexiq-Beta-Token"] = token;
+  }
+
+  return new Request(imageGatewayUrl, {
+    method,
+    headers,
+    ...(method === "POST"
+      ? { body: typeof body === "string" ? body : JSON.stringify(body) }
+      : {}),
   });
 }
 
@@ -73,6 +106,16 @@ function openRouterSuccess(text = "Fallback result") {
     JSON.stringify({
       choices: [{ message: { content: text } }],
       usage: { prompt_tokens: 31, completion_tokens: 13 },
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+function openAiImageSuccess(base64 = "safe-image-base64") {
+  return new Response(
+    JSON.stringify({
+      created: 123,
+      data: [{ b64_json: base64 }],
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
@@ -315,4 +358,139 @@ test("returns 429 when the tester rate limit is exhausted", async () => {
 
   assert.equal(response.status, 429);
   assert.equal(response.headers.get("retry-after"), "60");
+});
+
+test("image endpoint rejects invalid beta tokens and non-POST requests", async () => {
+  const providerFetch = async () => {
+    throw new Error("provider must not be called");
+  };
+
+  const invalidToken = await handleRequest(
+    createImageRequest({ prompt: "Buddha" }, "invalid-token"),
+    createEnv(),
+    providerFetch,
+  );
+  const nonPost = await handleRequest(
+    createImageRequest(null, betaToken, { method: "GET" }),
+    createEnv(),
+    providerFetch,
+  );
+
+  assert.equal(invalidToken.status, 401);
+  assert.equal(nonPost.status, 405);
+  assert.equal(nonPost.headers.get("allow"), "POST");
+});
+
+test("image endpoint accepts JSON only and rejects malformed, missing, empty, and oversized prompts", async () => {
+  const providerFetch = async () => {
+    throw new Error("provider must not be called");
+  };
+
+  const malformed = await handleRequest(
+    createImageRequest("{not-json"),
+    createEnv(),
+    providerFetch,
+  );
+  const nonJson = await handleRequest(
+    createImageRequest({ prompt: "Buddha" }, betaToken, { contentType: "text/plain" }),
+    createEnv(),
+    providerFetch,
+  );
+  const missing = await handleRequest(createImageRequest({}), createEnv(), providerFetch);
+  const empty = await handleRequest(
+    createImageRequest({ prompt: "   " }),
+    createEnv(),
+    providerFetch,
+  );
+  const oversizedPrompt = await handleRequest(
+    createImageRequest({ prompt: "x".repeat(4_001) }),
+    createEnv(),
+    providerFetch,
+  );
+  const oversizedPayload = await handleRequest(
+    createImageRequest({ prompt: "x".repeat(64 * 1024) }),
+    createEnv(),
+    providerFetch,
+  );
+
+  assert.equal(malformed.status, 400);
+  assert.equal(nonJson.status, 415);
+  assert.equal(missing.status, 400);
+  assert.equal(empty.status, 400);
+  assert.equal(oversizedPrompt.status, 413);
+  assert.equal(oversizedPayload.status, 413);
+});
+
+test("image endpoint applies its separate one-per-minute rate limit", async () => {
+  const providerFetch = async () => {
+    throw new Error("provider must not be called");
+  };
+
+  const response = await handleRequest(
+    createImageRequest({ prompt: "Buddha" }),
+    createEnv({ imageRateLimitSuccess: false }),
+    providerFetch,
+  );
+
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get("retry-after"), "60");
+});
+
+test("image endpoint maps one low-cost OpenAI image request to a neutral response", async () => {
+  let upstreamRequest;
+  let calls = 0;
+  const providerFetch = async (url, options) => {
+    calls += 1;
+    upstreamRequest = { url, options, body: JSON.parse(options.body) };
+    return openAiImageSuccess();
+  };
+
+  const response = await handleRequest(
+    createImageRequest({ prompt: "  Buddha meditating beneath a bodhi tree  " }),
+    createEnv(),
+    providerFetch,
+  );
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(calls, 1);
+  assert.equal(upstreamRequest.url, "https://api.openai.com/v1/images/generations");
+  assert.equal(upstreamRequest.options.headers.Authorization, `Bearer ${openAiSecret}`);
+  assert.deepEqual(upstreamRequest.body, {
+    model: "gpt-image-2",
+    prompt: "Buddha meditating beneath a bodhi tree",
+    n: 1,
+    size: "1024x1024",
+    quality: "low",
+    output_format: "png",
+  });
+  assert.deepEqual(payload, {
+    image: { mimeType: "image/png", base64: "safe-image-base64" },
+  });
+  assert.equal(JSON.stringify(payload).toLowerCase().includes("openai"), false);
+  assert.equal(JSON.stringify(payload).includes(openAiSecret), false);
+});
+
+test("image endpoint sanitizes upstream failures and never calls the text fallback", async () => {
+  const calls = [];
+  const providerFetch = async (url) => {
+    calls.push(url);
+    return new Response(`Authorization Bearer ${openAiSecret}`, { status: 503 });
+  };
+
+  const response = await handleRequest(
+    createImageRequest({ prompt: "Buddha" }),
+    createEnv({ includeOpenRouter: true }),
+    providerFetch,
+  );
+  const body = await response.text();
+  const lowerBody = body.toLowerCase();
+
+  assert.equal(response.status, 502);
+  assert.deepEqual(calls, ["https://api.openai.com/v1/images/generations"]);
+  assert.equal(body.includes(openAiSecret), false);
+  assert.equal(body.includes(openRouterSecret), false);
+  assert.equal(lowerBody.includes("openai"), false);
+  assert.equal(lowerBody.includes("openrouter"), false);
+  assert.match(body, /couldn't create that image/);
 });
