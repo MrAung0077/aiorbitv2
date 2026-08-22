@@ -14,11 +14,8 @@ import 'providers/brain_provider.dart';
 import 'providers/chat_controller.dart';
 import 'services/router_preview_service.dart';
 import 'widgets/brain_overlay.dart';
-import 'widgets/mission_suggestion_card.dart';
-import '../mission/mission_detail_screen.dart';
-import '../mission/mission_preview_screen.dart';
-import '../mission/providers/mission_provider.dart';
-import '../mission/providers/mission_task_execution_provider.dart';
+import '../mission/providers/chat_mission_coordinator_provider.dart';
+import '../mission/services/chat_mission_coordinator.dart';
 
 class AIChatScreen extends ConsumerStatefulWidget {
   const AIChatScreen({super.key});
@@ -36,7 +33,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
       const RouterPreviewService();
 
   RouterDecision? _routerDecision;
-  bool _isOpeningMission = false;
+  _MissionWorkState _missionWorkState = _MissionWorkState.idle;
 
   @override
   void initState() {
@@ -54,6 +51,10 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
             .read(chatControllerProvider.notifier)
             .loadMostRecentConversation();
       }
+
+      if (mounted) {
+        _startSuggestedMissionIfNeeded(ref.read(chatControllerProvider));
+      }
     });
   }
 
@@ -69,7 +70,9 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     final text = _controller.text.trim();
     final chatState = ref.read(chatControllerProvider);
 
-    if (text.isEmpty || chatState.isSending) {
+    if (text.isEmpty ||
+        chatState.isSending ||
+        _missionWorkState == _MissionWorkState.working) {
       return;
     }
 
@@ -77,6 +80,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
 
     setState(() {
       _routerDecision = decision;
+      _missionWorkState = _MissionWorkState.idle;
     });
 
     _controller.clear();
@@ -158,101 +162,38 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     ).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
   }
 
-  Future<void> _continueMission() async {
-    if (_isOpeningMission) {
+  Future<void> _startSuggestedMissionIfNeeded(ChatState chatState) async {
+    final suggestion = chatState.missionSuggestion;
+    final conversationId = chatState.conversation?.id;
+
+    if (suggestion == null ||
+        conversationId == null ||
+        _missionWorkState == _MissionWorkState.working) {
       return;
     }
 
-    final chatState = ref.read(chatControllerProvider);
-    final conversationId = chatState.conversation?.id;
-
     setState(() {
-      _isOpeningMission = true;
+      _missionWorkState = _MissionWorkState.working;
     });
 
     try {
-      final missionController = ref.read(missionControllerProvider);
-      final linkedMission = conversationId == null
-          ? null
-          : await missionController.getMissionForConversation(conversationId);
+      final result = await ref
+          .read(chatMissionCoordinatorProvider)
+          .startOrResume(suggestion: suggestion, conversationId: conversationId);
 
       if (!mounted) {
         return;
       }
 
-      if (linkedMission != null) {
-        final latestMission = await missionController.getMission(
-          linkedMission.id,
-        );
-
-        if (!mounted) {
-          return;
-        }
-
-        if (latestMission == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('This mission is no longer available.'),
-            ),
-          );
-          return;
-        }
-
-        await ref
-            .read(missionTaskExecutionProvider.notifier)
-            .restoreMissionExecutions(latestMission.id);
-
-        if (!mounted) {
-          return;
-        }
-
-        await Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => MissionDetailScreen(
-              mission: latestMission,
-              missionController: missionController,
-            ),
-          ),
-        );
-
-        return;
-      }
-
-      final suggestion = chatState.missionSuggestion;
-
-      if (suggestion == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No mission is linked to this conversation.'),
-          ),
-        );
-        return;
-      }
-
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => MissionPreviewScreen(
-            suggestion: suggestion,
-            conversationId: conversationId,
-          ),
-        ),
-      );
+      setState(() {
+        _missionWorkState = result.outcome == ChatMissionRunOutcome.failed
+            ? _MissionWorkState.failed
+            : _MissionWorkState.idle;
+      });
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Unable to open the mission. Please try again.'),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        if (conversationId != null) {
-          ref.invalidate(linkedMissionProvider(conversationId));
-        }
-
         setState(() {
-          _isOpeningMission = false;
+          _missionWorkState = _MissionWorkState.failed;
         });
       }
     }
@@ -269,6 +210,10 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
       final missionSuggestionAppeared =
           previous?.missionSuggestion != next.missionSuggestion &&
           next.missionSuggestion != null;
+
+      if (missionSuggestionAppeared) {
+        _startSuggestedMissionIfNeeded(next);
+      }
 
       if (messageCountChanged || sendingFinished || missionSuggestionAppeared) {
         Future<void>.delayed(const Duration(milliseconds: 80), () {
@@ -287,17 +232,8 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     final hasError = chatState.error != null;
     final canRetryLastResponse =
         chatState.error?.canRetryLastResponse == true && !chatState.isSending;
-    final conversationId = chatState.conversation?.id;
-    final linkedMissionState = conversationId == null
-        ? null
-        : ref.watch(linkedMissionProvider(conversationId));
-    final linkedMission = linkedMissionState?.valueOrNull;
-    final showMissionCard =
-        !chatState.isSending &&
-        !hasError &&
-        (chatState.missionSuggestion != null || linkedMission != null);
-    final isMissionActionLoading =
-        _isOpeningMission || (linkedMissionState?.isLoading ?? false);
+    final isMissionWorking = _missionWorkState == _MissionWorkState.working;
+    final hasMissionFailure = _missionWorkState == _MissionWorkState.failed;
 
     return Scaffold(
       appBar: AppConversationHeader(
@@ -316,7 +252,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                           padding: const EdgeInsets.all(16),
                           itemCount:
                               messages.length +
-                              (showMissionCard ? 1 : 0) +
+                              (isMissionWorking || hasMissionFailure ? 1 : 0) +
                               (chatState.isSending && messages.isEmpty
                                   ? 1
                                   : 0) +
@@ -353,7 +289,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                                       .read(chatControllerProvider.notifier)
                                       .toggleDislike(message.id);
                                 },
-                                onRegenerate: isLastAssistantMessage
+                                onRegenerate: isLastAssistantMessage && !isMissionWorking
                                     ? () {
                                         ref
                                             .read(
@@ -365,15 +301,10 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                               );
                             }
 
-                            if (showMissionCard && index == messages.length) {
-                              return MissionSuggestionCard(
-                                title:
-                                    linkedMission?.title ??
-                                    chatState.missionSuggestion?.title ??
-                                    'Mission',
-                                isExistingMission: linkedMission != null,
-                                isLoading: isMissionActionLoading,
-                                onContinue: _continueMission,
+                            if ((isMissionWorking || hasMissionFailure) &&
+                                index == messages.length) {
+                              return _MissionWorkStatus(
+                                isWorking: isMissionWorking,
                               );
                             }
 
@@ -415,7 +346,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                   child: AppPromptComposer(
                     controller: _controller,
                     focusNode: _focusNode,
-                    isSending: chatState.isSending,
+                    isSending: chatState.isSending || isMissionWorking,
                     onSend: _sendMessage,
                     hintText: 'Ask Ovexiq anything...',
                     maxLines: 5,
@@ -432,6 +363,28 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+enum _MissionWorkState { idle, working, failed }
+
+class _MissionWorkStatus extends StatelessWidget {
+  const _MissionWorkStatus({required this.isWorking});
+
+  final bool isWorking;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isWorking) {
+      return const AppTypingIndicator(label: 'Ovexiq is working...');
+    }
+
+    return const Padding(
+      padding: EdgeInsets.only(top: 12, bottom: 20),
+      child: Text(
+        "Ovexiq couldn't finish that request. Please try again.",
       ),
     );
   }

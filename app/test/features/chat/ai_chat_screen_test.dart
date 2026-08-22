@@ -1,10 +1,17 @@
+import 'dart:async';
+
 import 'package:aiorbit/core/ai/ai.dart';
 import 'package:aiorbit/features/chat/ai_chat_screen.dart';
 import 'package:aiorbit/features/chat/models/conversation.dart';
 import 'package:aiorbit/features/chat/providers/chat_controller.dart';
 import 'package:aiorbit/features/chat/repositories/conversation_repository.dart';
 import 'package:aiorbit/features/chat/services/ai_chat_service.dart';
+import 'package:aiorbit/features/mission/providers/chat_mission_coordinator_provider.dart';
 import 'package:aiorbit/features/mission/providers/mission_provider.dart';
+import 'package:aiorbit/features/mission/controllers/mission_controller.dart';
+import 'package:aiorbit/features/mission/models/mission.dart';
+import 'package:aiorbit/features/mission/models/task_status.dart';
+import 'package:aiorbit/features/mission/services/chat_mission_coordinator.dart';
 import 'package:aiorbit/features/mission/services/memory_mission_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -86,6 +93,106 @@ void main() {
     );
     expect(find.byTooltip('Retry'), findsNothing);
   });
+
+  testWidgets(
+    'workflow requests auto-start once and show only a Working state in Chat',
+    (tester) async {
+      final missionRepository = MemoryMissionRepository();
+      final controller = MissionController(repository: missionRepository);
+      late final Future<Mission> Function(String) runMission;
+      var runCount = 0;
+      final coordinator = ChatMissionCoordinator(
+        missionController: controller,
+        restoreExecutions: (_) async {},
+        runMission: (missionId) => runMission(missionId),
+      );
+      final runCompleter = _MissionRunCompleter();
+      runMission = (missionId) {
+        runCount++;
+        return runCompleter.future;
+      };
+      final container = ProviderContainer(
+        overrides: <Override>[
+          conversationRepositoryProvider.overrideWithValue(
+            _MemoryConversationRepository(),
+          ),
+          aiChatServiceProvider.overrideWithValue(_SuccessfulAIChatService()),
+          missionRepositoryProvider.overrideWithValue(missionRepository),
+          chatMissionCoordinatorProvider.overrideWithValue(coordinator),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: AIChatScreen()),
+        ),
+      );
+
+      await tester.enterText(find.byType(TextField), 'Build an app for me');
+      await tester.tap(find.byTooltip('Send'));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Ovexiq is working...'), findsOneWidget);
+      expect(find.text('Continue Mission'), findsNothing);
+      expect(find.text('Continue as a Mission'), findsNothing);
+      expect(find.text('Mission Preview'), findsNothing);
+      expect(find.text('Mission'), findsNothing);
+      expect(runCount, 1);
+      expect(await missionRepository.getAllMissions(), hasLength(1));
+
+      final mission = (await missionRepository.getAllMissions()).single;
+      runCompleter.complete(_completedMission(mission));
+      await tester.pumpAndSettle();
+
+      expect(runCount, 1);
+    },
+  );
+
+  testWidgets('automatic Mission failure becomes a safe Chat message', (
+    tester,
+  ) async {
+    final missionRepository = MemoryMissionRepository();
+    final controller = MissionController(repository: missionRepository);
+    final coordinator = ChatMissionCoordinator(
+      missionController: controller,
+      restoreExecutions: (_) async {},
+      runMission: (missionId) async {
+        return (await missionRepository.getMission(missionId))!;
+      },
+    );
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(
+          _MemoryConversationRepository(),
+        ),
+        aiChatServiceProvider.overrideWithValue(_SuccessfulAIChatService()),
+        missionRepositoryProvider.overrideWithValue(missionRepository),
+        chatMissionCoordinatorProvider.overrideWithValue(coordinator),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AIChatScreen()),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField), 'Build an app for me');
+    await tester.tap(find.byTooltip('Send'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text("Ovexiq couldn't finish that request. Please try again."),
+      findsOneWidget,
+    );
+    expect(find.text('Run Task'), findsNothing);
+    expect(find.text('Retry Task'), findsNothing);
+    expect(find.text('Accept Result'), findsNothing);
+  });
 }
 
 class _FailOnceAIChatService extends AIChatService {
@@ -115,6 +222,41 @@ class _FailOnceAIChatService extends AIChatService {
     );
     yield const AIChunk.done(provider: ProviderType.openAI);
   }
+}
+
+class _SuccessfulAIChatService extends AIChatService {
+  @override
+  Stream<AIChunk> sendMessages(List<AIMessage> messages) async* {
+    yield const AIChunk.text(
+      provider: ProviderType.openAI,
+      text: 'I will take care of that.',
+    );
+    yield const AIChunk.done(provider: ProviderType.openAI);
+  }
+}
+
+class _MissionRunCompleter {
+  final _completer = Completer<Mission>();
+
+  Future<Mission> get future => _completer.future;
+
+  void complete(Mission mission) {
+    _completer.complete(mission);
+  }
+}
+
+Mission _completedMission(Mission mission) {
+  return mission.copyWith(
+    tasks: mission.tasks
+        .map(
+          (task) => task.copyWith(
+            status: TaskStatus.completed,
+            output: 'Finished result',
+            completedAt: DateTime(2026, 1, 2),
+          ),
+        )
+        .toList(growable: false),
+  );
 }
 
 class _MemoryConversationRepository extends ConversationRepository {

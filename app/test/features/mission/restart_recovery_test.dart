@@ -3,7 +3,6 @@ import 'dart:ffi' hide Size;
 import 'dart:io';
 
 import 'package:aiorbit/core/database/isar_service.dart';
-import 'package:aiorbit/features/chat/ai_chat_screen.dart';
 import 'package:aiorbit/features/chat/conversation_history_screen.dart';
 import 'package:aiorbit/features/chat/models/chat_message.dart';
 import 'package:aiorbit/features/chat/models/conversation.dart';
@@ -12,7 +11,6 @@ import 'package:aiorbit/features/chat/providers/conversation_list_provider.dart'
 import 'package:aiorbit/features/home/home_screen.dart';
 import 'package:aiorbit/features/mission/mission_detail_screen.dart';
 import 'package:aiorbit/features/mission/mission_final_results_card.dart';
-import 'package:aiorbit/features/mission/mission_preview_screen.dart';
 import 'package:aiorbit/features/mission/models/execution_status.dart';
 import 'package:aiorbit/features/mission/models/mission.dart';
 import 'package:aiorbit/features/mission/models/mission_category.dart';
@@ -24,7 +22,6 @@ import 'package:aiorbit/features/mission/models/task_status.dart';
 import 'package:aiorbit/features/mission/providers/mission_execution_provider.dart';
 import 'package:aiorbit/features/mission/providers/mission_provider.dart';
 import 'package:aiorbit/features/mission/providers/mission_task_execution_provider.dart';
-import 'package:aiorbit/features/mission/services/memory_mission_repository.dart';
 import 'package:aiorbit/features/mission/services/mission_task_executor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -253,83 +250,6 @@ void main() {
 
       expect(find.text(latestConversation.title), findsOneWidget);
       expect(find.text(recentConversation.title), findsOneWidget);
-
-      final restoredMissions = await tester.runAsync(
-        () =>
-            restoredContainer.read(missionRepositoryProvider).getAllMissions(),
-      );
-      final uiMissionRepository = MemoryMissionRepository();
-      await tester.runAsync(() async {
-        for (final mission in restoredMissions!) {
-          await uiMissionRepository.saveMission(mission);
-        }
-      });
-      final uiContainer = ProviderContainer(
-        overrides: <Override>[
-          missionRepositoryProvider.overrideWithValue(uiMissionRepository),
-        ],
-      );
-      addTearDown(uiContainer.dispose);
-      await tester.runAsync(
-        () => uiContainer
-            .read(chatControllerProvider.notifier)
-            .loadConversation(latestConversation.id),
-      );
-
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: uiContainer,
-          child: const MaterialApp(home: AIChatScreen()),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.byType(AIChatScreen), findsOneWidget);
-      expect(find.text('Continue Mission'), findsOneWidget);
-      expect(find.text('Open Mission'), findsOneWidget);
-
-      await tester.runAsync(
-        () => uiContainer
-            .read(missionTaskExecutionProvider.notifier)
-            .restoreMissionExecutions(latestMission.id),
-      );
-
-      final restoredTaskExecutions = uiContainer.read(
-        missionTaskExecutionProvider,
-      );
-
-      expect(restoredTaskExecutions, hasLength(1));
-      expect(restoredTaskExecutions.single.status, ExecutionStatus.completed);
-      expect(
-        restoredTaskExecutions.single.outputText,
-        'Session-only execution result',
-      );
-
-      await tester.tap(find.text('Open Mission'));
-      await tester.pumpAndSettle();
-
-      expect(find.byType(MissionDetailScreen), findsOneWidget);
-      expect(find.text(latestMission.title), findsOneWidget);
-      expect(find.text(olderMission.title), findsNothing);
-      expect(find.text('Mission Completed'), findsOneWidget);
-      expect(find.text('All tasks completed successfully.'), findsOneWidget);
-      expect(find.text('1 / 1 Tasks Completed'), findsOneWidget);
-      expect(find.text('Mission Timeline'), findsOneWidget);
-      expect(find.text('Mission Execution'), findsOneWidget);
-      expect(find.text('Workflow'), findsOneWidget);
-      expect(find.byType(MissionFinalResultsCard), findsOneWidget);
-      expect(find.text('Final Results'), findsOneWidget);
-      expect(find.text('1 finished result is ready.'), findsOneWidget);
-      expect(find.text('Session-only execution result'), findsNWidgets(2));
-      expect(
-        find.byKey(
-          ValueKey<String>(
-            'open-final-result-${latestMission.tasks.single.id}',
-          ),
-        ),
-        findsOneWidget,
-      );
-      expect(find.text('Open Final Result'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(milliseconds: 1));
@@ -586,109 +506,6 @@ void main() {
       );
     },
   );
-
-  testWidgets('restart with missing linked mission falls back to Preview', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(1024, 1400));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    final conversation = _conversation(
-      id: 'conversation-missing-mission',
-      title: 'Conversation with removed mission',
-      updatedAt: DateTime(2026, 4, 4, 10),
-      prompt: 'Research the latest AI trends',
-    );
-    final removedMission = _mission(
-      id: 'mission-removed',
-      conversationId: conversation.id,
-      title: 'Removed Mission',
-      updatedAt: DateTime(2026, 4, 4, 11),
-      taskStatus: TaskStatus.pending,
-    );
-    final initialContainer = ProviderContainer();
-
-    await tester.runAsync(
-      () => initialContainer
-          .read(conversationRepositoryProvider)
-          .saveConversation(conversation),
-    );
-    final missionRepository = initialContainer.read(missionRepositoryProvider);
-    await tester.runAsync(() async {
-      await missionRepository.saveMission(removedMission);
-      await missionRepository.deleteMission(removedMission.id);
-    });
-
-    initialContainer.dispose();
-    await tester.runAsync(() async {
-      await IsarService.close();
-      await IsarService.initialize(
-        directoryPath: databaseDirectory.path,
-        name: databaseName,
-        inspector: false,
-      );
-    });
-
-    final restoredContainer = ProviderContainer();
-    addTearDown(restoredContainer.dispose);
-
-    final restoredMission = await tester.runAsync(
-      () => restoredContainer
-          .read(missionControllerProvider)
-          .getMissionForConversation(conversation.id),
-    );
-    expect(restoredMission, isNull);
-
-    await tester.runAsync(() async {
-      await restoredContainer.read(conversationListProvider.future);
-    });
-
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: restoredContainer,
-        child: const MaterialApp(home: ConversationHistoryScreen()),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text(conversation.title), findsOneWidget);
-
-    final uiMissionRepository = MemoryMissionRepository();
-    final uiContainer = ProviderContainer(
-      overrides: <Override>[
-        missionRepositoryProvider.overrideWithValue(uiMissionRepository),
-      ],
-    );
-    addTearDown(uiContainer.dispose);
-    await tester.runAsync(
-      () => uiContainer
-          .read(chatControllerProvider.notifier)
-          .loadConversation(conversation.id),
-    );
-
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: uiContainer,
-        child: const MaterialApp(home: AIChatScreen()),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.byType(AIChatScreen), findsOneWidget);
-    expect(find.text('Continue as a Mission'), findsOneWidget);
-
-    await tester.tap(find.text('Continue'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(MissionPreviewScreen), findsOneWidget);
-    final restoredMissions = await tester.runAsync(
-      () => restoredContainer.read(missionRepositoryProvider).getAllMissions(),
-    );
-    expect(restoredMissions, isEmpty);
-
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pump(const Duration(milliseconds: 1));
-  });
 }
 
 Conversation _conversation({
