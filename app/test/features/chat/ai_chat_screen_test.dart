@@ -112,7 +112,9 @@ void main() {
             _MemoryConversationRepository(),
           ),
           aiChatServiceProvider.overrideWithValue(aiChatService),
-          missionRepositoryProvider.overrideWithValue(MemoryMissionRepository()),
+          missionRepositoryProvider.overrideWithValue(
+            MemoryMissionRepository(),
+          ),
           chatImageGenerationServiceProvider.overrideWithValue(imageGenerator),
         ],
       );
@@ -127,13 +129,15 @@ void main() {
 
       await tester.enterText(
         find.byType(TextField),
-        'Create a picture of Buddha',
+        'Create a peaceful picture of Buddha meditating under a bodhi tree.',
       );
       await tester.tap(find.byTooltip('Send'));
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.text('Ovexiq is creating your image...'), findsOneWidget);
-      expect(imageGenerator.prompts, <String>['Buddha']);
+      expect(imageGenerator.prompts, <String>[
+        'Buddha meditating under a bodhi tree',
+      ]);
       expect(aiChatService.requests, isEmpty);
       expect(container.read(chatControllerProvider).imageActionRequest, isNull);
 
@@ -158,9 +162,13 @@ void main() {
     },
   );
 
-  testWidgets('image generation failure is safe and non-technical', (tester) async {
+  testWidgets('image generation failure is safe and non-technical', (
+    tester,
+  ) async {
     final imageCompleter = Completer<GeneratedImage>();
-    final imageGenerator = _FakeChatImageGenerator((_) => imageCompleter.future);
+    final imageGenerator = _FakeChatImageGenerator(
+      (_) => imageCompleter.future,
+    );
     final container = ProviderContainer(
       overrides: <Override>[
         conversationRepositoryProvider.overrideWithValue(
@@ -180,7 +188,10 @@ void main() {
       ),
     );
 
-    await tester.enterText(find.byType(TextField), 'Create a picture of Buddha');
+    await tester.enterText(
+      find.byType(TextField),
+      'Create a picture of Buddha',
+    );
     await tester.tap(find.byTooltip('Send'));
     await tester.pump(const Duration(milliseconds: 100));
 

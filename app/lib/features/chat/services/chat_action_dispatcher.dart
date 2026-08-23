@@ -25,12 +25,12 @@ class ChatActionDispatcher {
   const ChatActionDispatcher();
 
   static final RegExp _imageCreation = RegExp(
-    r'\b(?:create|make|generate|draw)\s+(?:an?\s+|the\s+)?(?:image|picture)\b',
+    r'\b(?:create|make|generate|draw)\s+(?:(?:me|an?|the)\s+)*(?:\w+\s+){0,3}(?:image|picture)\b',
     caseSensitive: false,
   );
 
   static final RegExp _informationalQuestion = RegExp(
-    r'^\s*(?:how\s+(?:do|can|would|should)\s+(?:i|we)|what\s+(?:is|are)|why\s+is|explain\b|tell\s+me\s+(?:about|how))',
+    r'^\s*(?:how\s+(?:do|can|would|should)\s+(?:i|we)|what\s+(?:is|are)|why\s+is|explain\b|tell\s+me\s+(?:about|how)|can\s+you\s+(?:explain|tell\s+me))',
     caseSensitive: false,
   );
 

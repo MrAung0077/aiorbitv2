@@ -125,11 +125,16 @@ void main() {
         );
         addTearDown(controller.dispose);
 
-        await controller.sendMessage('Help me create a picture of Buddha');
+        await controller.sendMessage(
+          'Create a peaceful picture of Buddha meditating under a bodhi tree.',
+        );
 
         expect(aiChatService.requests, isEmpty);
         expect(controller.state.imageActionRequest, isNotNull);
-        expect(controller.state.imageActionRequest!.subject, 'Buddha');
+        expect(
+          controller.state.imageActionRequest!.subject,
+          'Buddha meditating under a bodhi tree',
+        );
         expect(controller.state.messages, hasLength(1));
         expect(controller.state.messages.single.content, contains('Buddha'));
       },
