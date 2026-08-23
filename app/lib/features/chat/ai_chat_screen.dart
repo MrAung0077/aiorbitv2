@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/ai/providers/ovexiq_image_api_client.dart';
 import '../../core/widgets/app_conversation_header.dart';
 import '../../core/widgets/app_message_bubble.dart';
 import '../../core/widgets/app_prompt_composer.dart';
@@ -12,9 +13,11 @@ import 'models/message_feedback.dart';
 import 'models/router_decision.dart';
 import 'providers/brain_provider.dart';
 import 'providers/chat_controller.dart';
+import 'providers/chat_image_generation_provider.dart';
 import 'services/router_preview_service.dart';
 import 'widgets/brain_overlay.dart';
 import 'widgets/finished_result_card.dart';
+import 'widgets/generated_image_card.dart';
 import '../mission/providers/chat_mission_coordinator_provider.dart';
 import '../mission/services/chat_mission_coordinator.dart';
 import '../mission/services/chat_mission_result_adapter.dart';
@@ -37,6 +40,9 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
   RouterDecision? _routerDecision;
   _MissionWorkState _missionWorkState = _MissionWorkState.idle;
   ChatMissionResult? _finishedMissionResult;
+  _ImageWorkState _imageWorkState = _ImageWorkState.idle;
+  GeneratedImage? _generatedImage;
+  final Set<String> _startedImageRequestKeys = <String>{};
 
   @override
   void initState() {
@@ -57,6 +63,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
 
       if (mounted) {
         _startSuggestedMissionIfNeeded(ref.read(chatControllerProvider));
+        _startImageGenerationIfNeeded(ref.read(chatControllerProvider));
       }
     });
   }
@@ -75,7 +82,8 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
 
     if (text.isEmpty ||
         chatState.isSending ||
-        _missionWorkState == _MissionWorkState.working) {
+        _missionWorkState == _MissionWorkState.working ||
+        _imageWorkState == _ImageWorkState.working) {
       return;
     }
 
@@ -85,6 +93,8 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
       _routerDecision = decision;
       _missionWorkState = _MissionWorkState.idle;
       _finishedMissionResult = null;
+      _imageWorkState = _ImageWorkState.idle;
+      _generatedImage = null;
     });
 
     _controller.clear();
@@ -213,6 +223,48 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     }
   }
 
+  Future<void> _startImageGenerationIfNeeded(ChatState chatState) async {
+    final request = chatState.imageActionRequest;
+    final conversationId = chatState.conversation?.id;
+    final messages = chatState.messages;
+
+    if (request == null || conversationId == null || messages.isEmpty) {
+      return;
+    }
+
+    final requestKey = '$conversationId:${messages.last.id}';
+    if (!_startedImageRequestKeys.add(requestKey)) {
+      return;
+    }
+
+    setState(() {
+      _imageWorkState = _ImageWorkState.working;
+      _generatedImage = null;
+    });
+    ref.read(chatControllerProvider.notifier).consumeImageActionRequest();
+
+    try {
+      final image = await ref
+          .read(chatImageGenerationServiceProvider)
+          .generate(prompt: request.subject);
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _generatedImage = image;
+        _imageWorkState = _ImageWorkState.idle;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _imageWorkState = _ImageWorkState.failed;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen<ChatState>(chatControllerProvider, (previous, next) {
@@ -224,12 +276,22 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
       final missionSuggestionAppeared =
           previous?.missionSuggestion != next.missionSuggestion &&
           next.missionSuggestion != null;
+      final imageActionAppeared =
+          previous?.imageActionRequest != next.imageActionRequest &&
+          next.imageActionRequest != null;
 
       if (missionSuggestionAppeared) {
         _startSuggestedMissionIfNeeded(next);
       }
 
-      if (messageCountChanged || sendingFinished || missionSuggestionAppeared) {
+      if (imageActionAppeared) {
+        _startImageGenerationIfNeeded(next);
+      }
+
+      if (messageCountChanged ||
+          sendingFinished ||
+          missionSuggestionAppeared ||
+          imageActionAppeared) {
         Future<void>.delayed(const Duration(milliseconds: 80), () {
           if (mounted) {
             _scrollToBottom();
@@ -249,6 +311,16 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     final isMissionWorking = _missionWorkState == _MissionWorkState.working;
     final hasMissionFailure = _missionWorkState == _MissionWorkState.failed;
     final finishedMissionResult = _finishedMissionResult;
+    final isImageWorking = _imageWorkState == _ImageWorkState.working;
+    final hasImageFailure = _imageWorkState == _ImageWorkState.failed;
+    final generatedImage = _generatedImage;
+    final hasImageStatus =
+        isImageWorking || hasImageFailure || generatedImage != null;
+    final hasWorkStatus =
+        hasImageStatus ||
+        isMissionWorking ||
+        hasMissionFailure ||
+        finishedMissionResult != null;
 
     return Scaffold(
       appBar: AppConversationHeader(
@@ -267,11 +339,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                           padding: const EdgeInsets.all(16),
                           itemCount:
                               messages.length +
-                              (isMissionWorking ||
-                                      hasMissionFailure ||
-                                      finishedMissionResult != null
-                                  ? 1
-                                  : 0) +
+                              (hasWorkStatus ? 1 : 0) +
                               (chatState.isSending && messages.isEmpty
                                   ? 1
                                   : 0) +
@@ -318,6 +386,16 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                                             .regenerateLastResponse();
                                       }
                                     : null,
+                              );
+                            }
+
+                            if (hasImageStatus && index == messages.length) {
+                              if (generatedImage != null) {
+                                return GeneratedImageCard(image: generatedImage);
+                              }
+
+                              return _ImageWorkStatus(
+                                isWorking: isImageWorking,
                               );
                             }
 
@@ -374,7 +452,8 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                   child: AppPromptComposer(
                     controller: _controller,
                     focusNode: _focusNode,
-                    isSending: chatState.isSending || isMissionWorking,
+                    isSending:
+                        chatState.isSending || isMissionWorking || isImageWorking,
                     onSend: _sendMessage,
                     hintText: 'Ask Ovexiq anything...',
                     maxLines: 5,
@@ -398,6 +477,8 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
 
 enum _MissionWorkState { idle, working, failed }
 
+enum _ImageWorkState { idle, working, failed }
+
 class _MissionWorkStatus extends StatelessWidget {
   const _MissionWorkStatus({required this.isWorking});
 
@@ -412,6 +493,24 @@ class _MissionWorkStatus extends StatelessWidget {
     return const Padding(
       padding: EdgeInsets.only(top: 12, bottom: 20),
       child: Text("Ovexiq couldn't finish that request. Please try again."),
+    );
+  }
+}
+
+class _ImageWorkStatus extends StatelessWidget {
+  const _ImageWorkStatus({required this.isWorking});
+
+  final bool isWorking;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isWorking) {
+      return const AppTypingIndicator(label: 'Ovexiq is creating your image...');
+    }
+
+    return const Padding(
+      padding: EdgeInsets.only(top: 12, bottom: 20),
+      child: Text('Ovexiq couldn’t create that image. Please try again.'),
     );
   }
 }

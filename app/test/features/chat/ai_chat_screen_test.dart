@@ -1,11 +1,15 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:aiorbit/core/ai/ai.dart';
+import 'package:aiorbit/core/ai/providers/ovexiq_image_api_client.dart';
 import 'package:aiorbit/features/chat/ai_chat_screen.dart';
 import 'package:aiorbit/features/chat/models/conversation.dart';
 import 'package:aiorbit/features/chat/providers/chat_controller.dart';
+import 'package:aiorbit/features/chat/providers/chat_image_generation_provider.dart';
 import 'package:aiorbit/features/chat/repositories/conversation_repository.dart';
 import 'package:aiorbit/features/chat/services/ai_chat_service.dart';
+import 'package:aiorbit/features/chat/services/chat_image_generation_service.dart';
 import 'package:aiorbit/features/mission/providers/chat_mission_coordinator_provider.dart';
 import 'package:aiorbit/features/mission/providers/mission_provider.dart';
 import 'package:aiorbit/features/mission/controllers/mission_controller.dart';
@@ -92,6 +96,104 @@ void main() {
       findsOneWidget,
     );
     expect(find.byTooltip('Retry'), findsNothing);
+  });
+
+  testWidgets(
+    'image actions show Working, render one generated image, and bypass text completion',
+    (tester) async {
+      final imageCompleter = Completer<GeneratedImage>();
+      final imageGenerator = _FakeChatImageGenerator(
+        (_) => imageCompleter.future,
+      );
+      final aiChatService = _SuccessfulAIChatService();
+      final container = ProviderContainer(
+        overrides: <Override>[
+          conversationRepositoryProvider.overrideWithValue(
+            _MemoryConversationRepository(),
+          ),
+          aiChatServiceProvider.overrideWithValue(aiChatService),
+          missionRepositoryProvider.overrideWithValue(MemoryMissionRepository()),
+          chatImageGenerationServiceProvider.overrideWithValue(imageGenerator),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: AIChatScreen()),
+        ),
+      );
+
+      await tester.enterText(
+        find.byType(TextField),
+        'Create a picture of Buddha',
+      );
+      await tester.tap(find.byTooltip('Send'));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Ovexiq is creating your image...'), findsOneWidget);
+      expect(imageGenerator.prompts, <String>['Buddha']);
+      expect(aiChatService.requests, isEmpty);
+      expect(container.read(chatControllerProvider).imageActionRequest, isNull);
+
+      await tester.pump();
+      await tester.pump();
+      expect(imageGenerator.prompts, hasLength(1));
+
+      imageCompleter.complete(_testGeneratedImage());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Done'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('generated-image-card')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('generated-image-preview')),
+        findsOneWidget,
+      );
+      expect(find.text('Mission'), findsNothing);
+      expect(find.text('Task 1'), findsNothing);
+    },
+  );
+
+  testWidgets('image generation failure is safe and non-technical', (tester) async {
+    final imageCompleter = Completer<GeneratedImage>();
+    final imageGenerator = _FakeChatImageGenerator((_) => imageCompleter.future);
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(
+          _MemoryConversationRepository(),
+        ),
+        aiChatServiceProvider.overrideWithValue(_SuccessfulAIChatService()),
+        missionRepositoryProvider.overrideWithValue(MemoryMissionRepository()),
+        chatImageGenerationServiceProvider.overrideWithValue(imageGenerator),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AIChatScreen()),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField), 'Create a picture of Buddha');
+    await tester.tap(find.byTooltip('Send'));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('Ovexiq is creating your image...'), findsOneWidget);
+    imageCompleter.completeError(StateError('raw provider error'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Ovexiq couldn’t create that image. Please try again.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('provider error'), findsNothing);
+    expect(imageGenerator.prompts, hasLength(1));
   });
 
   testWidgets(
@@ -312,14 +414,108 @@ class _FailOnceAIChatService extends AIChatService {
 }
 
 class _SuccessfulAIChatService extends AIChatService {
+  final List<List<AIMessage>> requests = <List<AIMessage>>[];
+
   @override
   Stream<AIChunk> sendMessages(List<AIMessage> messages) async* {
+    requests.add(List<AIMessage>.of(messages));
     yield const AIChunk.text(
       provider: ProviderType.openAI,
       text: 'I will take care of that.',
     );
     yield const AIChunk.done(provider: ProviderType.openAI);
   }
+}
+
+class _FakeChatImageGenerator implements ChatImageGenerator {
+  _FakeChatImageGenerator(this._onGenerate);
+
+  final Future<GeneratedImage> Function(String prompt) _onGenerate;
+  final List<String> prompts = <String>[];
+
+  @override
+  Future<GeneratedImage> generate({required String prompt}) {
+    prompts.add(prompt);
+    return _onGenerate(prompt);
+  }
+}
+
+GeneratedImage _testGeneratedImage() {
+  return GeneratedImage(
+    mimeType: 'image/png',
+    bytes: Uint8List.fromList(<int>[
+      137,
+      80,
+      78,
+      71,
+      13,
+      10,
+      26,
+      10,
+      0,
+      0,
+      0,
+      13,
+      73,
+      72,
+      68,
+      82,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      8,
+      6,
+      0,
+      0,
+      0,
+      31,
+      21,
+      196,
+      137,
+      0,
+      0,
+      0,
+      13,
+      73,
+      68,
+      65,
+      84,
+      8,
+      215,
+      99,
+      248,
+      207,
+      192,
+      240,
+      31,
+      0,
+      5,
+      0,
+      1,
+      255,
+      137,
+      153,
+      61,
+      29,
+      0,
+      0,
+      0,
+      0,
+      73,
+      69,
+      78,
+      68,
+      174,
+      66,
+      96,
+      130,
+    ]),
+  );
 }
 
 class _MissionRunCompleter {

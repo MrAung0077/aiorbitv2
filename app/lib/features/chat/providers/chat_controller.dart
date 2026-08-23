@@ -454,6 +454,15 @@ class ChatController extends StateNotifier<ChatState> {
     }
   }
 
+  /// Clears a transient image action after the Chat UI has started it.
+  void consumeImageActionRequest() {
+    if (state.imageActionRequest == null) {
+      return;
+    }
+
+    state = state.copyWith(clearImageActionRequest: true);
+  }
+
   Future<void> regenerateLastResponse() async {
     if (state.isSending) {
       return;
