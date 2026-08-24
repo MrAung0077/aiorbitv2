@@ -13,4 +13,10 @@ class ChatMessageRecord {
   DateTime createdAt = DateTime.now();
 
   bool isError = false;
+
+  String? attachmentId;
+
+  String? attachmentMimeType;
+
+  String? attachmentLocalFilePath;
 }

@@ -1,4 +1,5 @@
 import 'package:aiorbit/core/ai/ai.dart';
+import 'package:aiorbit/features/chat/models/chat_message.dart';
 import 'package:aiorbit/features/chat/models/conversation.dart';
 import 'package:aiorbit/features/chat/providers/chat_controller.dart';
 import 'package:aiorbit/features/chat/repositories/conversation_repository.dart';
@@ -160,6 +161,49 @@ void main() {
         );
       },
     );
+
+    test('persists exactly one generated image-result message', () async {
+      final repository = _MemoryConversationRepository();
+      final controller = _createController(repository);
+      addTearDown(controller.dispose);
+
+      await controller.sendMessage('Create a picture of Buddha');
+      final conversationId = controller.state.conversation!.id;
+      final sourceMessageId = controller.state.messages.single.id;
+      const attachment = ChatAttachment(
+        id: 'image-result',
+        mimeType: 'image/png',
+        localFilePath: '/safe/local/image.png',
+      );
+
+      expect(
+        await controller.persistGeneratedImageResult(
+          conversationId: conversationId,
+          sourceMessageId: sourceMessageId,
+          attachment: attachment,
+        ),
+        isTrue,
+      );
+      expect(
+        await controller.persistGeneratedImageResult(
+          conversationId: conversationId,
+          sourceMessageId: sourceMessageId,
+          attachment: attachment,
+        ),
+        isTrue,
+      );
+
+      final persisted = await repository.getConversation(conversationId);
+      expect(
+        persisted!.messages.where((message) => message.attachment != null),
+        hasLength(1),
+      );
+      expect(persisted.messages.last.content, 'Done');
+      expect(
+        persisted.messages.last.attachment?.localFilePath,
+        contains('image.png'),
+      );
+    });
 
     test(
       'asks exactly once for a Facebook post topic before completion',

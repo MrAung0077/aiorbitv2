@@ -144,6 +144,50 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('History keeps a completed image conversation', (tester) async {
+    final updatedAt = DateTime(2026, 8, 24);
+    final completedImageConversation = Conversation(
+      id: 'completed-image',
+      title: 'Buddha beneath a bodhi tree',
+      messages: <ChatMessage>[
+        ChatMessage(
+          id: 'image-result',
+          role: ChatRole.assistant,
+          content: 'Done',
+          createdAt: updatedAt,
+          attachment: const ChatAttachment(
+            id: 'image-attachment',
+            mimeType: 'image/png',
+            localFilePath: '/local/image.png',
+          ),
+        ),
+      ],
+      createdAt: updatedAt,
+      updatedAt: updatedAt,
+    );
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(
+          _MemoryConversationRepository(<Conversation>[
+            completedImageConversation,
+          ]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: ConversationHistoryScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Buddha beneath a bodhi tree'), findsOneWidget);
+    expect(find.text('Done'), findsOneWidget);
+  });
 }
 
 Conversation _conversation({

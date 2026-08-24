@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/ai/providers/ovexiq_image_api_client.dart';
 import '../../core/widgets/app_conversation_header.dart';
 import '../../core/widgets/app_message_bubble.dart';
 import '../../core/widgets/app_prompt_composer.dart';
@@ -41,7 +40,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
   _MissionWorkState _missionWorkState = _MissionWorkState.idle;
   ChatMissionResult? _finishedMissionResult;
   _ImageWorkState _imageWorkState = _ImageWorkState.idle;
-  GeneratedImage? _generatedImage;
+  final Map<String, Uint8List> _imagePreviewBytes = <String, Uint8List>{};
   final Set<String> _startedImageRequestKeys = <String>{};
 
   @override
@@ -95,7 +94,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
       _missionWorkState = _MissionWorkState.idle;
       _finishedMissionResult = null;
       _imageWorkState = _ImageWorkState.idle;
-      _generatedImage = null;
+      _imagePreviewBytes.clear();
     });
 
     _controller.clear();
@@ -240,7 +239,6 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
 
     setState(() {
       _imageWorkState = _ImageWorkState.working;
-      _generatedImage = null;
     });
     ref.read(chatControllerProvider.notifier).consumeImageActionRequest();
 
@@ -249,12 +247,36 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
           .read(chatImageGenerationServiceProvider)
           .generate(prompt: request.subject);
 
+      final localFilePath = await ref
+          .read(generatedImageResultStoreProvider)
+          .savePng(
+            conversationId: conversationId,
+            sourceMessageId: messages.last.id,
+            bytes: image.bytes,
+          );
+      final attachment = ChatAttachment(
+        id: 'image-$conversationId-${messages.last.id}',
+        mimeType: image.mimeType,
+        localFilePath: localFilePath,
+      );
+      final persisted = await ref
+          .read(chatControllerProvider.notifier)
+          .persistGeneratedImageResult(
+            conversationId: conversationId,
+            sourceMessageId: messages.last.id,
+            attachment: attachment,
+          );
+
+      if (!persisted) {
+        throw StateError('Could not save the generated image result.');
+      }
+
       if (!mounted) {
         return;
       }
 
       setState(() {
-        _generatedImage = image;
+        _imagePreviewBytes[attachment.id] = image.bytes;
         _imageWorkState = _ImageWorkState.idle;
       });
     } catch (_) {
@@ -340,9 +362,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     final finishedMissionResult = _finishedMissionResult;
     final isImageWorking = _imageWorkState == _ImageWorkState.working;
     final hasImageFailure = _imageWorkState == _ImageWorkState.failed;
-    final generatedImage = _generatedImage;
-    final hasImageStatus =
-        isImageWorking || hasImageFailure || generatedImage != null;
+    final hasImageStatus = isImageWorking || hasImageFailure;
     final hasWorkStatus =
         hasImageStatus ||
         isMissionWorking ||
@@ -374,6 +394,16 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                           itemBuilder: (context, index) {
                             if (index < messages.length) {
                               final message = messages[index];
+
+                              if (message.attachment != null) {
+                                return GeneratedImageCard(
+                                  attachment: message.attachment!,
+                                  previewBytes:
+                                      _imagePreviewBytes[message
+                                          .attachment!
+                                          .id],
+                                );
+                              }
 
                               final isLastAssistantMessage =
                                   index == messages.length - 1 &&
@@ -417,12 +447,6 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                             }
 
                             if (hasImageStatus && index == messages.length) {
-                              if (generatedImage != null) {
-                                return GeneratedImageCard(
-                                  image: generatedImage,
-                                );
-                              }
-
                               return _ImageWorkStatus(
                                 isWorking: isImageWorking,
                               );

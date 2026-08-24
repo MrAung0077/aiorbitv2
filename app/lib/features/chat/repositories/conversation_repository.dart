@@ -89,7 +89,10 @@ class ConversationRepository {
       ..role = message.role.name
       ..content = message.content
       ..createdAt = message.createdAt
-      ..isError = message.isError;
+      ..isError = message.isError
+      ..attachmentId = message.attachment?.id
+      ..attachmentMimeType = message.attachment?.mimeType
+      ..attachmentLocalFilePath = message.attachment?.localFilePath;
   }
 
   Conversation _recordToConversation(ConversationRecord record) {
@@ -109,6 +112,28 @@ class ConversationRepository {
       content: record.content,
       createdAt: record.createdAt,
       isError: record.isError,
+      attachment: _recordToAttachment(record),
+    );
+  }
+
+  ChatAttachment? _recordToAttachment(ChatMessageRecord record) {
+    final id = record.attachmentId?.trim();
+    final mimeType = record.attachmentMimeType?.trim();
+    final localFilePath = record.attachmentLocalFilePath?.trim();
+
+    if (id == null ||
+        id.isEmpty ||
+        mimeType == null ||
+        mimeType.isEmpty ||
+        localFilePath == null ||
+        localFilePath.isEmpty) {
+      return null;
+    }
+
+    return ChatAttachment(
+      id: id,
+      mimeType: mimeType,
+      localFilePath: localFilePath,
     );
   }
 

@@ -508,6 +508,59 @@ class ChatController extends StateNotifier<ChatState> {
     state = state.copyWith(clearImageActionRequest: true);
   }
 
+  /// Adds one durable image-result message after its file has been saved.
+  Future<bool> persistGeneratedImageResult({
+    required String conversationId,
+    required String sourceMessageId,
+    required ChatAttachment attachment,
+  }) async {
+    final conversation = await _conversationRepository.getConversation(
+      conversationId,
+    );
+
+    if (conversation == null) {
+      return false;
+    }
+
+    final sourceMessageExists = conversation.messages.any(
+      (message) =>
+          message.id == sourceMessageId && message.role == ChatRole.user,
+    );
+    if (!sourceMessageExists) {
+      return false;
+    }
+
+    final alreadyPersisted = conversation.messages.any(
+      (message) => message.attachment?.id == attachment.id,
+    );
+    if (alreadyPersisted) {
+      return true;
+    }
+
+    final createdAt = _nextActivityTime();
+    final updatedConversation = conversation.copyWith(
+      messages: <ChatMessage>[
+        ...conversation.messages,
+        ChatMessage(
+          id: 'image-result-$sourceMessageId',
+          role: ChatRole.assistant,
+          content: 'Done',
+          createdAt: createdAt,
+          attachment: attachment,
+        ),
+      ],
+      updatedAt: createdAt,
+    );
+
+    await _conversationRepository.saveConversation(updatedConversation);
+
+    if (mounted && state.conversation?.id == conversationId) {
+      state = state.copyWith(conversation: updatedConversation);
+    }
+
+    return true;
+  }
+
   Future<void> regenerateLastResponse() async {
     if (state.isSending) {
       return;
