@@ -77,13 +77,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       return;
     }
 
-    await _openConversation(conversation);
+    await _openConversation(conversation, reload: false);
   }
 
-  Future<void> _openConversation(Conversation conversation) async {
-    await ref
-        .read(chatControllerProvider.notifier)
-        .loadConversation(conversation.id);
+  Future<void> _openConversation(
+    Conversation conversation, {
+    bool reload = true,
+  }) async {
+    if (reload) {
+      await ref
+          .read(chatControllerProvider.notifier)
+          .loadConversation(conversation.id);
+    }
 
     if (!mounted ||
         ref.read(chatControllerProvider).conversation?.id != conversation.id) {

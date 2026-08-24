@@ -1,8 +1,18 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:aiorbit/core/ai/ai.dart';
+import 'package:aiorbit/core/ai/providers/ovexiq_image_api_client.dart';
 import 'package:aiorbit/features/chat/models/chat_message.dart';
 import 'package:aiorbit/features/chat/models/conversation.dart';
 import 'package:aiorbit/features/chat/providers/chat_controller.dart';
+import 'package:aiorbit/features/chat/providers/chat_image_generation_provider.dart';
 import 'package:aiorbit/features/chat/repositories/conversation_repository.dart';
+import 'package:aiorbit/features/chat/services/ai_chat_service.dart';
+import 'package:aiorbit/features/chat/services/chat_image_generation_service.dart';
 import 'package:aiorbit/features/home/home_screen.dart';
+import 'package:aiorbit/features/mission/providers/mission_provider.dart';
+import 'package:aiorbit/features/mission/services/memory_mission_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -167,6 +177,188 @@ void main() {
       expect(find.text('Continue'), findsOneWidget);
       expect(find.text('Continue beta mission'), findsOneWidget);
     },
+  );
+
+  testWidgets(
+    'Home first image prompt preserves its action through Chat navigation',
+    (tester) async {
+      final repository = _MemoryConversationRepository(const <Conversation>[]);
+      final imageCompleter = Completer<GeneratedImage>();
+      final imageGenerator = _FakeChatImageGenerator(
+        (_) => imageCompleter.future,
+      );
+      final aiChatService = _SuccessfulAIChatService();
+      final container = ProviderContainer(
+        overrides: <Override>[
+          conversationRepositoryProvider.overrideWithValue(repository),
+          aiChatServiceProvider.overrideWithValue(aiChatService),
+          missionRepositoryProvider.overrideWithValue(
+            MemoryMissionRepository(),
+          ),
+          chatImageGenerationServiceProvider.overrideWithValue(imageGenerator),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: HomeScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byType(TextField),
+        'Create a peaceful picture of Buddha meditating under a bodhi tree.',
+      );
+      await tester.tap(find.byTooltip('Send'));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+
+      expect(find.text('Ovexiq is creating your image...'), findsOneWidget);
+      expect(imageGenerator.prompts, <String>[
+        'Buddha meditating under a bodhi tree',
+      ]);
+      expect(aiChatService.requests, isEmpty);
+
+      final conversation = container.read(chatControllerProvider).conversation!;
+      expect(
+        conversation.messages.where((message) => message.role == ChatRole.user),
+        hasLength(1),
+      );
+      expect(
+        (await repository.getConversation(conversation.id))!.messages,
+        hasLength(1),
+      );
+
+      imageCompleter.complete(_testGeneratedImage());
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('generated-image-card')),
+        findsOneWidget,
+      );
+      expect(imageGenerator.prompts, hasLength(1));
+    },
+  );
+
+  testWidgets('Home first normal prompt still opens Chat with one response', (
+    tester,
+  ) async {
+    final repository = _MemoryConversationRepository(const <Conversation>[]);
+    final aiChatService = _SuccessfulAIChatService();
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(repository),
+        aiChatServiceProvider.overrideWithValue(aiChatService),
+        missionRepositoryProvider.overrideWithValue(MemoryMissionRepository()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: HomeScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'What is a budget?');
+    await tester.tap(find.byTooltip('Send'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('A budget is a spending plan.'), findsOneWidget);
+    expect(aiChatService.requests, hasLength(1));
+    expect(
+      container
+          .read(chatControllerProvider)
+          .messages
+          .where((message) => message.role == ChatRole.user),
+      hasLength(1),
+    );
+  });
+
+  testWidgets('Home first image failure shows a friendly Chat message', (
+    tester,
+  ) async {
+    final repository = _MemoryConversationRepository(const <Conversation>[]);
+    final imageCompleter = Completer<GeneratedImage>();
+    final imageGenerator = _FakeChatImageGenerator(
+      (_) => imageCompleter.future,
+    );
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(repository),
+        aiChatServiceProvider.overrideWithValue(_SuccessfulAIChatService()),
+        missionRepositoryProvider.overrideWithValue(MemoryMissionRepository()),
+        chatImageGenerationServiceProvider.overrideWithValue(imageGenerator),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: HomeScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byType(TextField),
+      'Create a peaceful picture of Buddha meditating under a bodhi tree.',
+    );
+    await tester.tap(find.byTooltip('Send'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+
+    imageCompleter.completeError(StateError('raw provider error'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Ovexiq couldn’t create that image. Please try again.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('provider error'), findsNothing);
+    expect(imageGenerator.prompts, hasLength(1));
+  });
+}
+
+class _SuccessfulAIChatService extends AIChatService {
+  final List<List<AIMessage>> requests = <List<AIMessage>>[];
+
+  @override
+  Stream<AIChunk> sendMessages(List<AIMessage> messages) async* {
+    requests.add(List<AIMessage>.of(messages));
+    yield const AIChunk.text(
+      provider: ProviderType.openAI,
+      text: 'A budget is a spending plan.',
+    );
+    yield const AIChunk.done(provider: ProviderType.openAI);
+  }
+}
+
+class _FakeChatImageGenerator implements ChatImageGenerator {
+  _FakeChatImageGenerator(this._onGenerate);
+
+  final Future<GeneratedImage> Function(String prompt) _onGenerate;
+  final List<String> prompts = <String>[];
+
+  @override
+  Future<GeneratedImage> generate({required String prompt}) {
+    prompts.add(prompt);
+    return _onGenerate(prompt);
+  }
+}
+
+GeneratedImage _testGeneratedImage() {
+  return GeneratedImage(
+    mimeType: 'image/png',
+    bytes: base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==',
+    ),
   );
 }
 
