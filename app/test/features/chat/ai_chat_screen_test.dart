@@ -99,7 +99,7 @@ void main() {
   });
 
   testWidgets(
-    'image actions show Working, render one generated image, and bypass text completion',
+    'physical image prompt starts once, shows Working, and renders its result',
     (tester) async {
       final imageCompleter = Completer<GeneratedImage>();
       final imageGenerator = _FakeChatImageGenerator(
@@ -162,24 +162,37 @@ void main() {
     },
   );
 
-  testWidgets('image generation failure is safe and non-technical', (
+  testWidgets('an already-emitted image action starts when Chat attaches', (
     tester,
   ) async {
     final imageCompleter = Completer<GeneratedImage>();
     final imageGenerator = _FakeChatImageGenerator(
       (_) => imageCompleter.future,
     );
+    final aiChatService = _SuccessfulAIChatService();
     final container = ProviderContainer(
       overrides: <Override>[
         conversationRepositoryProvider.overrideWithValue(
           _MemoryConversationRepository(),
         ),
-        aiChatServiceProvider.overrideWithValue(_SuccessfulAIChatService()),
+        aiChatServiceProvider.overrideWithValue(aiChatService),
         missionRepositoryProvider.overrideWithValue(MemoryMissionRepository()),
         chatImageGenerationServiceProvider.overrideWithValue(imageGenerator),
       ],
     );
     addTearDown(container.dispose);
+
+    await container
+        .read(chatControllerProvider.notifier)
+        .sendMessage(
+          'Create a peaceful picture of Buddha meditating under a bodhi tree.',
+        );
+
+    expect(
+      container.read(chatControllerProvider).imageActionRequest,
+      isNotNull,
+    );
+    expect(aiChatService.requests, isEmpty);
 
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -187,25 +200,73 @@ void main() {
         child: const MaterialApp(home: AIChatScreen()),
       ),
     );
-
-    await tester.enterText(
-      find.byType(TextField),
-      'Create a picture of Buddha',
-    );
-    await tester.tap(find.byTooltip('Send'));
-    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump();
 
     expect(find.text('Ovexiq is creating your image...'), findsOneWidget);
-    imageCompleter.completeError(StateError('raw provider error'));
+    expect(imageGenerator.prompts, <String>[
+      'Buddha meditating under a bodhi tree',
+    ]);
+
+    imageCompleter.complete(_testGeneratedImage());
     await tester.pumpAndSettle();
 
     expect(
-      find.text('Ovexiq couldn’t create that image. Please try again.'),
+      find.byKey(const ValueKey<String>('generated-image-card')),
       findsOneWidget,
     );
-    expect(find.textContaining('provider error'), findsNothing);
-    expect(imageGenerator.prompts, hasLength(1));
   });
+
+  testWidgets(
+    'image generation exception shows a friendly state instead of blank Chat',
+    (tester) async {
+      final imageCompleter = Completer<GeneratedImage>();
+      final imageGenerator = _FakeChatImageGenerator(
+        (_) => imageCompleter.future,
+      );
+      final container = ProviderContainer(
+        overrides: <Override>[
+          conversationRepositoryProvider.overrideWithValue(
+            _MemoryConversationRepository(),
+          ),
+          aiChatServiceProvider.overrideWithValue(_SuccessfulAIChatService()),
+          missionRepositoryProvider.overrideWithValue(
+            MemoryMissionRepository(),
+          ),
+          chatImageGenerationServiceProvider.overrideWithValue(imageGenerator),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: AIChatScreen()),
+        ),
+      );
+
+      await tester.enterText(
+        find.byType(TextField),
+        'Create a picture of Buddha',
+      );
+      await tester.tap(find.byTooltip('Send'));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Ovexiq is creating your image...'), findsOneWidget);
+      imageCompleter.completeError(StateError('raw provider error'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Ovexiq couldn’t create that image. Please try again.'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('provider error'), findsNothing);
+      expect(imageGenerator.prompts, hasLength(1));
+      expect(
+        find.byKey(const ValueKey<String>('generated-image-card')),
+        findsNothing,
+      );
+    },
+  );
 
   testWidgets(
     'workflow requests auto-start once and show only a Working state in Chat',

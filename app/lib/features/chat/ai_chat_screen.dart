@@ -48,6 +48,12 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
   void initState() {
     super.initState();
 
+    ref.listenManual<ChatState>(
+      chatControllerProvider,
+      _onChatStateChanged,
+      fireImmediately: true,
+    );
+
     Future<void>.microtask(() async {
       if (!mounted) {
         return;
@@ -59,11 +65,6 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
         await ref
             .read(chatControllerProvider.notifier)
             .loadMostRecentConversation();
-      }
-
-      if (mounted) {
-        _startSuggestedMissionIfNeeded(ref.read(chatControllerProvider));
-        _startImageGenerationIfNeeded(ref.read(chatControllerProvider));
       }
     });
   }
@@ -265,41 +266,67 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    ref.listen<ChatState>(chatControllerProvider, (previous, next) {
-      final messageCountChanged =
-          previous?.messages.length != next.messages.length;
+  void _onChatStateChanged(ChatState? previous, ChatState next) {
+    final messageCountChanged =
+        previous?.messages.length != next.messages.length;
 
-      final sendingFinished = previous?.isSending == true && !next.isSending;
+    final sendingFinished = previous?.isSending == true && !next.isSending;
 
-      final missionSuggestionAppeared =
-          previous?.missionSuggestion != next.missionSuggestion &&
-          next.missionSuggestion != null;
-      final imageActionAppeared =
-          previous?.imageActionRequest != next.imageActionRequest &&
-          next.imageActionRequest != null;
+    final missionSuggestionAppeared =
+        previous?.missionSuggestion != next.missionSuggestion &&
+        next.missionSuggestion != null;
+    final imageActionAppeared =
+        previous?.imageActionRequest != next.imageActionRequest &&
+        next.imageActionRequest != null;
 
-      if (missionSuggestionAppeared) {
-        _startSuggestedMissionIfNeeded(next);
-      }
-
-      if (imageActionAppeared) {
-        _startImageGenerationIfNeeded(next);
-      }
-
-      if (messageCountChanged ||
-          sendingFinished ||
-          missionSuggestionAppeared ||
-          imageActionAppeared) {
-        Future<void>.delayed(const Duration(milliseconds: 80), () {
+    if (missionSuggestionAppeared || imageActionAppeared) {
+      if (previous == null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
-            _scrollToBottom();
+            _startDetectedWork(
+              ref.read(chatControllerProvider),
+              missionSuggestionAppeared: missionSuggestionAppeared,
+              imageActionAppeared: imageActionAppeared,
+            );
           }
         });
+      } else {
+        _startDetectedWork(
+          next,
+          missionSuggestionAppeared: missionSuggestionAppeared,
+          imageActionAppeared: imageActionAppeared,
+        );
       }
-    });
+    }
 
+    if (messageCountChanged ||
+        sendingFinished ||
+        missionSuggestionAppeared ||
+        imageActionAppeared) {
+      Future<void>.delayed(const Duration(milliseconds: 80), () {
+        if (mounted) {
+          _scrollToBottom();
+        }
+      });
+    }
+  }
+
+  void _startDetectedWork(
+    ChatState chatState, {
+    required bool missionSuggestionAppeared,
+    required bool imageActionAppeared,
+  }) {
+    if (missionSuggestionAppeared) {
+      _startSuggestedMissionIfNeeded(chatState);
+    }
+
+    if (imageActionAppeared) {
+      _startImageGenerationIfNeeded(chatState);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final chatState = ref.watch(chatControllerProvider);
     final brainStatus = ref.watch(brainStatusProvider);
     final isBrainOverlayVisible = ref.watch(brainOverlayVisibleProvider);
@@ -391,7 +418,9 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
 
                             if (hasImageStatus && index == messages.length) {
                               if (generatedImage != null) {
-                                return GeneratedImageCard(image: generatedImage);
+                                return GeneratedImageCard(
+                                  image: generatedImage,
+                                );
                               }
 
                               return _ImageWorkStatus(
@@ -453,7 +482,9 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                     controller: _controller,
                     focusNode: _focusNode,
                     isSending:
-                        chatState.isSending || isMissionWorking || isImageWorking,
+                        chatState.isSending ||
+                        isMissionWorking ||
+                        isImageWorking,
                     onSend: _sendMessage,
                     hintText: 'Ask Ovexiq anything...',
                     maxLines: 5,
@@ -505,7 +536,9 @@ class _ImageWorkStatus extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (isWorking) {
-      return const AppTypingIndicator(label: 'Ovexiq is creating your image...');
+      return const AppTypingIndicator(
+        label: 'Ovexiq is creating your image...',
+      );
     }
 
     return const Padding(
