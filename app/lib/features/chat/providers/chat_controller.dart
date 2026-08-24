@@ -10,6 +10,7 @@ import '../repositories/conversation_repository.dart';
 import '../services/ai_chat_service.dart';
 import '../services/chat_action_dispatcher.dart';
 import '../services/chat_clarification_policy.dart';
+import '../services/chat_work_intent_resolver.dart';
 import '../services/mission_suggestion_service.dart';
 import '../models/message_feedback.dart';
 
@@ -23,6 +24,12 @@ final missionSuggestionServiceProvider = Provider<MissionSuggestionService>((
   return const MissionSuggestionService();
 });
 
+final chatWorkIntentResolverProvider = Provider<ChatWorkIntentResolver>((ref) {
+  return ChatWorkIntentResolver(
+    missionSuggestionService: ref.watch(missionSuggestionServiceProvider),
+  );
+});
+
 final conversationRepositoryProvider = Provider<ConversationRepository>((ref) {
   return ConversationRepository();
 });
@@ -32,7 +39,7 @@ final chatControllerProvider = StateNotifierProvider<ChatController, ChatState>(
     return ChatController(
       aiChatService: ref.watch(aiChatServiceProvider),
       conversationRepository: ref.watch(conversationRepositoryProvider),
-      missionSuggestionService: ref.watch(missionSuggestionServiceProvider),
+      chatWorkIntentResolver: ref.watch(chatWorkIntentResolverProvider),
     );
   },
 );
@@ -41,22 +48,23 @@ class ChatController extends StateNotifier<ChatState> {
   ChatController({
     required AIChatService aiChatService,
     required ConversationRepository conversationRepository,
-    required MissionSuggestionService missionSuggestionService,
     ChatActionDispatcher chatActionDispatcher = const ChatActionDispatcher(),
     ChatClarificationPolicy chatClarificationPolicy =
         const ChatClarificationPolicy(),
+    ChatWorkIntentResolver chatWorkIntentResolver =
+        const ChatWorkIntentResolver(),
   }) : _aiChatService = aiChatService,
        _conversationRepository = conversationRepository,
-       _missionSuggestionService = missionSuggestionService,
        _chatActionDispatcher = chatActionDispatcher,
        _chatClarificationPolicy = chatClarificationPolicy,
+       _chatWorkIntentResolver = chatWorkIntentResolver,
        super(const ChatState());
 
   final AIChatService _aiChatService;
   final ConversationRepository _conversationRepository;
-  final MissionSuggestionService _missionSuggestionService;
   final ChatActionDispatcher _chatActionDispatcher;
   final ChatClarificationPolicy _chatClarificationPolicy;
+  final ChatWorkIntentResolver _chatWorkIntentResolver;
 
   int _operationRevision = 0;
   int _lastConversationIdMicros = 0;
@@ -340,6 +348,48 @@ class ChatController extends StateNotifier<ChatState> {
           (clarification as ChatClarificationProceed).resolvedPrompt;
       state = state.copyWith(clearPendingClarification: true);
 
+      final workIntent = _chatWorkIntentResolver.resolve(resolvedPrompt);
+
+      if (workIntent is ChatWorkUnsupportedAction) {
+        final assistantCreatedAt = _nextActivityTime();
+        final unsupportedConversation = conversation.copyWith(
+          messages: <ChatMessage>[
+            ...conversation.messages,
+            ChatMessage(
+              id: assistantCreatedAt.microsecondsSinceEpoch.toString(),
+              role: ChatRole.assistant,
+              content: workIntent.userMessage,
+              createdAt: assistantCreatedAt,
+            ),
+          ],
+          updatedAt: _nextActivityTime(),
+        );
+
+        await _conversationRepository.saveConversation(unsupportedConversation);
+
+        if (!mounted || state.conversation?.id != conversationId) {
+          return;
+        }
+
+        state = state.copyWith(
+          conversation: unsupportedConversation,
+          isSending: false,
+          clearMissionSuggestion: true,
+          clearImageActionRequest: true,
+        );
+        return;
+      }
+
+      if (workIntent is ChatWorkOrchestrate) {
+        state = state.copyWith(
+          conversation: conversation,
+          isSending: false,
+          missionSuggestion: workIntent.missionSuggestion,
+          clearImageActionRequest: true,
+        );
+        return;
+      }
+
       final assistantCreatedAt = _nextActivityTime();
       final assistantMessageId = assistantCreatedAt.microsecondsSinceEpoch
           .toString();
@@ -422,15 +472,10 @@ class ChatController extends StateNotifier<ChatState> {
         return;
       }
 
-      final missionSuggestion = _missionSuggestionService.suggestFor(
-        resolvedPrompt,
-      );
-
       state = state.copyWith(
         conversation: streamingConversation,
         isSending: false,
-        missionSuggestion: missionSuggestion,
-        clearMissionSuggestion: missionSuggestion == null,
+        clearMissionSuggestion: true,
       );
     } catch (error, stackTrace) {
       if (!mounted) {
@@ -624,15 +669,10 @@ class ChatController extends StateNotifier<ChatState> {
         return;
       }
 
-      final missionSuggestion = _missionSuggestionService.suggestFor(
-        userPrompt,
-      );
-
       state = state.copyWith(
         conversation: streamingConversation,
         isSending: false,
-        missionSuggestion: missionSuggestion,
-        clearMissionSuggestion: missionSuggestion == null,
+        clearMissionSuggestion: true,
       );
     } catch (error, stackTrace) {
       if (!mounted) {
@@ -755,7 +795,10 @@ class ChatController extends StateNotifier<ChatState> {
         return null;
       }
 
-      return _missionSuggestionService.suggestFor(prompt);
+      final workIntent = _chatWorkIntentResolver.resolve(prompt);
+      return workIntent is ChatWorkOrchestrate
+          ? workIntent.missionSuggestion
+          : null;
     }
 
     return null;

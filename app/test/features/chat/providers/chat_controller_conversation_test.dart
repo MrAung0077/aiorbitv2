@@ -3,7 +3,6 @@ import 'package:aiorbit/features/chat/models/conversation.dart';
 import 'package:aiorbit/features/chat/providers/chat_controller.dart';
 import 'package:aiorbit/features/chat/repositories/conversation_repository.dart';
 import 'package:aiorbit/features/chat/services/ai_chat_service.dart';
-import 'package:aiorbit/features/chat/services/mission_suggestion_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -246,26 +245,68 @@ void main() {
 
       await controller.sendMessage('Easy home cooking');
 
-      expect(aiChatService.requests, hasLength(1));
+      expect(aiChatService.requests, isEmpty);
       expect(controller.state.pendingClarification, isNull);
+      expect(
+        controller.state.messages.last.content,
+        'Video creation isn’t connected yet.',
+      );
+      expect(controller.state.missionSuggestion, isNull);
     });
 
-    test('completes a TikTok request when it already has a topic', () async {
-      final repository = _MemoryConversationRepository();
-      final aiChatService = _FakeAIChatService();
-      final controller = _createController(
-        repository,
-        aiChatService: aiChatService,
-      );
-      addTearDown(controller.dispose);
+    test(
+      'does not claim to create TikTok videos when a topic is provided',
+      () async {
+        final repository = _MemoryConversationRepository();
+        final aiChatService = _FakeAIChatService();
+        final controller = _createController(
+          repository,
+          aiChatService: aiChatService,
+        );
+        addTearDown(controller.dispose);
 
-      await controller.sendMessage(
-        'Make TikTok videos about easy home cooking',
-      );
+        await controller.sendMessage(
+          'Make TikTok videos about easy home cooking',
+        );
 
-      expect(aiChatService.requests, hasLength(1));
-      expect(controller.state.pendingClarification, isNull);
-    });
+        expect(aiChatService.requests, isEmpty);
+        expect(controller.state.pendingClarification, isNull);
+        expect(
+          controller.state.messages.last.content,
+          'Video creation isn’t connected yet.',
+        );
+      },
+    );
+
+    test(
+      'rejects video editing without text completion or Mission work',
+      () async {
+        final repository = _MemoryConversationRepository();
+        final aiChatService = _FakeAIChatService();
+        final controller = _createController(
+          repository,
+          aiChatService: aiChatService,
+        );
+        addTearDown(controller.dispose);
+
+        await controller.sendMessage('Edit these 5 videos into one video');
+
+        expect(aiChatService.requests, isEmpty);
+        expect(controller.state.missionSuggestion, isNull);
+        expect(
+          controller.state.messages.map((message) => message.content),
+          <String>[
+            'Edit these 5 videos into one video',
+            'Video editing isn’t connected yet.',
+          ],
+        );
+        expect(
+          controller.state.messages.last.content,
+          isNot(contains('Mission')),
+        );
+        expect(controller.state.messages.last.content, isNot(contains('Task')));
+      },
+    );
 
     test('keeps ordinary text chat on the existing completion path', () async {
       final repository = _MemoryConversationRepository();
@@ -454,7 +495,6 @@ ChatController _createController(
   return ChatController(
     aiChatService: aiChatService ?? _FakeAIChatService(),
     conversationRepository: repository,
-    missionSuggestionService: const MissionSuggestionService(),
   );
 }
 
