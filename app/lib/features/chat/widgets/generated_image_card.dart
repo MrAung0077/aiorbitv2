@@ -12,12 +12,14 @@ class GeneratedImageCard extends StatefulWidget {
     this.previewBytes,
     this.onSaveImage,
     this.onRefineImage,
+    this.onRegenerateImage,
   });
 
   final ChatAttachment attachment;
   final Uint8List? previewBytes;
   final Future<bool> Function()? onSaveImage;
   final Future<bool> Function()? onRefineImage;
+  final Future<bool> Function()? onRegenerateImage;
 
   @override
   State<GeneratedImageCard> createState() => _GeneratedImageCardState();
@@ -26,6 +28,7 @@ class GeneratedImageCard extends StatefulWidget {
 class _GeneratedImageCardState extends State<GeneratedImageCard> {
   var _isSaving = false;
   var _isRefining = false;
+  var _isRegenerating = false;
 
   Future<void> _saveImage() async {
     if (_isSaving || widget.onSaveImage == null) {
@@ -78,6 +81,39 @@ class _GeneratedImageCardState extends State<GeneratedImageCard> {
     }
   }
 
+  Future<void> _regenerateImage() async {
+    if (_isRegenerating || widget.onRegenerateImage == null) {
+      return;
+    }
+
+    setState(() {
+      _isRegenerating = true;
+    });
+
+    var started = false;
+    try {
+      started = await widget.onRegenerateImage!();
+    } catch (_) {
+      started = false;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isRegenerating = false;
+    });
+
+    if (!started) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text("Couldn't regenerate image")),
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -126,7 +162,8 @@ class _GeneratedImageCardState extends State<GeneratedImageCard> {
                     ),
             ),
             if (widget.onSaveImage != null ||
-                widget.onRefineImage != null) ...<Widget>[
+                widget.onRefineImage != null ||
+                widget.onRegenerateImage != null) ...<Widget>[
               const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerRight,
@@ -141,6 +178,15 @@ class _GeneratedImageCardState extends State<GeneratedImageCard> {
                         onPressed: _isRefining ? null : _refineImage,
                         icon: const Icon(Icons.tune_outlined),
                         label: const Text('Refine'),
+                      ),
+                    if (widget.onRegenerateImage != null)
+                      TextButton.icon(
+                        key: const ValueKey<String>(
+                          'regenerate-generated-image-button',
+                        ),
+                        onPressed: _isRegenerating ? null : _regenerateImage,
+                        icon: const Icon(Icons.refresh_outlined),
+                        label: const Text('Regenerate'),
                       ),
                     if (widget.onSaveImage != null)
                       TextButton.icon(

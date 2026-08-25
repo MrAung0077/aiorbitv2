@@ -15,9 +15,15 @@ class ChatActionClarification extends ChatActionDispatchResult {
 /// A provider-neutral action request that will be fulfilled by a later
 /// capability integration.
 class ChatImageActionRequested extends ChatActionDispatchResult {
-  const ChatImageActionRequested({required this.subject});
+  const ChatImageActionRequested({
+    required this.subject,
+    this.requestId,
+    this.sourceMessageId,
+  });
 
   final String subject;
+  final String? requestId;
+  final String? sourceMessageId;
 }
 
 /// Detects explicit, executable Chat actions before they reach text AI.

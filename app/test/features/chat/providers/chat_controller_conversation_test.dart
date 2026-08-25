@@ -347,6 +347,132 @@ void main() {
       expect(aiChatService.requests, hasLength(1));
     });
 
+    test('regenerates a persisted image as one separate version', () async {
+      final repository = _MemoryConversationRepository();
+      final aiChatService = _FakeAIChatService();
+      final controller = _createController(
+        repository,
+        aiChatService: aiChatService,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.sendMessage('Create a picture of Buddha');
+      final conversationId = controller.state.conversation!.id;
+      final sourceMessageId = controller.state.messages.single.id;
+      final originalAttachment = ChatAttachment(
+        id: 'original-image',
+        mimeType: 'image/png',
+        localFilePath: '/safe/original.png',
+        sourcePrompt: 'Buddha',
+        sourceMessageId: sourceMessageId,
+      );
+      await controller.persistGeneratedImageResult(
+        conversationId: conversationId,
+        sourceMessageId: sourceMessageId,
+        attachment: originalAttachment,
+      );
+      final originalResultMessageId = controller.state.messages.last.id;
+      final messageCountBeforeRegenerate = controller.state.messages.length;
+
+      expect(
+        await controller.regenerateImage(
+          resultMessageId: originalResultMessageId,
+        ),
+        isTrue,
+      );
+      expect(aiChatService.requests, isEmpty);
+      expect(
+        controller.state.messages,
+        hasLength(messageCountBeforeRegenerate),
+      );
+      expect(controller.state.imageActionRequest?.subject, 'Buddha');
+      final regenerationRequest = controller.state.imageActionRequest!;
+      expect(regenerationRequest.requestId, startsWith('regenerate-'));
+      expect(regenerationRequest.sourceMessageId, sourceMessageId);
+      expect(
+        await controller.regenerateImage(
+          resultMessageId: originalResultMessageId,
+        ),
+        isFalse,
+      );
+
+      final regeneratedAttachment = ChatAttachment(
+        id: 'image-$conversationId-${regenerationRequest.requestId}',
+        mimeType: 'image/png',
+        localFilePath: '/safe/regenerated.png',
+        sourcePrompt: regenerationRequest.subject,
+        sourceMessageId: regenerationRequest.sourceMessageId,
+      );
+      expect(
+        await controller.persistGeneratedImageResult(
+          conversationId: conversationId,
+          sourceMessageId: regenerationRequest.sourceMessageId!,
+          attachment: regeneratedAttachment,
+        ),
+        isTrue,
+      );
+
+      final restoredController = _createController(repository);
+      addTearDown(restoredController.dispose);
+      await restoredController.loadConversation(conversationId);
+      final restoredAttachments = restoredController.state.messages
+          .where((message) => message.attachment != null)
+          .map((message) => message.attachment!)
+          .toList(growable: false);
+      expect(restoredAttachments, hasLength(2));
+      expect(restoredAttachments.first.localFilePath, '/safe/original.png');
+      expect(restoredAttachments.last.localFilePath, '/safe/regenerated.png');
+
+      final regeneratedResultMessage = restoredController.state.messages
+          .lastWhere(
+            (message) => message.attachment?.id == regeneratedAttachment.id,
+          );
+      expect(
+        await restoredController.regenerateImage(
+          resultMessageId: regeneratedResultMessage.id,
+        ),
+        isTrue,
+      );
+      expect(restoredController.state.imageActionRequest?.subject, 'Buddha');
+    });
+
+    test(
+      'does not regenerate when a historical source prompt is unavailable',
+      () async {
+        final repository = _MemoryConversationRepository();
+        final now = DateTime(2026, 8, 25);
+        final conversation = Conversation(
+          id: 'missing-image-source',
+          title: 'Missing source',
+          messages: <ChatMessage>[
+            ChatMessage(
+              id: 'result-message',
+              role: ChatRole.assistant,
+              content: 'Done',
+              createdAt: now,
+              attachment: const ChatAttachment(
+                id: 'missing-source-image',
+                mimeType: 'image/png',
+                localFilePath: '/safe/missing-source.png',
+              ),
+            ),
+          ],
+          createdAt: now,
+          updatedAt: now,
+        );
+        await repository.saveConversation(conversation);
+        final controller = _createController(repository);
+        addTearDown(controller.dispose);
+        await controller.loadConversation(conversation.id);
+
+        expect(
+          await controller.regenerateImage(resultMessageId: 'result-message'),
+          isFalse,
+        );
+        expect(controller.state.imageActionRequest, isNull);
+      },
+    );
+
     test(
       'asks exactly once for a Facebook post topic before completion',
       () async {

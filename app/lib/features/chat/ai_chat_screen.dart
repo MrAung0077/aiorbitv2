@@ -233,7 +233,9 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
       return;
     }
 
-    final requestKey = '$conversationId:${messages.last.id}';
+    final requestId = request.requestId ?? messages.last.id;
+    final sourceMessageId = request.sourceMessageId ?? messages.last.id;
+    final requestKey = '$conversationId:$requestId';
     if (!_startedImageRequestKeys.add(requestKey)) {
       return;
     }
@@ -252,21 +254,21 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
           .read(generatedImageResultStoreProvider)
           .savePng(
             conversationId: conversationId,
-            sourceMessageId: messages.last.id,
+            sourceMessageId: requestId,
             bytes: image.bytes,
           );
       final attachment = ChatAttachment(
-        id: 'image-$conversationId-${messages.last.id}',
+        id: 'image-$conversationId-$requestId',
         mimeType: image.mimeType,
         localFilePath: localFilePath,
         sourcePrompt: request.subject,
-        sourceMessageId: messages.last.id,
+        sourceMessageId: sourceMessageId,
       );
       final persisted = await ref
           .read(chatControllerProvider.notifier)
           .persistGeneratedImageResult(
             conversationId: conversationId,
-            sourceMessageId: messages.last.id,
+            sourceMessageId: sourceMessageId,
             attachment: attachment,
           );
 
@@ -288,6 +290,8 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
           _imageWorkState = _ImageWorkState.failed;
         });
       }
+    } finally {
+      ref.read(chatControllerProvider.notifier).finishImageGeneration();
     }
   }
 
@@ -414,6 +418,11 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                                   onRefineImage: () => ref
                                       .read(chatControllerProvider.notifier)
                                       .beginImageRevision(
+                                        resultMessageId: message.id,
+                                      ),
+                                  onRegenerateImage: () => ref
+                                      .read(chatControllerProvider.notifier)
+                                      .regenerateImage(
                                         resultMessageId: message.id,
                                       ),
                                 );

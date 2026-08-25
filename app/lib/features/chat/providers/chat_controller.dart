@@ -216,7 +216,7 @@ class ChatController extends StateNotifier<ChatState> {
   Future<void> sendMessage(String content) async {
     final text = content.trim();
 
-    if (text.isEmpty || state.isSending) {
+    if (text.isEmpty || state.isSending || state.isImageGenerationInProgress) {
       return;
     }
 
@@ -285,7 +285,10 @@ class ChatController extends StateNotifier<ChatState> {
               sourcePrompt: pendingImageRevision.sourcePrompt,
               revision: text,
             ),
+            requestId: userMessage.id,
+            sourceMessageId: userMessage.id,
           ),
+          isImageGenerationInProgress: true,
           clearMissionSuggestion: true,
           clearPendingClarification: true,
           clearPendingImageRevision: true,
@@ -301,7 +304,12 @@ class ChatController extends StateNotifier<ChatState> {
         state = state.copyWith(
           conversation: conversation,
           isSending: false,
-          imageActionRequest: action,
+          imageActionRequest: ChatImageActionRequested(
+            subject: action.subject,
+            requestId: userMessage.id,
+            sourceMessageId: userMessage.id,
+          ),
+          isImageGenerationInProgress: true,
           clearMissionSuggestion: true,
           clearPendingImageRevision: true,
         );
@@ -569,12 +577,12 @@ class ChatController extends StateNotifier<ChatState> {
       return false;
     }
 
-    final sourcePrompt = _sourcePromptForImageResult(
+    final imageSource = _imageSourceForResult(
       conversation: conversation,
       resultIndex: resultIndex,
       attachment: attachment,
     );
-    if (sourcePrompt == null) {
+    if (imageSource == null) {
       return false;
     }
 
@@ -603,9 +611,9 @@ class ChatController extends StateNotifier<ChatState> {
       conversation: updatedConversation,
       isSending: false,
       pendingImageRevision: PendingImageRevision(
-        sourcePrompt: sourcePrompt,
+        sourcePrompt: imageSource.prompt,
         sourceResultMessageId: resultMessageId,
-        sourceMessageId: attachment.sourceMessageId,
+        sourceMessageId: imageSource.sourceMessageId,
         question: question,
       ),
       clearError: true,
@@ -613,6 +621,68 @@ class ChatController extends StateNotifier<ChatState> {
       clearImageActionRequest: true,
     );
     return true;
+  }
+
+  /// Starts one explicit prompt-based version of a finished image.
+  Future<bool> regenerateImage({required String resultMessageId}) async {
+    if (state.isSending ||
+        state.isImageGenerationInProgress ||
+        state.pendingClarification != null ||
+        state.pendingImageRevision != null) {
+      return false;
+    }
+
+    final conversation = state.conversation;
+    if (conversation == null) {
+      return false;
+    }
+
+    final resultIndex = conversation.messages.indexWhere(
+      (message) => message.id == resultMessageId,
+    );
+    if (resultIndex < 0) {
+      return false;
+    }
+
+    final attachment = conversation.messages[resultIndex].attachment;
+    if (attachment == null) {
+      return false;
+    }
+
+    final imageSource = _imageSourceForResult(
+      conversation: conversation,
+      resultIndex: resultIndex,
+      attachment: attachment,
+    );
+    if (imageSource == null) {
+      return false;
+    }
+
+    final requestId =
+        'regenerate-${_nextActivityTime().microsecondsSinceEpoch}';
+    state = state.copyWith(
+      conversation: conversation,
+      isSending: false,
+      isImageGenerationInProgress: true,
+      imageActionRequest: ChatImageActionRequested(
+        subject: imageSource.prompt,
+        requestId: requestId,
+        sourceMessageId: imageSource.sourceMessageId,
+      ),
+      clearError: true,
+      clearMissionSuggestion: true,
+      clearPendingClarification: true,
+      clearPendingImageRevision: true,
+    );
+    return true;
+  }
+
+  void finishImageGeneration() {
+    if (!state.isImageGenerationInProgress) {
+      return;
+    }
+
+    state = state.copyWith(isImageGenerationInProgress: false);
   }
 
   bool _isNewRequestDuringImageRevision(
@@ -630,37 +700,48 @@ class ChatController extends StateNotifier<ChatState> {
     return '$sourcePrompt\n\nApply these requested changes: $revision';
   }
 
-  String? _sourcePromptForImageResult({
+  _ImageResultSource? _imageSourceForResult({
     required Conversation conversation,
     required int resultIndex,
     required ChatAttachment attachment,
   }) {
     final storedPrompt = attachment.sourcePrompt?.trim();
-    if (storedPrompt != null && storedPrompt.isNotEmpty) {
-      return storedPrompt;
-    }
-
-    final sourceMessageId = attachment.sourceMessageId;
-    if (sourceMessageId != null) {
+    final storedSourceMessageId = attachment.sourceMessageId;
+    if (storedSourceMessageId != null && storedSourceMessageId.isNotEmpty) {
       ChatMessage? sourceMessage;
       for (final message in conversation.messages) {
-        if (message.id == sourceMessageId) {
+        if (message.id == storedSourceMessageId) {
           sourceMessage = message;
           break;
         }
       }
+
+      if (storedPrompt != null &&
+          storedPrompt.isNotEmpty &&
+          sourceMessage?.role == ChatRole.user) {
+        return _ImageResultSource(
+          prompt: storedPrompt,
+          sourceMessageId: storedSourceMessageId,
+        );
+      }
+
       final sourcePrompt = _imagePromptFromMessage(sourceMessage);
       if (sourcePrompt != null) {
-        return sourcePrompt;
+        return _ImageResultSource(
+          prompt: sourcePrompt,
+          sourceMessageId: storedSourceMessageId,
+        );
       }
     }
 
     for (var index = resultIndex - 1; index >= 0; index--) {
-      final sourcePrompt = _imagePromptFromMessage(
-        conversation.messages[index],
-      );
+      final sourceMessage = conversation.messages[index];
+      final sourcePrompt = _imagePromptFromMessage(sourceMessage);
       if (sourcePrompt != null) {
-        return sourcePrompt;
+        return _ImageResultSource(
+          prompt: sourcePrompt,
+          sourceMessageId: sourceMessage.id,
+        );
       }
     }
 
@@ -710,7 +791,7 @@ class ChatController extends StateNotifier<ChatState> {
       messages: <ChatMessage>[
         ...conversation.messages,
         ChatMessage(
-          id: 'image-result-$sourceMessageId',
+          id: 'image-result-${attachment.id}',
           role: ChatRole.assistant,
           content: 'Done',
           createdAt: createdAt,
@@ -723,7 +804,10 @@ class ChatController extends StateNotifier<ChatState> {
     await _conversationRepository.saveConversation(updatedConversation);
 
     if (mounted && state.conversation?.id == conversationId) {
-      state = state.copyWith(conversation: updatedConversation);
+      state = state.copyWith(
+        conversation: updatedConversation,
+        isImageGenerationInProgress: false,
+      );
     }
 
     return true;
@@ -1030,11 +1114,22 @@ class ChatController extends StateNotifier<ChatState> {
   }
 }
 
+class _ImageResultSource {
+  const _ImageResultSource({
+    required this.prompt,
+    required this.sourceMessageId,
+  });
+
+  final String prompt;
+  final String sourceMessageId;
+}
+
 class ChatState {
   const ChatState({
     this.conversation,
     this.isLoading = false,
     this.isSending = false,
+    this.isImageGenerationInProgress = false,
     this.error,
     this.feedbackByMessageId = const <String, MessageFeedback>{},
     this.missionSuggestion,
@@ -1046,6 +1141,7 @@ class ChatState {
   final Conversation? conversation;
   final bool isLoading;
   final bool isSending;
+  final bool isImageGenerationInProgress;
   final ChatControllerException? error;
   final Map<String, MessageFeedback> feedbackByMessageId;
   final MissionSuggestion? missionSuggestion;
@@ -1062,6 +1158,7 @@ class ChatState {
     Conversation? conversation,
     bool? isLoading,
     bool? isSending,
+    bool? isImageGenerationInProgress,
     ChatControllerException? error,
     Map<String, MessageFeedback>? feedbackByMessageId,
     MissionSuggestion? missionSuggestion,
@@ -1081,6 +1178,8 @@ class ChatState {
           : conversation ?? this.conversation,
       isLoading: isLoading ?? this.isLoading,
       isSending: isSending ?? this.isSending,
+      isImageGenerationInProgress:
+          isImageGenerationInProgress ?? this.isImageGenerationInProgress,
       error: clearError ? null : error ?? this.error,
       feedbackByMessageId: feedbackByMessageId ?? this.feedbackByMessageId,
       missionSuggestion: clearMissionSuggestion

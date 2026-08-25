@@ -107,6 +107,71 @@ void main() {
 
     expect(refineCount, 1);
   });
+
+  testWidgets('shows Regenerate and starts one explicit callback', (
+    tester,
+  ) async {
+    var regenerateCount = 0;
+    const attachment = ChatAttachment(
+      id: 'regeneratable-image',
+      mimeType: 'image/png',
+      localFilePath: '/private/ovexiq/regeneratable-image.png',
+      sourcePrompt: 'peaceful sunset over a mountain lake',
+      sourceMessageId: 'source-message',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: GeneratedImageCard(
+            attachment: attachment,
+            previewBytes: _pngBytes(),
+            onRegenerateImage: () async {
+              regenerateCount++;
+              return true;
+            },
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Regenerate'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('regenerate-generated-image-button')),
+    );
+    await tester.pump();
+
+    expect(regenerateCount, 1);
+  });
+
+  testWidgets('shows a safe failure when regeneration cannot start', (
+    tester,
+  ) async {
+    const attachment = ChatAttachment(
+      id: 'missing-source-image',
+      mimeType: 'image/png',
+      localFilePath: '/private/ovexiq/missing-source-image.png',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: GeneratedImageCard(
+            attachment: attachment,
+            previewBytes: _pngBytes(),
+            onRegenerateImage: () async => false,
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('regenerate-generated-image-button')),
+    );
+    await tester.pump();
+
+    expect(find.text("Couldn't regenerate image"), findsOneWidget);
+  });
 }
 
 Uint8List _pngBytes() {
