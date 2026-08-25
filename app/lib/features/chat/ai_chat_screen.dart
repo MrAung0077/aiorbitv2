@@ -13,6 +13,7 @@ import 'models/router_decision.dart';
 import 'providers/brain_provider.dart';
 import 'providers/chat_controller.dart';
 import 'providers/chat_image_generation_provider.dart';
+import 'providers/device_image_save_provider.dart';
 import 'services/router_preview_service.dart';
 import 'widgets/brain_overlay.dart';
 import 'widgets/finished_result_card.dart';
@@ -402,6 +403,12 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                                       _imagePreviewBytes[message
                                           .attachment!
                                           .id],
+                                  onSaveImage: () => ref
+                                      .read(deviceImageSaveServiceProvider)
+                                      .savePng(
+                                        localFilePath:
+                                            message.attachment!.localFilePath,
+                                      ),
                                 );
                               }
 

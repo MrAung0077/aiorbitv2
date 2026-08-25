@@ -5,15 +5,55 @@ import 'package:flutter/material.dart';
 
 import '../models/chat_message.dart';
 
-class GeneratedImageCard extends StatelessWidget {
+class GeneratedImageCard extends StatefulWidget {
   const GeneratedImageCard({
     super.key,
     required this.attachment,
     this.previewBytes,
+    this.onSaveImage,
   });
 
   final ChatAttachment attachment;
   final Uint8List? previewBytes;
+  final Future<bool> Function()? onSaveImage;
+
+  @override
+  State<GeneratedImageCard> createState() => _GeneratedImageCardState();
+}
+
+class _GeneratedImageCardState extends State<GeneratedImageCard> {
+  var _isSaving = false;
+
+  Future<void> _saveImage() async {
+    if (_isSaving || widget.onSaveImage == null) {
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+    });
+
+    var saved = false;
+    try {
+      saved = await widget.onSaveImage!();
+    } catch (_) {
+      saved = false;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isSaving = false;
+    });
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(saved ? 'Image saved' : "Couldn't save image")),
+      );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,9 +70,9 @@ class GeneratedImageCard extends StatelessWidget {
             const SizedBox(height: 12),
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
-              child: previewBytes == null
+              child: widget.previewBytes == null
                   ? Image.file(
-                      File(attachment.localFilePath),
+                      File(widget.attachment.localFilePath),
                       key: const ValueKey<String>('generated-image-preview'),
                       fit: BoxFit.cover,
                       semanticLabel: 'Generated image',
@@ -47,7 +87,7 @@ class GeneratedImageCard extends StatelessWidget {
                       ),
                     )
                   : Image.memory(
-                      previewBytes!,
+                      widget.previewBytes!,
                       key: const ValueKey<String>('generated-image-preview'),
                       fit: BoxFit.cover,
                       semanticLabel: 'Generated image',
@@ -62,6 +102,18 @@ class GeneratedImageCard extends StatelessWidget {
                       ),
                     ),
             ),
+            if (widget.onSaveImage != null) ...<Widget>[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  key: const ValueKey<String>('save-generated-image-button'),
+                  onPressed: _isSaving ? null : _saveImage,
+                  icon: const Icon(Icons.download_outlined),
+                  label: Text(_isSaving ? 'Saving...' : 'Save Image'),
+                ),
+              ),
+            ],
           ],
         ),
       ),
