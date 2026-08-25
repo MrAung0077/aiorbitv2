@@ -133,14 +133,14 @@ void main() {
 
       await tester.enterText(
         find.byType(TextField),
-        'Create a peaceful picture of Buddha meditating under a bodhi tree.',
+        'Create a peaceful sunset over a mountain lake.',
       );
       await tester.tap(find.byTooltip('Send'));
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.text('Ovexiq is creating your image...'), findsOneWidget);
       expect(imageGenerator.prompts, <String>[
-        'Buddha meditating under a bodhi tree',
+        'peaceful sunset over a mountain lake',
       ]);
       expect(aiChatService.requests, isEmpty);
       expect(container.read(chatControllerProvider).imageActionRequest, isNull);

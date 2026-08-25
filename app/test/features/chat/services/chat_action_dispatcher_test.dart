@@ -34,6 +34,70 @@ void main() {
       }
     });
 
+    test(
+      'detects clear visual creation without image-specific magic words',
+      () {
+        for (final entry in <(String, String)>[
+          (
+            'Create a peaceful sunset over a mountain lake.',
+            'peaceful sunset over a mountain lake',
+          ),
+          (
+            'Create a golden Buddha under a bodhi tree.',
+            'golden Buddha under a bodhi tree',
+          ),
+          ('Generate a futuristic city at night.', 'futuristic city at night'),
+          (
+            'Draw a cute cat sleeping on a sofa.',
+            'cute cat sleeping on a sofa',
+          ),
+          (
+            'Make me a beautiful tropical beach scene.',
+            'beautiful tropical beach scene',
+          ),
+          ('Create a minimalist logo of a fox.', 'minimalist logo of a fox'),
+          (
+            'Create a realistic product shot of a red shoe.',
+            'realistic product shot of a red shoe',
+          ),
+        ]) {
+          final result = dispatcher.dispatch(entry.$1);
+
+          expect(result, isA<ChatImageActionRequested>(), reason: entry.$1);
+          expect(
+            (result as ChatImageActionRequested).subject,
+            entry.$2,
+            reason: entry.$1,
+          );
+        }
+      },
+    );
+
+    test(
+      'keeps non-image deliverables and image meta-requests on text Chat',
+      () {
+        for (final prompt in <String>[
+          'Create a Facebook post about a sunset.',
+          'Create a marketing plan.',
+          'Create a content calendar.',
+          'Create a video about a mountain lake.',
+          'Create an email.',
+          'Create a blog article.',
+          'Write a script about Buddha.',
+          'How do I create a sunset image?',
+          'Explain how image generation works.',
+          'Give me a prompt for a sunset image.',
+          'Make a Midjourney prompt for a beach.',
+        ]) {
+          expect(
+            dispatcher.dispatch(prompt),
+            isA<ChatActionPassThrough>(),
+            reason: prompt,
+          );
+        }
+      },
+    );
+
     test('keeps informational image questions on the text-chat path', () {
       expect(
         dispatcher.dispatch('How do I create a picture?'),
