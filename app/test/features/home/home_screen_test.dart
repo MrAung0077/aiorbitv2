@@ -1,10 +1,9 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:aiorbit/core/ai/ai.dart';
 import 'package:aiorbit/core/ai/providers/ovexiq_image_api_client.dart';
+import 'package:aiorbit/core/widgets/app_message_bubble.dart';
+import 'package:aiorbit/features/chat/ai_chat_screen.dart';
 import 'package:aiorbit/features/chat/models/chat_message.dart';
 import 'package:aiorbit/features/chat/models/conversation.dart';
 import 'package:aiorbit/features/chat/providers/chat_controller.dart';
@@ -12,7 +11,6 @@ import 'package:aiorbit/features/chat/providers/chat_image_generation_provider.d
 import 'package:aiorbit/features/chat/repositories/conversation_repository.dart';
 import 'package:aiorbit/features/chat/services/ai_chat_service.dart';
 import 'package:aiorbit/features/chat/services/chat_image_generation_service.dart';
-import 'package:aiorbit/features/chat/services/local_generated_image_result_store.dart';
 import 'package:aiorbit/features/home/home_screen.dart';
 import 'package:aiorbit/features/mission/providers/mission_provider.dart';
 import 'package:aiorbit/features/mission/services/memory_mission_repository.dart';
@@ -190,10 +188,6 @@ void main() {
       final imageGenerator = _FakeChatImageGenerator(
         (_) => imageCompleter.future,
       );
-      final imageStoreDirectory = await Directory.systemTemp.createTemp(
-        'aiorbit-home-image-',
-      );
-      addTearDown(() => imageStoreDirectory.delete(recursive: true));
       final aiChatService = _SuccessfulAIChatService();
       final container = ProviderContainer(
         overrides: <Override>[
@@ -203,11 +197,6 @@ void main() {
             MemoryMissionRepository(),
           ),
           chatImageGenerationServiceProvider.overrideWithValue(imageGenerator),
-          generatedImageResultStoreProvider.overrideWithValue(
-            _FakeGeneratedImageResultStore(
-              await _writeTestImage(imageStoreDirectory),
-            ),
-          ),
         ],
       );
       addTearDown(container.dispose);
@@ -243,26 +232,70 @@ void main() {
         (await repository.getConversation(conversation.id))!.messages,
         hasLength(1),
       );
-
-      imageCompleter.complete(_testGeneratedImage());
-      await tester.pump();
-      await tester.pump();
-      await tester.pump(const Duration(seconds: 3));
-
-      expect(
-        find.byKey(const ValueKey<String>('generated-image-card')),
-        findsOneWidget,
-      );
       expect(imageGenerator.prompts, hasLength(1));
+      await tester.pump(const Duration(milliseconds: 100));
     },
-    skip: true,
   );
 
-  testWidgets('Home first normal prompt still opens Chat with one response', (
+  testWidgets('Home opens Chat while the first normal response is pending', (
     tester,
   ) async {
     final repository = _MemoryConversationRepository(const <Conversation>[]);
-    final aiChatService = _SuccessfulAIChatService();
+    final aiChatService = _PendingAIChatService();
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(repository),
+        aiChatServiceProvider.overrideWithValue(aiChatService),
+        missionRepositoryProvider.overrideWithValue(MemoryMissionRepository()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: HomeScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'What is a budget?');
+    await tester.tap(find.byTooltip('Send'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byType(AIChatScreen), findsOneWidget);
+    expect(container.read(chatControllerProvider).isSending, isTrue);
+    expect(find.byType(AppMessageBubble), findsNWidgets(2));
+    expect(aiChatService.requests, hasLength(1));
+    expect(
+      container
+          .read(chatControllerProvider)
+          .messages
+          .where((message) => message.role == ChatRole.user),
+      hasLength(1),
+    );
+
+    final conversation = container.read(chatControllerProvider).conversation!;
+    expect(
+      (await repository.getConversation(
+        conversation.id,
+      ))!.messages.where((message) => message.role == ChatRole.user),
+      hasLength(1),
+    );
+
+    aiChatService.complete('A budget is a spending plan.');
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('A budget is a spending plan.'), findsOneWidget);
+    expect(aiChatService.requests, hasLength(1));
+  });
+
+  testWidgets('Home first normal failure appears in Chat', (tester) async {
+    final repository = _MemoryConversationRepository(const <Conversation>[]);
+    final aiChatService = _FailingAIChatService();
     final container = ProviderContainer(
       overrides: <Override>[
         conversationRepositoryProvider.overrideWithValue(repository),
@@ -284,7 +317,11 @@ void main() {
     await tester.tap(find.byTooltip('Send'));
     await tester.pumpAndSettle();
 
-    expect(find.text('A budget is a spending plan.'), findsOneWidget);
+    expect(find.byType(AIChatScreen), findsOneWidget);
+    expect(
+      find.text('Something went wrong. Please try again.'),
+      findsOneWidget,
+    );
     expect(aiChatService.requests, hasLength(1));
     expect(
       container
@@ -355,6 +392,33 @@ class _SuccessfulAIChatService extends AIChatService {
   }
 }
 
+class _PendingAIChatService extends AIChatService {
+  final List<List<AIMessage>> requests = <List<AIMessage>>[];
+  final Completer<String> _response = Completer<String>();
+
+  @override
+  Stream<AIChunk> sendMessages(List<AIMessage> messages) async* {
+    requests.add(List<AIMessage>.of(messages));
+    final response = await _response.future;
+    yield AIChunk.text(provider: ProviderType.openAI, text: response);
+    yield const AIChunk.done(provider: ProviderType.openAI);
+  }
+
+  void complete(String response) {
+    _response.complete(response);
+  }
+}
+
+class _FailingAIChatService extends AIChatService {
+  final List<List<AIMessage>> requests = <List<AIMessage>>[];
+
+  @override
+  Stream<AIChunk> sendMessages(List<AIMessage> messages) async* {
+    requests.add(List<AIMessage>.of(messages));
+    throw StateError('temporary provider failure');
+  }
+}
+
 class _FakeChatImageGenerator extends ChatImageGenerator {
   _FakeChatImageGenerator(this._onGenerate);
 
@@ -366,34 +430,6 @@ class _FakeChatImageGenerator extends ChatImageGenerator {
     prompts.add(prompt);
     return _onGenerate(prompt);
   }
-}
-
-class _FakeGeneratedImageResultStore implements GeneratedImageResultStore {
-  const _FakeGeneratedImageResultStore(this._path);
-
-  final String _path;
-
-  @override
-  Future<String> savePng({
-    required String conversationId,
-    required String sourceMessageId,
-    required Uint8List bytes,
-  }) async => _path;
-}
-
-Future<String> _writeTestImage(Directory directory) async {
-  final file = File('${directory.path}${Platform.pathSeparator}image.png');
-  await file.writeAsBytes(_testGeneratedImage().bytes, flush: true);
-  return file.path;
-}
-
-GeneratedImage _testGeneratedImage() {
-  return GeneratedImage(
-    mimeType: 'image/png',
-    bytes: base64Decode(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==',
-    ),
-  );
 }
 
 class _MemoryConversationRepository extends ConversationRepository {

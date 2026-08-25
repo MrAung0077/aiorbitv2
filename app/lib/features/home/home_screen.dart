@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -69,8 +71,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _promptController.clear();
     _promptFocusNode.unfocus();
 
-    await chatController.sendMessage(prompt);
-
     final conversation = ref.read(chatControllerProvider).conversation;
 
     if (!mounted || conversation == null) {
@@ -78,6 +78,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
 
     await _openConversation(conversation, reload: false);
+
+    // Do not leave the user on Home while a normal text completion is pending.
+    // The destination observes this controller state, including an image action
+    // emitted before its first frame.
+    unawaited(chatController.sendMessage(prompt));
   }
 
   Future<void> _openConversation(
@@ -95,9 +100,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       return;
     }
 
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute<void>(builder: (_) => const AIChatScreen()));
+    unawaited(
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => const AIChatScreen())),
+    );
   }
 
   void _useQuickPrompt(String prompt) {
