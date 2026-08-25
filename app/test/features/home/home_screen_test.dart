@@ -355,7 +355,7 @@ class _SuccessfulAIChatService extends AIChatService {
   }
 }
 
-class _FakeChatImageGenerator implements ChatImageGenerator {
+class _FakeChatImageGenerator extends ChatImageGenerator {
   _FakeChatImageGenerator(this._onGenerate);
 
   final Future<GeneratedImage> Function(String prompt) _onGenerate;

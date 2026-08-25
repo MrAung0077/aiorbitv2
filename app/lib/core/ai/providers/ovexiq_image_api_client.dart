@@ -13,19 +13,51 @@ class GeneratedImage {
   final Uint8List bytes;
 }
 
+/// A single image request that can be stopped without affecting other work.
+class CancellableImageGeneration {
+  CancellableImageGeneration._({
+    required Future<GeneratedImage> result,
+    required void Function() onCancel,
+  }) : _result = result,
+       _onCancel = onCancel;
+
+  final Future<GeneratedImage> _result;
+  final void Function() _onCancel;
+  var _isCancelled = false;
+
+  Future<GeneratedImage> get result => _result;
+  bool get isCancelled => _isCancelled;
+
+  void cancel() {
+    if (_isCancelled) {
+      return;
+    }
+
+    _isCancelled = true;
+    _onCancel();
+  }
+}
+
 class OvexiqImageApiClient {
   OvexiqImageApiClient({
     required String baseUrl,
     required String betaAccessToken,
     http.Client? httpClient,
+    http.Client Function()? httpClientFactory,
     this.timeout = const Duration(seconds: 60),
-  }) : _baseUri = Uri.tryParse(baseUrl.trim()),
+  }) : assert(httpClient == null || httpClientFactory == null),
+       _baseUri = Uri.tryParse(baseUrl.trim()),
        _betaAccessToken = betaAccessToken.trim(),
-       _httpClient = httpClient ?? http.Client();
+       _providedHttpClient = httpClient,
+       _httpClientFactory = httpClientFactory ?? http.Client.new;
 
   final Uri? _baseUri;
   final String _betaAccessToken;
-  final http.Client _httpClient;
+
+  /// An injected client is retained for tests. Production requests create a
+  /// dedicated client so cancelling one image cannot close unrelated work.
+  final http.Client? _providedHttpClient;
+  final http.Client Function() _httpClientFactory;
   final Duration timeout;
 
   bool get isConfigured {
@@ -37,7 +69,50 @@ class OvexiqImageApiClient {
         _betaAccessToken.isNotEmpty;
   }
 
-  Future<GeneratedImage> generate({required String prompt}) async {
+  Future<GeneratedImage> generate({required String prompt}) {
+    return startGeneration(prompt: prompt).result;
+  }
+
+  CancellableImageGeneration startGeneration({required String prompt}) {
+    final cancellation = Completer<void>();
+    final requestClient = _providedHttpClient ?? _httpClientFactory();
+    final ownsRequestClient = _providedHttpClient == null;
+    var requestClientClosed = false;
+
+    void closeRequestClient() {
+      if (!ownsRequestClient || requestClientClosed) {
+        return;
+      }
+
+      requestClientClosed = true;
+      requestClient.close();
+    }
+
+    void cancel() {
+      if (!cancellation.isCompleted) {
+        cancellation.complete();
+      }
+
+      closeRequestClient();
+    }
+
+    final result =
+        Future.any<GeneratedImage>(<Future<GeneratedImage>>[
+          _generateWithClient(prompt: prompt, httpClient: requestClient),
+          cancellation.future.then<GeneratedImage>((_) {
+            throw const OvexiqImageGenerationCancelled();
+          }),
+        ]).whenComplete(() {
+          closeRequestClient();
+        });
+
+    return CancellableImageGeneration._(result: result, onCancel: cancel);
+  }
+
+  Future<GeneratedImage> _generateWithClient({
+    required String prompt,
+    required http.Client httpClient,
+  }) async {
     if (!isConfigured) {
       throw const OvexiqImageApiException(
         message: 'Ovexiq image generation is not configured.',
@@ -54,7 +129,7 @@ class OvexiqImageApiClient {
     final http.Response response;
 
     try {
-      response = await _httpClient
+      response = await httpClient
           .post(
             _baseUri!.resolve('/v1/ai/image'),
             headers: <String, String>{
@@ -144,8 +219,12 @@ class OvexiqImageApiClient {
   }
 
   void close() {
-    _httpClient.close();
+    _providedHttpClient?.close();
   }
+}
+
+class OvexiqImageGenerationCancelled implements Exception {
+  const OvexiqImageGenerationCancelled();
 }
 
 class OvexiqImageApiException implements Exception {

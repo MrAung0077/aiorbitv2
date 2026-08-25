@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/ai/providers/ovexiq_image_api_client.dart';
 import '../../core/widgets/app_conversation_header.dart';
 import '../../core/widgets/app_message_bubble.dart';
 import '../../core/widgets/app_prompt_composer.dart';
@@ -15,6 +16,7 @@ import 'providers/chat_controller.dart';
 import 'providers/chat_image_generation_provider.dart';
 import 'providers/device_image_save_provider.dart';
 import 'services/router_preview_service.dart';
+import 'services/chat_image_generation_service.dart';
 import 'widgets/brain_overlay.dart';
 import 'widgets/finished_result_card.dart';
 import 'widgets/generated_image_card.dart';
@@ -43,6 +45,9 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
   _ImageWorkState _imageWorkState = _ImageWorkState.idle;
   final Map<String, Uint8List> _imagePreviewBytes = <String, Uint8List>{};
   final Set<String> _startedImageRequestKeys = <String>{};
+  final Set<String> _cancelledImageRequestKeys = <String>{};
+  ChatImageGenerationOperation? _activeImageGeneration;
+  String? _activeImageRequestKey;
 
   @override
   void initState() {
@@ -245,10 +250,17 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     });
     ref.read(chatControllerProvider.notifier).consumeImageActionRequest();
 
+    final generation = ref
+        .read(chatImageGenerationServiceProvider)
+        .startGeneration(prompt: request.subject);
+    _activeImageGeneration = generation;
+    _activeImageRequestKey = requestKey;
+
     try {
-      final image = await ref
-          .read(chatImageGenerationServiceProvider)
-          .generate(prompt: request.subject);
+      final image = await generation.result;
+      if (!_isImageRequestActive(requestKey, generation)) {
+        return;
+      }
 
       final localFilePath = await ref
           .read(generatedImageResultStoreProvider)
@@ -257,6 +269,9 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
             sourceMessageId: requestId,
             bytes: image.bytes,
           );
+      if (!_isImageRequestActive(requestKey, generation)) {
+        return;
+      }
       final attachment = ChatAttachment(
         id: 'image-$conversationId-$requestId',
         mimeType: image.mimeType,
@@ -270,7 +285,12 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
             conversationId: conversationId,
             sourceMessageId: sourceMessageId,
             attachment: attachment,
+            requestId: requestId,
           );
+
+      if (!_isImageRequestActive(requestKey, generation)) {
+        return;
+      }
 
       if (!persisted) {
         throw StateError('Could not save the generated image result.');
@@ -284,15 +304,55 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
         _imagePreviewBytes[attachment.id] = image.bytes;
         _imageWorkState = _ImageWorkState.idle;
       });
+    } on OvexiqImageGenerationCancelled {
+      // Cancellation returns to the existing result without a failure state.
     } catch (_) {
-      if (mounted) {
+      if (_isImageRequestActive(requestKey, generation)) {
         setState(() {
           _imageWorkState = _ImageWorkState.failed;
         });
       }
     } finally {
-      ref.read(chatControllerProvider.notifier).finishImageGeneration();
+      if (identical(_activeImageGeneration, generation)) {
+        _activeImageGeneration = null;
+        _activeImageRequestKey = null;
+      }
+      ref
+          .read(chatControllerProvider.notifier)
+          .finishImageGeneration(requestId: requestId);
     }
+  }
+
+  bool _isImageRequestActive(
+    String requestKey,
+    ChatImageGenerationOperation generation,
+  ) {
+    return mounted &&
+        _activeImageRequestKey == requestKey &&
+        identical(_activeImageGeneration, generation) &&
+        !_cancelledImageRequestKeys.contains(requestKey);
+  }
+
+  void _cancelImageGeneration() {
+    final generation = _activeImageGeneration;
+    final requestKey = _activeImageRequestKey;
+    final requestId = ref.read(chatControllerProvider).activeImageRequestId;
+
+    if (generation == null ||
+        requestKey == null ||
+        requestId == null ||
+        _imageWorkState != _ImageWorkState.working) {
+      return;
+    }
+
+    _cancelledImageRequestKeys.add(requestKey);
+    generation.cancel();
+    ref
+        .read(chatControllerProvider.notifier)
+        .cancelImageGeneration(requestId: requestId);
+    setState(() {
+      _imageWorkState = _ImageWorkState.idle;
+    });
   }
 
   void _onChatStateChanged(ChatState? previous, ChatState next) {
@@ -472,6 +532,9 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                             if (hasImageStatus && index == messages.length) {
                               return _ImageWorkStatus(
                                 isWorking: isImageWorking,
+                                onCancel: isImageWorking
+                                    ? _cancelImageGeneration
+                                    : null,
                               );
                             }
 
@@ -576,15 +639,27 @@ class _MissionWorkStatus extends StatelessWidget {
 }
 
 class _ImageWorkStatus extends StatelessWidget {
-  const _ImageWorkStatus({required this.isWorking});
+  const _ImageWorkStatus({required this.isWorking, this.onCancel});
 
   final bool isWorking;
+  final VoidCallback? onCancel;
 
   @override
   Widget build(BuildContext context) {
     if (isWorking) {
-      return const AppTypingIndicator(
-        label: 'Ovexiq is creating your image...',
+      return Row(
+        children: <Widget>[
+          const Expanded(
+            child: AppTypingIndicator(
+              label: 'Ovexiq is creating your image...',
+            ),
+          ),
+          TextButton(
+            key: const ValueKey<String>('cancel-image-generation-button'),
+            onPressed: onCancel,
+            child: const Text('Cancel'),
+          ),
+        ],
       );
     }
 

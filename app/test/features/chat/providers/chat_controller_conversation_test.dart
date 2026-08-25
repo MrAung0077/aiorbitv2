@@ -474,6 +474,50 @@ void main() {
     );
 
     test(
+      'cancelling regeneration preserves the existing image result',
+      () async {
+        final repository = _MemoryConversationRepository();
+        final controller = _createController(repository);
+        addTearDown(controller.dispose);
+
+        await controller.sendMessage('Create a picture of Buddha');
+        final conversationId = controller.state.conversation!.id;
+        final sourceMessageId = controller.state.messages.single.id;
+        await controller.persistGeneratedImageResult(
+          conversationId: conversationId,
+          sourceMessageId: sourceMessageId,
+          attachment: ChatAttachment(
+            id: 'original-image',
+            mimeType: 'image/png',
+            localFilePath: '/safe/original.png',
+            sourcePrompt: 'Buddha',
+            sourceMessageId: sourceMessageId,
+          ),
+        );
+        final originalMessages = List<ChatMessage>.of(
+          controller.state.messages,
+        );
+
+        expect(
+          await controller.regenerateImage(
+            resultMessageId: controller.state.messages.last.id,
+          ),
+          isTrue,
+        );
+        final requestId = controller.state.activeImageRequestId!;
+
+        controller.cancelImageGeneration(requestId: requestId);
+        controller.cancelImageGeneration(requestId: requestId);
+
+        expect(controller.state.isImageGenerationInProgress, isFalse);
+        expect(controller.state.activeImageRequestId, isNull);
+        expect(controller.state.imageActionRequest, isNull);
+        expect(controller.state.messages, originalMessages);
+        expect(controller.state.messages.last.attachment?.id, 'original-image');
+      },
+    );
+
+    test(
       'asks exactly once for a Facebook post topic before completion',
       () async {
         final repository = _MemoryConversationRepository();

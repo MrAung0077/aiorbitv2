@@ -289,6 +289,7 @@ class ChatController extends StateNotifier<ChatState> {
             sourceMessageId: userMessage.id,
           ),
           isImageGenerationInProgress: true,
+          activeImageRequestId: userMessage.id,
           clearMissionSuggestion: true,
           clearPendingClarification: true,
           clearPendingImageRevision: true,
@@ -310,6 +311,7 @@ class ChatController extends StateNotifier<ChatState> {
             sourceMessageId: userMessage.id,
           ),
           isImageGenerationInProgress: true,
+          activeImageRequestId: userMessage.id,
           clearMissionSuggestion: true,
           clearPendingImageRevision: true,
         );
@@ -669,6 +671,7 @@ class ChatController extends StateNotifier<ChatState> {
         requestId: requestId,
         sourceMessageId: imageSource.sourceMessageId,
       ),
+      activeImageRequestId: requestId,
       clearError: true,
       clearMissionSuggestion: true,
       clearPendingClarification: true,
@@ -677,12 +680,27 @@ class ChatController extends StateNotifier<ChatState> {
     return true;
   }
 
-  void finishImageGeneration() {
-    if (!state.isImageGenerationInProgress) {
+  void cancelImageGeneration({required String requestId}) {
+    if (state.activeImageRequestId != requestId) {
       return;
     }
 
-    state = state.copyWith(isImageGenerationInProgress: false);
+    state = state.copyWith(
+      isImageGenerationInProgress: false,
+      clearActiveImageRequestId: true,
+      clearImageActionRequest: true,
+    );
+  }
+
+  void finishImageGeneration({required String requestId}) {
+    if (state.activeImageRequestId != requestId) {
+      return;
+    }
+
+    state = state.copyWith(
+      isImageGenerationInProgress: false,
+      clearActiveImageRequestId: true,
+    );
   }
 
   bool _isNewRequestDuringImageRevision(
@@ -762,7 +780,12 @@ class ChatController extends StateNotifier<ChatState> {
     required String conversationId,
     required String sourceMessageId,
     required ChatAttachment attachment,
+    String? requestId,
   }) async {
+    if (requestId != null && state.activeImageRequestId != requestId) {
+      return false;
+    }
+
     final conversation = await _conversationRepository.getConversation(
       conversationId,
     );
@@ -803,10 +826,13 @@ class ChatController extends StateNotifier<ChatState> {
 
     await _conversationRepository.saveConversation(updatedConversation);
 
-    if (mounted && state.conversation?.id == conversationId) {
+    if (mounted &&
+        state.conversation?.id == conversationId &&
+        (requestId == null || state.activeImageRequestId == requestId)) {
       state = state.copyWith(
         conversation: updatedConversation,
         isImageGenerationInProgress: false,
+        clearActiveImageRequestId: requestId != null,
       );
     }
 
@@ -1130,6 +1156,7 @@ class ChatState {
     this.isLoading = false,
     this.isSending = false,
     this.isImageGenerationInProgress = false,
+    this.activeImageRequestId,
     this.error,
     this.feedbackByMessageId = const <String, MessageFeedback>{},
     this.missionSuggestion,
@@ -1142,6 +1169,7 @@ class ChatState {
   final bool isLoading;
   final bool isSending;
   final bool isImageGenerationInProgress;
+  final String? activeImageRequestId;
   final ChatControllerException? error;
   final Map<String, MessageFeedback> feedbackByMessageId;
   final MissionSuggestion? missionSuggestion;
@@ -1159,6 +1187,7 @@ class ChatState {
     bool? isLoading,
     bool? isSending,
     bool? isImageGenerationInProgress,
+    String? activeImageRequestId,
     ChatControllerException? error,
     Map<String, MessageFeedback>? feedbackByMessageId,
     MissionSuggestion? missionSuggestion,
@@ -1169,6 +1198,7 @@ class ChatState {
     bool clearError = false,
     bool clearMissionSuggestion = false,
     bool clearImageActionRequest = false,
+    bool clearActiveImageRequestId = false,
     bool clearPendingClarification = false,
     bool clearPendingImageRevision = false,
   }) {
@@ -1180,6 +1210,9 @@ class ChatState {
       isSending: isSending ?? this.isSending,
       isImageGenerationInProgress:
           isImageGenerationInProgress ?? this.isImageGenerationInProgress,
+      activeImageRequestId: clearActiveImageRequestId
+          ? null
+          : activeImageRequestId ?? this.activeImageRequestId,
       error: clearError ? null : error ?? this.error,
       feedbackByMessageId: feedbackByMessageId ?? this.feedbackByMessageId,
       missionSuggestion: clearMissionSuggestion

@@ -150,6 +150,99 @@ void main() {
   );
 
   testWidgets(
+    'cancelling image work hides Working and ignores a late success',
+    (tester) async {
+      final imageCompleter = Completer<GeneratedImage>();
+      final imageGenerator = _CancellableFakeChatImageGenerator(
+        (_) => imageCompleter.future,
+      );
+      final imageResultStore = _FakeGeneratedImageResultStore(
+        '/safe/cancelled-image.png',
+      );
+      final container = ProviderContainer(
+        overrides: <Override>[
+          conversationRepositoryProvider.overrideWithValue(
+            _MemoryConversationRepository(),
+          ),
+          aiChatServiceProvider.overrideWithValue(_SuccessfulAIChatService()),
+          missionRepositoryProvider.overrideWithValue(
+            MemoryMissionRepository(),
+          ),
+          chatImageGenerationServiceProvider.overrideWithValue(imageGenerator),
+          generatedImageResultStoreProvider.overrideWithValue(imageResultStore),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: AIChatScreen()),
+        ),
+      );
+      await tester.enterText(
+        find.byType(TextField),
+        'Create a picture of Buddha',
+      );
+      await tester.tap(find.byTooltip('Send'));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Ovexiq is creating your image...'), findsOneWidget);
+      expect(find.text('Cancel'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('cancel-image-generation-button')),
+      );
+      await tester.pump();
+
+      expect(imageGenerator.cancelCount, 1);
+      expect(find.text('Ovexiq is creating your image...'), findsNothing);
+      expect(find.text('Cancel'), findsNothing);
+      expect(
+        find.text('Ovexiq couldn’t create that image. Please try again.'),
+        findsNothing,
+      );
+      expect(
+        container.read(chatControllerProvider).isImageGenerationInProgress,
+        isFalse,
+      );
+      expect(imageResultStore.savedPaths, isEmpty);
+      expect(
+        container
+            .read(chatControllerProvider)
+            .messages
+            .where((message) => message.attachment != null),
+        isEmpty,
+      );
+
+      // A second cancellation after the Working row is gone is harmless.
+      container
+          .read(chatControllerProvider.notifier)
+          .cancelImageGeneration(requestId: 'not-active');
+
+      imageCompleter.complete(_testGeneratedImage());
+      await tester.pump();
+      await tester.pump();
+
+      expect(imageGenerator.prompts, hasLength(1));
+      expect(imageResultStore.savedPaths, isEmpty);
+      expect(
+        container
+            .read(chatControllerProvider)
+            .messages
+            .where((message) => message.attachment != null),
+        isEmpty,
+      );
+      expect(
+        find.text('Ovexiq couldn’t create that image. Please try again.'),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets(
     'physical image prompt persists and renders its finished result',
     (tester) async {
       final imageGenerator = _FakeChatImageGenerator(
@@ -647,7 +740,7 @@ class _SuccessfulAIChatService extends AIChatService {
   }
 }
 
-class _FakeChatImageGenerator implements ChatImageGenerator {
+class _FakeChatImageGenerator extends ChatImageGenerator {
   _FakeChatImageGenerator(this._onGenerate);
 
   final Future<GeneratedImage> Function(String prompt) _onGenerate;
@@ -657,6 +750,31 @@ class _FakeChatImageGenerator implements ChatImageGenerator {
   Future<GeneratedImage> generate({required String prompt}) {
     prompts.add(prompt);
     return _onGenerate(prompt);
+  }
+}
+
+class _CancellableFakeChatImageGenerator extends ChatImageGenerator {
+  _CancellableFakeChatImageGenerator(this._onGenerate);
+
+  final Future<GeneratedImage> Function(String prompt) _onGenerate;
+  final List<String> prompts = <String>[];
+  var cancelCount = 0;
+
+  @override
+  Future<GeneratedImage> generate({required String prompt}) {
+    prompts.add(prompt);
+    return _onGenerate(prompt);
+  }
+
+  @override
+  ChatImageGenerationOperation startGeneration({required String prompt}) {
+    final result = generate(prompt: prompt);
+    return ChatImageGenerationOperation.fromFuture(
+      result,
+      onCancel: () {
+        cancelCount++;
+      },
+    );
   }
 }
 
