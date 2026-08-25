@@ -206,6 +206,148 @@ void main() {
     });
 
     test(
+      'refines a persisted image with one new prompt-based version',
+      () async {
+        final repository = _MemoryConversationRepository();
+        final aiChatService = _FakeAIChatService();
+        final controller = _createController(
+          repository,
+          aiChatService: aiChatService,
+        );
+        addTearDown(controller.dispose);
+
+        await controller.sendMessage(
+          'Create a peaceful sunset over a mountain lake.',
+        );
+        final conversationId = controller.state.conversation!.id;
+        final originalSourceMessageId = controller.state.messages.single.id;
+        final originalAttachment = ChatAttachment(
+          id: 'original-image',
+          mimeType: 'image/png',
+          localFilePath: '/safe/original.png',
+          sourcePrompt: 'peaceful sunset over a mountain lake',
+          sourceMessageId: originalSourceMessageId,
+        );
+        expect(
+          await controller.persistGeneratedImageResult(
+            conversationId: conversationId,
+            sourceMessageId: originalSourceMessageId,
+            attachment: originalAttachment,
+          ),
+          isTrue,
+        );
+        final originalResultMessageId = controller.state.messages.last.id;
+
+        expect(
+          await controller.beginImageRevision(
+            resultMessageId: originalResultMessageId,
+          ),
+          isTrue,
+        );
+        expect(aiChatService.requests, isEmpty);
+        expect(
+          controller.state.messages.last.content,
+          'What would you like to change?',
+        );
+        expect(
+          controller.state.pendingImageRevision?.sourcePrompt,
+          'peaceful sunset over a mountain lake',
+        );
+
+        await controller.sendMessage(
+          'Make the sky more purple and add two birds.',
+        );
+
+        expect(aiChatService.requests, isEmpty);
+        expect(controller.state.pendingImageRevision, isNull);
+        expect(controller.state.imageActionRequest, isNotNull);
+        final refinedPrompt = controller.state.imageActionRequest!.subject;
+        expect(refinedPrompt, contains('peaceful sunset over a mountain lake'));
+        expect(
+          refinedPrompt,
+          contains('Make the sky more purple and add two birds.'),
+        );
+
+        final refinedSourceMessageId = controller.state.messages.last.id;
+        final refinedAttachment = ChatAttachment(
+          id: 'refined-image',
+          mimeType: 'image/png',
+          localFilePath: '/safe/refined.png',
+          sourcePrompt: refinedPrompt,
+          sourceMessageId: refinedSourceMessageId,
+        );
+        expect(
+          await controller.persistGeneratedImageResult(
+            conversationId: conversationId,
+            sourceMessageId: refinedSourceMessageId,
+            attachment: refinedAttachment,
+          ),
+          isTrue,
+        );
+
+        final restoredController = _createController(repository);
+        addTearDown(restoredController.dispose);
+        await restoredController.loadConversation(conversationId);
+        final restoredAttachments = restoredController.state.messages
+            .where((message) => message.attachment != null)
+            .map((message) => message.attachment!)
+            .toList(growable: false);
+
+        expect(restoredAttachments, hasLength(2));
+        expect(restoredAttachments.first.localFilePath, '/safe/original.png');
+        expect(restoredAttachments.last.localFilePath, '/safe/refined.png');
+        final refinedResultMessage = restoredController.state.messages
+            .lastWhere((message) => message.attachment?.id == 'refined-image');
+        expect(
+          await restoredController.beginImageRevision(
+            resultMessageId: refinedResultMessage.id,
+          ),
+          isTrue,
+        );
+        expect(
+          restoredController.state.pendingImageRevision?.sourcePrompt,
+          refinedPrompt,
+        );
+      },
+    );
+
+    test('an unrelated request cancels a pending image revision', () async {
+      final repository = _MemoryConversationRepository();
+      final aiChatService = _FakeAIChatService();
+      final controller = _createController(
+        repository,
+        aiChatService: aiChatService,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.sendMessage('Create a picture of Buddha');
+      final conversationId = controller.state.conversation!.id;
+      final sourceMessageId = controller.state.messages.single.id;
+      await controller.persistGeneratedImageResult(
+        conversationId: conversationId,
+        sourceMessageId: sourceMessageId,
+        attachment: ChatAttachment(
+          id: 'buddha-image',
+          mimeType: 'image/png',
+          localFilePath: '/safe/buddha.png',
+          sourcePrompt: 'Buddha',
+          sourceMessageId: sourceMessageId,
+        ),
+      );
+      await controller.beginImageRevision(
+        resultMessageId: controller.state.messages.last.id,
+      );
+
+      await controller.sendMessage(
+        'Write a Facebook post about our summer sale',
+      );
+
+      expect(controller.state.pendingImageRevision, isNull);
+      expect(controller.state.imageActionRequest, isNull);
+      expect(aiChatService.requests, hasLength(1));
+    });
+
+    test(
       'asks exactly once for a Facebook post topic before completion',
       () async {
         final repository = _MemoryConversationRepository();

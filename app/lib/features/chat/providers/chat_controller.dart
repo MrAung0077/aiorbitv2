@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/chat_message.dart';
 import '../models/conversation.dart';
 import '../models/pending_chat_clarification.dart';
+import '../models/pending_image_revision.dart';
 import '../repositories/conversation_repository.dart';
 import '../services/ai_chat_service.dart';
 import '../services/chat_action_dispatcher.dart';
@@ -69,6 +70,11 @@ class ChatController extends StateNotifier<ChatState> {
   int _operationRevision = 0;
   int _lastConversationIdMicros = 0;
   int _lastActivityMicros = 0;
+
+  static final RegExp _standaloneRequestDuringImageRevision = RegExp(
+    r'^\s*(?:(?:please\s+)?(?:write|draft|summarize|explain|tell|help|research|analyze)\b|(?:how|what|why|where|when|who)\b|(?:create|make)\s+(?:a\s+)?(?:facebook\s+post|marketing\s+plan|content\s+calendar|(?:tiktok\s+)?video|email|(?:blog\s+)?article|script)\b)',
+    caseSensitive: false,
+  );
 
   Future<bool> createNewConversation() async {
     final revision = ++_operationRevision;
@@ -232,6 +238,7 @@ class ChatController extends StateNotifier<ChatState> {
 
     final conversationId = conversation.id;
     final pendingClarification = state.pendingClarification;
+    final pendingImageRevision = state.pendingImageRevision;
     final now = _nextActivityTime();
 
     final userMessage = ChatMessage(
@@ -268,12 +275,35 @@ class ChatController extends StateNotifier<ChatState> {
 
       final action = _chatActionDispatcher.dispatch(text);
 
+      if (pendingImageRevision != null &&
+          !_isNewRequestDuringImageRevision(text, action)) {
+        state = state.copyWith(
+          conversation: conversation,
+          isSending: false,
+          imageActionRequest: ChatImageActionRequested(
+            subject: _combineImageRevisionPrompt(
+              sourcePrompt: pendingImageRevision.sourcePrompt,
+              revision: text,
+            ),
+          ),
+          clearMissionSuggestion: true,
+          clearPendingClarification: true,
+          clearPendingImageRevision: true,
+        );
+        return;
+      }
+
+      if (pendingImageRevision != null) {
+        state = state.copyWith(clearPendingImageRevision: true);
+      }
+
       if (action is ChatImageActionRequested) {
         state = state.copyWith(
           conversation: conversation,
           isSending: false,
           imageActionRequest: action,
           clearMissionSuggestion: true,
+          clearPendingImageRevision: true,
         );
         return;
       }
@@ -304,6 +334,7 @@ class ChatController extends StateNotifier<ChatState> {
           isSending: false,
           clearMissionSuggestion: true,
           clearImageActionRequest: true,
+          clearPendingImageRevision: true,
         );
         return;
       }
@@ -340,13 +371,17 @@ class ChatController extends StateNotifier<ChatState> {
           pendingClarification: clarification.pendingIntent,
           clearMissionSuggestion: true,
           clearImageActionRequest: true,
+          clearPendingImageRevision: true,
         );
         return;
       }
 
       final resolvedPrompt =
           (clarification as ChatClarificationProceed).resolvedPrompt;
-      state = state.copyWith(clearPendingClarification: true);
+      state = state.copyWith(
+        clearPendingClarification: true,
+        clearPendingImageRevision: true,
+      );
 
       final workIntent = _chatWorkIntentResolver.resolve(resolvedPrompt);
 
@@ -506,6 +541,139 @@ class ChatController extends StateNotifier<ChatState> {
     }
 
     state = state.copyWith(clearImageActionRequest: true);
+  }
+
+  /// Adds the one concise revision question for a persisted image result.
+  Future<bool> beginImageRevision({required String resultMessageId}) async {
+    if (state.isSending ||
+        state.pendingClarification != null ||
+        state.pendingImageRevision != null) {
+      return false;
+    }
+
+    final conversation = state.conversation;
+    if (conversation == null) {
+      return false;
+    }
+
+    final resultIndex = conversation.messages.indexWhere(
+      (message) => message.id == resultMessageId,
+    );
+    if (resultIndex < 0) {
+      return false;
+    }
+
+    final resultMessage = conversation.messages[resultIndex];
+    final attachment = resultMessage.attachment;
+    if (attachment == null) {
+      return false;
+    }
+
+    final sourcePrompt = _sourcePromptForImageResult(
+      conversation: conversation,
+      resultIndex: resultIndex,
+      attachment: attachment,
+    );
+    if (sourcePrompt == null) {
+      return false;
+    }
+
+    const question = 'What would you like to change?';
+    final createdAt = _nextActivityTime();
+    final updatedConversation = conversation.copyWith(
+      messages: <ChatMessage>[
+        ...conversation.messages,
+        ChatMessage(
+          id: createdAt.microsecondsSinceEpoch.toString(),
+          role: ChatRole.assistant,
+          content: question,
+          createdAt: createdAt,
+        ),
+      ],
+      updatedAt: createdAt,
+    );
+
+    await _conversationRepository.saveConversation(updatedConversation);
+
+    if (!mounted || state.conversation?.id != conversation.id) {
+      return false;
+    }
+
+    state = state.copyWith(
+      conversation: updatedConversation,
+      isSending: false,
+      pendingImageRevision: PendingImageRevision(
+        sourcePrompt: sourcePrompt,
+        sourceResultMessageId: resultMessageId,
+        sourceMessageId: attachment.sourceMessageId,
+        question: question,
+      ),
+      clearError: true,
+      clearMissionSuggestion: true,
+      clearImageActionRequest: true,
+    );
+    return true;
+  }
+
+  bool _isNewRequestDuringImageRevision(
+    String text,
+    ChatActionDispatchResult action,
+  ) {
+    return action is! ChatActionPassThrough ||
+        _standaloneRequestDuringImageRevision.hasMatch(text);
+  }
+
+  String _combineImageRevisionPrompt({
+    required String sourcePrompt,
+    required String revision,
+  }) {
+    return '$sourcePrompt\n\nApply these requested changes: $revision';
+  }
+
+  String? _sourcePromptForImageResult({
+    required Conversation conversation,
+    required int resultIndex,
+    required ChatAttachment attachment,
+  }) {
+    final storedPrompt = attachment.sourcePrompt?.trim();
+    if (storedPrompt != null && storedPrompt.isNotEmpty) {
+      return storedPrompt;
+    }
+
+    final sourceMessageId = attachment.sourceMessageId;
+    if (sourceMessageId != null) {
+      ChatMessage? sourceMessage;
+      for (final message in conversation.messages) {
+        if (message.id == sourceMessageId) {
+          sourceMessage = message;
+          break;
+        }
+      }
+      final sourcePrompt = _imagePromptFromMessage(sourceMessage);
+      if (sourcePrompt != null) {
+        return sourcePrompt;
+      }
+    }
+
+    for (var index = resultIndex - 1; index >= 0; index--) {
+      final sourcePrompt = _imagePromptFromMessage(
+        conversation.messages[index],
+      );
+      if (sourcePrompt != null) {
+        return sourcePrompt;
+      }
+    }
+
+    return null;
+  }
+
+  String? _imagePromptFromMessage(ChatMessage? message) {
+    if (message == null || message.role != ChatRole.user) {
+      return null;
+    }
+
+    final action = _chatActionDispatcher.dispatch(message.content);
+    return action is ChatImageActionRequested ? action.subject : null;
   }
 
   /// Adds one durable image-result message after its file has been saved.
@@ -872,6 +1040,7 @@ class ChatState {
     this.missionSuggestion,
     this.imageActionRequest,
     this.pendingClarification,
+    this.pendingImageRevision,
   });
 
   final Conversation? conversation;
@@ -882,6 +1051,7 @@ class ChatState {
   final MissionSuggestion? missionSuggestion;
   final ChatImageActionRequested? imageActionRequest;
   final PendingChatClarification? pendingClarification;
+  final PendingImageRevision? pendingImageRevision;
 
   List<ChatMessage> get messages =>
       conversation?.messages ?? const <ChatMessage>[];
@@ -897,11 +1067,13 @@ class ChatState {
     MissionSuggestion? missionSuggestion,
     ChatImageActionRequested? imageActionRequest,
     PendingChatClarification? pendingClarification,
+    PendingImageRevision? pendingImageRevision,
     bool clearConversation = false,
     bool clearError = false,
     bool clearMissionSuggestion = false,
     bool clearImageActionRequest = false,
     bool clearPendingClarification = false,
+    bool clearPendingImageRevision = false,
   }) {
     return ChatState(
       conversation: clearConversation
@@ -920,6 +1092,9 @@ class ChatState {
       pendingClarification: clearPendingClarification
           ? null
           : pendingClarification ?? this.pendingClarification,
+      pendingImageRevision: clearPendingImageRevision
+          ? null
+          : pendingImageRevision ?? this.pendingImageRevision,
     );
   }
 }

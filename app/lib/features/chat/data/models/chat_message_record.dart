@@ -19,4 +19,8 @@ class ChatMessageRecord {
   String? attachmentMimeType;
 
   String? attachmentLocalFilePath;
+
+  String? attachmentSourcePrompt;
+
+  String? attachmentSourceMessageId;
 }

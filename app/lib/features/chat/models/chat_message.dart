@@ -6,11 +6,20 @@ class ChatAttachment {
     required this.id,
     required this.mimeType,
     required this.localFilePath,
+    this.sourcePrompt,
+    this.sourceMessageId,
   });
 
   final String id;
   final String mimeType;
   final String localFilePath;
+
+  /// The provider-neutral prompt that created this result, retained for a
+  /// future prompt-based revision.
+  final String? sourcePrompt;
+
+  /// The user message that initiated this result, when available.
+  final String? sourceMessageId;
 }
 
 class ChatMessage {

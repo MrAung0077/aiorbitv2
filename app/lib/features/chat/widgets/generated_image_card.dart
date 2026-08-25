@@ -11,11 +11,13 @@ class GeneratedImageCard extends StatefulWidget {
     required this.attachment,
     this.previewBytes,
     this.onSaveImage,
+    this.onRefineImage,
   });
 
   final ChatAttachment attachment;
   final Uint8List? previewBytes;
   final Future<bool> Function()? onSaveImage;
+  final Future<bool> Function()? onRefineImage;
 
   @override
   State<GeneratedImageCard> createState() => _GeneratedImageCardState();
@@ -23,6 +25,7 @@ class GeneratedImageCard extends StatefulWidget {
 
 class _GeneratedImageCardState extends State<GeneratedImageCard> {
   var _isSaving = false;
+  var _isRefining = false;
 
   Future<void> _saveImage() async {
     if (_isSaving || widget.onSaveImage == null) {
@@ -53,6 +56,26 @@ class _GeneratedImageCardState extends State<GeneratedImageCard> {
       ..showSnackBar(
         SnackBar(content: Text(saved ? 'Image saved' : "Couldn't save image")),
       );
+  }
+
+  Future<void> _refineImage() async {
+    if (_isRefining || widget.onRefineImage == null) {
+      return;
+    }
+
+    setState(() {
+      _isRefining = true;
+    });
+
+    try {
+      await widget.onRefineImage!();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRefining = false;
+        });
+      }
+    }
   }
 
   @override
@@ -102,15 +125,33 @@ class _GeneratedImageCardState extends State<GeneratedImageCard> {
                       ),
                     ),
             ),
-            if (widget.onSaveImage != null) ...<Widget>[
+            if (widget.onSaveImage != null ||
+                widget.onRefineImage != null) ...<Widget>[
               const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  key: const ValueKey<String>('save-generated-image-button'),
-                  onPressed: _isSaving ? null : _saveImage,
-                  icon: const Icon(Icons.download_outlined),
-                  label: Text(_isSaving ? 'Saving...' : 'Save Image'),
+                child: Wrap(
+                  spacing: 4,
+                  children: <Widget>[
+                    if (widget.onRefineImage != null)
+                      TextButton.icon(
+                        key: const ValueKey<String>(
+                          'refine-generated-image-button',
+                        ),
+                        onPressed: _isRefining ? null : _refineImage,
+                        icon: const Icon(Icons.tune_outlined),
+                        label: const Text('Refine'),
+                      ),
+                    if (widget.onSaveImage != null)
+                      TextButton.icon(
+                        key: const ValueKey<String>(
+                          'save-generated-image-button',
+                        ),
+                        onPressed: _isSaving ? null : _saveImage,
+                        icon: const Icon(Icons.download_outlined),
+                        label: Text(_isSaving ? 'Saving...' : 'Save Image'),
+                      ),
+                  ],
                 ),
               ),
             ],

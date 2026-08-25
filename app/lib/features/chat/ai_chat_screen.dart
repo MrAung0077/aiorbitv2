@@ -259,6 +259,8 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
         id: 'image-$conversationId-${messages.last.id}',
         mimeType: image.mimeType,
         localFilePath: localFilePath,
+        sourcePrompt: request.subject,
+        sourceMessageId: messages.last.id,
       );
       final persisted = await ref
           .read(chatControllerProvider.notifier)
@@ -408,6 +410,11 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                                       .savePng(
                                         localFilePath:
                                             message.attachment!.localFilePath,
+                                      ),
+                                  onRefineImage: () => ref
+                                      .read(chatControllerProvider.notifier)
+                                      .beginImageRevision(
+                                        resultMessageId: message.id,
                                       ),
                                 );
                               }

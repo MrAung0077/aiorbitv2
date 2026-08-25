@@ -43,6 +43,8 @@ void main() {
         id: 'generated-image-result',
         mimeType: 'image/png',
         localFilePath: '/app/documents/ovexiq_generated_images/image.png',
+        sourcePrompt: 'Buddha meditating beneath a bodhi tree',
+        sourceMessageId: 'user-message',
       );
       final conversation = Conversation(
         id: 'image-conversation',
@@ -85,6 +87,14 @@ void main() {
       expect(
         restored?.messages.last.attachment?.localFilePath,
         attachment.localFilePath,
+      );
+      expect(
+        restored?.messages.last.attachment?.sourcePrompt,
+        attachment.sourcePrompt,
+      );
+      expect(
+        restored?.messages.last.attachment?.sourceMessageId,
+        attachment.sourceMessageId,
       );
     },
   );

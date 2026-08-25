@@ -28,19 +28,29 @@ const ChatMessageRecordSchema = Schema(
       name: r'attachmentMimeType',
       type: IsarType.string,
     ),
-    r'content': PropertySchema(id: 3, name: r'content', type: IsarType.string),
-    r'createdAt': PropertySchema(
+    r'attachmentSourceMessageId': PropertySchema(
+      id: 3,
+      name: r'attachmentSourceMessageId',
+      type: IsarType.string,
+    ),
+    r'attachmentSourcePrompt': PropertySchema(
       id: 4,
+      name: r'attachmentSourcePrompt',
+      type: IsarType.string,
+    ),
+    r'content': PropertySchema(id: 5, name: r'content', type: IsarType.string),
+    r'createdAt': PropertySchema(
+      id: 6,
       name: r'createdAt',
       type: IsarType.dateTime,
     ),
-    r'isError': PropertySchema(id: 5, name: r'isError', type: IsarType.bool),
+    r'isError': PropertySchema(id: 7, name: r'isError', type: IsarType.bool),
     r'messageId': PropertySchema(
-      id: 6,
+      id: 8,
       name: r'messageId',
       type: IsarType.string,
     ),
-    r'role': PropertySchema(id: 7, name: r'role', type: IsarType.string),
+    r'role': PropertySchema(id: 9, name: r'role', type: IsarType.string),
   },
 
   estimateSize: _chatMessageRecordEstimateSize,
@@ -73,6 +83,18 @@ int _chatMessageRecordEstimateSize(
       bytesCount += 3 + value.length * 3;
     }
   }
+  {
+    final value = object.attachmentSourceMessageId;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  {
+    final value = object.attachmentSourcePrompt;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
   bytesCount += 3 + object.content.length * 3;
   bytesCount += 3 + object.messageId.length * 3;
   bytesCount += 3 + object.role.length * 3;
@@ -88,11 +110,13 @@ void _chatMessageRecordSerialize(
   writer.writeString(offsets[0], object.attachmentId);
   writer.writeString(offsets[1], object.attachmentLocalFilePath);
   writer.writeString(offsets[2], object.attachmentMimeType);
-  writer.writeString(offsets[3], object.content);
-  writer.writeDateTime(offsets[4], object.createdAt);
-  writer.writeBool(offsets[5], object.isError);
-  writer.writeString(offsets[6], object.messageId);
-  writer.writeString(offsets[7], object.role);
+  writer.writeString(offsets[3], object.attachmentSourceMessageId);
+  writer.writeString(offsets[4], object.attachmentSourcePrompt);
+  writer.writeString(offsets[5], object.content);
+  writer.writeDateTime(offsets[6], object.createdAt);
+  writer.writeBool(offsets[7], object.isError);
+  writer.writeString(offsets[8], object.messageId);
+  writer.writeString(offsets[9], object.role);
 }
 
 ChatMessageRecord _chatMessageRecordDeserialize(
@@ -105,11 +129,13 @@ ChatMessageRecord _chatMessageRecordDeserialize(
   object.attachmentId = reader.readStringOrNull(offsets[0]);
   object.attachmentLocalFilePath = reader.readStringOrNull(offsets[1]);
   object.attachmentMimeType = reader.readStringOrNull(offsets[2]);
-  object.content = reader.readString(offsets[3]);
-  object.createdAt = reader.readDateTime(offsets[4]);
-  object.isError = reader.readBool(offsets[5]);
-  object.messageId = reader.readString(offsets[6]);
-  object.role = reader.readString(offsets[7]);
+  object.attachmentSourceMessageId = reader.readStringOrNull(offsets[3]);
+  object.attachmentSourcePrompt = reader.readStringOrNull(offsets[4]);
+  object.content = reader.readString(offsets[5]);
+  object.createdAt = reader.readDateTime(offsets[6]);
+  object.isError = reader.readBool(offsets[7]);
+  object.messageId = reader.readString(offsets[8]);
+  object.role = reader.readString(offsets[9]);
   return object;
 }
 
@@ -127,14 +153,18 @@ P _chatMessageRecordDeserializeProp<P>(
     case 2:
       return (reader.readStringOrNull(offset)) as P;
     case 3:
-      return (reader.readString(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 4:
-      return (reader.readDateTime(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 5:
-      return (reader.readBool(offset)) as P;
-    case 6:
       return (reader.readString(offset)) as P;
+    case 6:
+      return (reader.readDateTime(offset)) as P;
     case 7:
+      return (reader.readBool(offset)) as P;
+    case 8:
+      return (reader.readString(offset)) as P;
+    case 9:
       return (reader.readString(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -622,6 +652,339 @@ extension ChatMessageRecordQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(property: r'attachmentMimeType', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourceMessageIdIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'attachmentSourceMessageId'),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourceMessageIdIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'attachmentSourceMessageId'),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourceMessageIdEqualTo(String? value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'attachmentSourceMessageId',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourceMessageIdGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'attachmentSourceMessageId',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourceMessageIdLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'attachmentSourceMessageId',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourceMessageIdBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'attachmentSourceMessageId',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourceMessageIdStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'attachmentSourceMessageId',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourceMessageIdEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'attachmentSourceMessageId',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourceMessageIdContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'attachmentSourceMessageId',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourceMessageIdMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'attachmentSourceMessageId',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourceMessageIdIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'attachmentSourceMessageId',
+          value: '',
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourceMessageIdIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          property: r'attachmentSourceMessageId',
+          value: '',
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourcePromptIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'attachmentSourcePrompt'),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourcePromptIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'attachmentSourcePrompt'),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourcePromptEqualTo(String? value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'attachmentSourcePrompt',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourcePromptGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'attachmentSourcePrompt',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourcePromptLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'attachmentSourcePrompt',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourcePromptBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'attachmentSourcePrompt',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourcePromptStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'attachmentSourcePrompt',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourcePromptEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'attachmentSourcePrompt',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourcePromptContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'attachmentSourcePrompt',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourcePromptMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'attachmentSourcePrompt',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourcePromptIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'attachmentSourcePrompt', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  attachmentSourcePromptIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          property: r'attachmentSourcePrompt',
+          value: '',
+        ),
       );
     });
   }

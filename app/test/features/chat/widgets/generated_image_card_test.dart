@@ -71,6 +71,42 @@ void main() {
     expect(saver.localFilePaths, <String>[attachment.localFilePath]);
     expect(find.text("Couldn't save image"), findsOneWidget);
   });
+
+  testWidgets('shows Refine and waits for its callback without generating', (
+    tester,
+  ) async {
+    var refineCount = 0;
+    const attachment = ChatAttachment(
+      id: 'refinable-image',
+      mimeType: 'image/png',
+      localFilePath: '/private/ovexiq/refinable-image.png',
+      sourcePrompt: 'peaceful sunset over a mountain lake',
+      sourceMessageId: 'source-message',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: GeneratedImageCard(
+            attachment: attachment,
+            previewBytes: _pngBytes(),
+            onRefineImage: () async {
+              refineCount++;
+              return true;
+            },
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Refine'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('refine-generated-image-button')),
+    );
+    await tester.pump();
+
+    expect(refineCount, 1);
+  });
 }
 
 Uint8List _pngBytes() {

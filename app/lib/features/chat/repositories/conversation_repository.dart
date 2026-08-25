@@ -92,7 +92,9 @@ class ConversationRepository {
       ..isError = message.isError
       ..attachmentId = message.attachment?.id
       ..attachmentMimeType = message.attachment?.mimeType
-      ..attachmentLocalFilePath = message.attachment?.localFilePath;
+      ..attachmentLocalFilePath = message.attachment?.localFilePath
+      ..attachmentSourcePrompt = message.attachment?.sourcePrompt
+      ..attachmentSourceMessageId = message.attachment?.sourceMessageId;
   }
 
   Conversation _recordToConversation(ConversationRecord record) {
@@ -134,7 +136,14 @@ class ConversationRepository {
       id: id,
       mimeType: mimeType,
       localFilePath: localFilePath,
+      sourcePrompt: _optionalValue(record.attachmentSourcePrompt),
+      sourceMessageId: _optionalValue(record.attachmentSourceMessageId),
     );
+  }
+
+  String? _optionalValue(String? value) {
+    final trimmed = value?.trim();
+    return trimmed == null || trimmed.isEmpty ? null : trimmed;
   }
 
   ChatRole _parseRole(String value) {
