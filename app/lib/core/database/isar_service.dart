@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:isar_community/isar.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -10,6 +11,8 @@ class IsarService {
   IsarService._();
 
   static Isar? _isar;
+
+  static bool get defaultInspectorEnabled => kDebugMode;
 
   static Future<void> initialize({
     String? directoryPath,
@@ -32,7 +35,7 @@ class IsarService {
       ],
       directory: directory,
       name: name,
-      inspector: inspector,
+      inspector: defaultInspectorEnabled && inspector,
     );
   }
 
