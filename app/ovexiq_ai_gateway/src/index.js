@@ -14,6 +14,12 @@ const OPENAI_IMAGES_URL = "https://api.openai.com/v1/images/generations";
 const OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENAI_IMAGE_MODEL = "gpt-image-2";
 const ALLOWED_ROLES = new Set(["system", "user", "assistant"]);
+const DAILY_QUOTA_OBJECT_NAME = "ovexiq-beta-daily-quota";
+const DAILY_QUOTA_STATE_KEY = "current-day";
+const DAILY_QUOTA_LIMITS = Object.freeze({
+  text: Object.freeze({ perTester: 20, global: 30 }),
+  image: Object.freeze({ perTester: 2, global: 3 }),
+});
 
 export default {
   fetch(request, env) {
@@ -64,6 +70,15 @@ export async function handleRequest(request, env, fetchProvider) {
     return parsedRequest.response;
   }
 
+  const dailyQuotaResponse = await applyDailyQuota(
+    env.BETA_DAILY_QUOTA,
+    testerId,
+    "text",
+  );
+  if (dailyQuotaResponse !== null) {
+    return dailyQuotaResponse;
+  }
+
   return callProvider(parsedRequest.value, env, fetchProvider);
 }
 
@@ -100,7 +115,76 @@ async function handleImageRequest(request, env, fetchProvider) {
     return parsedRequest.response;
   }
 
+  const dailyQuotaResponse = await applyDailyQuota(
+    env.BETA_DAILY_QUOTA,
+    testerId,
+    "image",
+  );
+  if (dailyQuotaResponse !== null) {
+    return dailyQuotaResponse;
+  }
+
   return callOpenAiImage(parsedRequest.value, env, fetchProvider);
+}
+
+/// A single, durable coordination point for the deliberately tiny beta caps.
+/// It has no external I/O, so each allowed request is persisted before the
+/// gateway can contact a provider.
+export class BetaDailyQuota {
+  constructor(ctx) {
+    this.ctx = ctx;
+  }
+
+  async consume(testerId, requestType) {
+    const limits = DAILY_QUOTA_LIMITS[requestType];
+    if (
+      limits === undefined ||
+      typeof testerId !== "string" ||
+      testerId.length === 0
+    ) {
+      return { allowed: false };
+    }
+
+    const day = utcDay();
+    return this.ctx.storage.transaction(async (storage) => {
+      const storedState = await storage.get(DAILY_QUOTA_STATE_KEY);
+      const state = isDailyQuotaStateForDay(storedState, day)
+        ? storedState
+        : createDailyQuotaState(day);
+      const testerIndex = state.testers.findIndex((tester) => tester.id === testerId);
+      const testerUsage =
+        testerIndex === -1 ? { id: testerId, text: 0, image: 0 } : state.testers[testerIndex];
+
+      if (
+        state.totals[requestType] >= limits.global ||
+        testerUsage[requestType] >= limits.perTester
+      ) {
+        return { allowed: false };
+      }
+
+      const nextTesterUsage = {
+        ...testerUsage,
+        [requestType]: testerUsage[requestType] + 1,
+      };
+      const nextTesters = [...state.testers];
+      if (testerIndex === -1) {
+        nextTesters.push(nextTesterUsage);
+      } else {
+        nextTesters[testerIndex] = nextTesterUsage;
+      }
+
+      await storage.put(DAILY_QUOTA_STATE_KEY, {
+        day,
+        totals: {
+          ...state.totals,
+          [requestType]: state.totals[requestType] + 1,
+        },
+        testers: nextTesters,
+      });
+
+      return { allowed: true };
+    });
+  }
 }
 
 function findTesterId(configuredTokens, presentedToken) {
@@ -158,6 +242,76 @@ async function applyRateLimit(rateLimiter, testerId) {
       "Ovexiq AI is temporarily unavailable.",
     );
   }
+}
+
+async function applyDailyQuota(quotaNamespace, testerId, requestType) {
+  if (quotaNamespace === null || typeof quotaNamespace?.getByName !== "function") {
+    return errorResponse(
+      503,
+      "beta_limit_unavailable",
+      "Ovexiq AI is temporarily unavailable.",
+    );
+  }
+
+  try {
+    const quota = quotaNamespace.getByName(DAILY_QUOTA_OBJECT_NAME);
+    const result = await quota.consume(testerId, requestType);
+    if (result?.allowed === true) {
+      return null;
+    }
+
+    if (result?.allowed === false) {
+      return errorResponse(
+        429,
+        "beta_limit_reached",
+        "Beta request limit reached. Try again tomorrow.",
+        { "Retry-After": String(secondsUntilNextUtcDay()) },
+      );
+    }
+  } catch {
+    // The quota service is part of the spend boundary, so fail closed.
+  }
+
+  return errorResponse(
+    503,
+    "beta_limit_unavailable",
+    "Ovexiq AI is temporarily unavailable.",
+  );
+}
+
+function createDailyQuotaState(day) {
+  return {
+    day,
+    totals: { text: 0, image: 0 },
+    testers: [],
+  };
+}
+
+function isDailyQuotaStateForDay(value, day) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    value.day === day &&
+    value.totals !== null &&
+    typeof value.totals === "object" &&
+    Array.isArray(value.testers) &&
+    Number.isInteger(value.totals.text) &&
+    Number.isInteger(value.totals.image)
+  );
+}
+
+function utcDay() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function secondsUntilNextUtcDay() {
+  const now = new Date();
+  const nextDay = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + 1,
+  );
+  return Math.max(1, Math.ceil((nextDay - now.getTime()) / 1_000));
 }
 
 async function parseRequest(request) {

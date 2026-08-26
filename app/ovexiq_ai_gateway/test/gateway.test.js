@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { handleRequest } from "../src/index.js";
+import { BetaDailyQuota, handleRequest } from "../src/index.js";
 
 const gatewayUrl = "https://gateway.example.test/v1/ai/complete";
 const imageGatewayUrl = "https://gateway.example.test/v1/ai/image";
@@ -12,6 +12,7 @@ const openRouterSecret = "openrouter-test-secret-must-not-leak";
 function createEnv({
   rateLimitSuccess = true,
   imageRateLimitSuccess = true,
+  dailyQuotaAllowed = true,
   includeOpenRouter = true,
 } = {}) {
   const env = {
@@ -28,6 +29,18 @@ function createEnv({
       async limit({ key }) {
         assert.equal(key, "beta:tester-one");
         return { success: imageRateLimitSuccess };
+      },
+    },
+    BETA_DAILY_QUOTA: {
+      getByName(name) {
+        assert.equal(name, "ovexiq-beta-daily-quota");
+        return {
+          async consume(testerId, requestType) {
+            assert.equal(testerId, "tester-one");
+            assert.ok(requestType === "text" || requestType === "image");
+            return { allowed: dailyQuotaAllowed };
+          },
+        };
       },
     },
   };
@@ -360,6 +373,69 @@ test("returns 429 when the tester rate limit is exhausted", async () => {
   assert.equal(response.headers.get("retry-after"), "60");
 });
 
+test("daily beta limits block text and image provider calls with a safe response", async () => {
+  let calls = 0;
+  const providerFetch = async () => {
+    calls += 1;
+    throw new Error("provider must not be called");
+  };
+
+  const textResponse = await handleRequest(
+    createRequest(validBody()),
+    createEnv({ dailyQuotaAllowed: false }),
+    providerFetch,
+  );
+  const imageResponse = await handleRequest(
+    createImageRequest({ prompt: "Buddha" }),
+    createEnv({ dailyQuotaAllowed: false }),
+    providerFetch,
+  );
+
+  for (const response of [textResponse, imageResponse]) {
+    const body = await response.json();
+    assert.equal(response.status, 429);
+    assert.equal(body.error.code, "beta_limit_reached");
+    assert.equal(body.error.message, "Beta request limit reached. Try again tomorrow.");
+    assert.ok(Number(response.headers.get("retry-after")) > 0);
+    assert.equal(JSON.stringify(body).toLowerCase().includes("openai"), false);
+    assert.equal(JSON.stringify(body).toLowerCase().includes("openrouter"), false);
+  }
+
+  assert.equal(calls, 0);
+});
+
+test("durable daily quota enforces separate per-tester and beta-wide caps", async () => {
+  const quota = new BetaDailyQuota({ storage: new InMemoryDurableObjectStorage() });
+
+  for (let index = 0; index < 20; index += 1) {
+    assert.deepEqual(await quota.consume("tester-one", "text"), { allowed: true });
+  }
+  assert.deepEqual(await quota.consume("tester-one", "text"), { allowed: false });
+
+  for (let index = 0; index < 2; index += 1) {
+    assert.deepEqual(await quota.consume("tester-one", "image"), { allowed: true });
+  }
+  assert.deepEqual(await quota.consume("tester-one", "image"), { allowed: false });
+
+  const globalQuota = new BetaDailyQuota({ storage: new InMemoryDurableObjectStorage() });
+  for (let index = 0; index < 20; index += 1) {
+    assert.deepEqual(await globalQuota.consume("tester-one", "text"), { allowed: true });
+  }
+  for (let index = 0; index < 10; index += 1) {
+    assert.deepEqual(await globalQuota.consume("tester-two", "text"), { allowed: true });
+  }
+  assert.deepEqual(await globalQuota.consume("tester-two", "text"), { allowed: false });
+
+  const globalImageQuota = new BetaDailyQuota({
+    storage: new InMemoryDurableObjectStorage(),
+  });
+  for (let index = 0; index < 2; index += 1) {
+    assert.deepEqual(await globalImageQuota.consume("tester-one", "image"), { allowed: true });
+  }
+  assert.deepEqual(await globalImageQuota.consume("tester-two", "image"), { allowed: true });
+  assert.deepEqual(await globalImageQuota.consume("tester-two", "image"), { allowed: false });
+});
+
 test("image endpoint rejects invalid beta tokens and non-POST requests", async () => {
   const providerFetch = async () => {
     throw new Error("provider must not be called");
@@ -494,3 +570,19 @@ test("image endpoint sanitizes upstream failures and never calls the text fallba
   assert.equal(lowerBody.includes("openrouter"), false);
   assert.match(body, /couldn't create that image/);
 });
+
+class InMemoryDurableObjectStorage {
+  #values = new Map();
+
+  async transaction(callback) {
+    return callback(this);
+  }
+
+  async get(key) {
+    return this.#values.get(key);
+  }
+
+  async put(key, value) {
+    this.#values.set(key, value);
+  }
+}

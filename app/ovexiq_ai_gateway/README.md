@@ -19,3 +19,23 @@ primary-provider failure; it is never sent to Flutter.
 `OVEXIQ_BETA_TOKENS` is a JSON object mapping tester IDs to revocable tokens.
 These tokens identify a tester for rate limiting; they are shipped in beta apps
 and are not trusted secrets or authority for unlimited provider spend.
+
+## Private-beta spend controls
+
+The gateway keeps the existing per-minute limits and adds durable UTC-day caps:
+
+- Per tester: 20 text requests and 2 image requests.
+- Entire beta: 30 text requests and 3 image requests.
+
+The quota is consumed only after request validation and before a provider call.
+When exhausted, the gateway returns a safe `429 beta_limit_reached` response.
+
+### Emergency access control
+
+- To revoke one tester, edit the Worker secret `OVEXIQ_BETA_TOKENS` in the
+  Cloudflare dashboard and remove that tester's entry. Save the secret, then
+  verify the token receives `401`.
+- To stop all beta access, replace `OVEXIQ_BETA_TOKENS` with `{}` in the same
+  Worker secret. All requests then receive `401` before rate limits or providers.
+- Keep the provider keys as separate Worker secrets. Do not put them in the
+  Flutter app, source control, or the beta-token secret.
