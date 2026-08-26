@@ -30,6 +30,15 @@ The gateway keeps the existing per-minute limits and adds durable UTC-day caps:
 The quota is consumed only after request validation and before a provider call.
 When exhausted, the gateway returns a safe `429 beta_limit_reached` response.
 
+The gateway also has a server-side emergency deny switch. Set the Worker secret
+`OVEXIQ_BETA_AI_DISABLED` to `true` to reject text and image requests with a
+safe temporary-unavailable response before authentication, quotas, or provider
+calls. See [BETA_RUNBOOK.md](./BETA_RUNBOOK.md) for the operating procedure.
+
+`npm run test:runtime` starts an isolated local Workerd/Miniflare Worker with
+fake beta tokens and no provider keys. It exercises the configured Durable
+Object binding and concurrency behavior without making a provider request.
+
 ### Emergency access control
 
 - To revoke one tester, edit the Worker secret `OVEXIQ_BETA_TOKENS` in the

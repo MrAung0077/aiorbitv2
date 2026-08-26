@@ -1,3 +1,5 @@
+import { DurableObject } from "cloudflare:workers";
+
 const COMPLETE_PATH = "/v1/ai/complete";
 const IMAGE_PATH = "/v1/ai/image";
 const MAX_BODY_BYTES = 64 * 1024;
@@ -23,21 +25,51 @@ const DAILY_QUOTA_LIMITS = Object.freeze({
 
 export default {
   fetch(request, env) {
-    return handleRequest(request, env, globalThis.fetch);
+    return handleRequest(request, env, globalThis.fetch, {
+      log: console.log,
+    });
   },
 };
 
-export async function handleRequest(request, env, fetchProvider) {
+export async function handleRequest(
+  request,
+  env,
+  fetchProvider,
+  { log = null, now = Date.now, requestId = () => crypto.randomUUID() } = {},
+) {
   const url = new URL(request.url);
+  const telemetry = {
+    endpoint: url.pathname,
+    capability: url.pathname === IMAGE_PATH ? "image" : "text",
+    requestId: requestId(),
+    testerIdHash: null,
+    providerLatencyMs: null,
+    now,
+  };
 
-  if (url.pathname === IMAGE_PATH) {
-    return handleImageRequest(request, env, fetchProvider);
+  let response;
+
+  try {
+    if (url.pathname === IMAGE_PATH) {
+      response = await handleImageRequest(request, env, fetchProvider, telemetry);
+    } else if (url.pathname !== COMPLETE_PATH) {
+      response = errorResponse(404, "not_found", "Endpoint not found.");
+    } else {
+      response = await handleTextRequest(request, env, fetchProvider, telemetry);
+    }
+  } catch {
+    response = errorResponse(
+      503,
+      "service_unavailable",
+      "Ovexiq AI is temporarily unavailable. Please try again later.",
+    );
   }
 
-  if (url.pathname !== COMPLETE_PATH) {
-    return errorResponse(404, "not_found", "Endpoint not found.");
-  }
+  await logRequestOutcome(log, telemetry, response);
+  return response;
+}
 
+async function handleTextRequest(request, env, fetchProvider, telemetry) {
   if (request.method !== "POST") {
     return errorResponse(405, "method_not_allowed", "Use POST for this endpoint.", {
       Allow: "POST",
@@ -53,12 +85,18 @@ export async function handleRequest(request, env, fetchProvider) {
     );
   }
 
+  if (isBetaAiDisabled(env.OVEXIQ_BETA_AI_DISABLED)) {
+    return betaDisabledResponse();
+  }
+
   const betaToken = request.headers.get("x-ovexiq-beta-token")?.trim() ?? "";
-  const testerId = findTesterId(env.OVEXIQ_BETA_TOKENS, betaToken);
+  const testerId = await findTesterId(env.OVEXIQ_BETA_TOKENS, betaToken);
 
   if (testerId === null) {
     return errorResponse(401, "unauthorized", "Invalid beta access token.");
   }
+
+  telemetry.testerIdHash = await hashTesterId(testerId);
 
   const rateLimitResponse = await applyRateLimit(env.AI_RATE_LIMITER, testerId);
   if (rateLimitResponse !== null) {
@@ -79,10 +117,10 @@ export async function handleRequest(request, env, fetchProvider) {
     return dailyQuotaResponse;
   }
 
-  return callProvider(parsedRequest.value, env, fetchProvider);
+  return callProvider(parsedRequest.value, env, fetchProvider, telemetry);
 }
 
-async function handleImageRequest(request, env, fetchProvider) {
+async function handleImageRequest(request, env, fetchProvider, telemetry) {
   if (request.method !== "POST") {
     return errorResponse(405, "method_not_allowed", "Use POST for this endpoint.", {
       Allow: "POST",
@@ -98,12 +136,18 @@ async function handleImageRequest(request, env, fetchProvider) {
     );
   }
 
+  if (isBetaAiDisabled(env.OVEXIQ_BETA_AI_DISABLED)) {
+    return betaDisabledResponse();
+  }
+
   const betaToken = request.headers.get("x-ovexiq-beta-token")?.trim() ?? "";
-  const testerId = findTesterId(env.OVEXIQ_BETA_TOKENS, betaToken);
+  const testerId = await findTesterId(env.OVEXIQ_BETA_TOKENS, betaToken);
 
   if (testerId === null) {
     return errorResponse(401, "unauthorized", "Invalid beta access token.");
   }
+
+  telemetry.testerIdHash = await hashTesterId(testerId);
 
   const rateLimitResponse = await applyRateLimit(env.IMAGE_RATE_LIMITER, testerId);
   if (rateLimitResponse !== null) {
@@ -124,18 +168,14 @@ async function handleImageRequest(request, env, fetchProvider) {
     return dailyQuotaResponse;
   }
 
-  return callOpenAiImage(parsedRequest.value, env, fetchProvider);
+  return callOpenAiImage(parsedRequest.value, env, fetchProvider, telemetry);
 }
 
 /// A single, durable coordination point for the deliberately tiny beta caps.
 /// It has no external I/O, so each allowed request is persisted before the
 /// gateway can contact a provider.
-export class BetaDailyQuota {
-  constructor(ctx) {
-    this.ctx = ctx;
-  }
-
-  async consume(testerId, requestType) {
+export class BetaDailyQuota extends DurableObject {
+  async consume(testerId, requestType, now = Date.now()) {
     const limits = DAILY_QUOTA_LIMITS[requestType];
     if (
       limits === undefined ||
@@ -145,7 +185,7 @@ export class BetaDailyQuota {
       return { allowed: false };
     }
 
-    const day = utcDay();
+    const day = utcDay(now);
     return this.ctx.storage.transaction(async (storage) => {
       const storedState = await storage.get(DAILY_QUOTA_STATE_KEY);
       const state = isDailyQuotaStateForDay(storedState, day)
@@ -187,7 +227,7 @@ export class BetaDailyQuota {
   }
 }
 
-function findTesterId(configuredTokens, presentedToken) {
+async function findTesterId(configuredTokens, presentedToken) {
   if (typeof configuredTokens !== "string" || presentedToken.length === 0) {
     return null;
   }
@@ -208,13 +248,47 @@ function findTesterId(configuredTokens, presentedToken) {
       testerId.trim().length > 0 &&
       typeof token === "string" &&
       token.length > 0 &&
-      token === presentedToken
+      await timingSafeTokenEquals(token, presentedToken)
     ) {
       return testerId.slice(0, 64);
     }
   }
 
   return null;
+}
+
+function isBetaAiDisabled(value) {
+  return ["1", "true", "yes", "on"].includes(configuredValue(value).toLowerCase());
+}
+
+function betaDisabledResponse() {
+  return errorResponse(
+    503,
+    "beta_temporarily_unavailable",
+    "Ovexiq AI is temporarily unavailable. Please try again later.",
+  );
+}
+
+function timingSafeTokenEquals(expectedToken, presentedToken) {
+  const encoder = new TextEncoder();
+  const expected = encoder.encode(expectedToken);
+  const presented = encoder.encode(presentedToken);
+  const lengthsMatch = expected.byteLength === presented.byteLength;
+
+  if (typeof crypto.subtle.timingSafeEqual === "function") {
+    return lengthsMatch
+      ? crypto.subtle.timingSafeEqual(expected, presented)
+      : !crypto.subtle.timingSafeEqual(presented, presented);
+  }
+
+  // Node unit tests do not expose the Workers-only timingSafeEqual API. Keep
+  // their fallback constant-work while production uses the runtime primitive.
+  const maxLength = Math.max(expected.byteLength, presented.byteLength);
+  let difference = expected.byteLength ^ presented.byteLength;
+  for (let index = 0; index < maxLength; index += 1) {
+    difference |= (expected[index] ?? 0) ^ (presented[index] ?? 0);
+  }
+  return difference === 0;
 }
 
 async function applyRateLimit(rateLimiter, testerId) {
@@ -300,8 +374,8 @@ function isDailyQuotaStateForDay(value, day) {
   );
 }
 
-function utcDay() {
-  return new Date().toISOString().slice(0, 10);
+function utcDay(now = Date.now()) {
+  return new Date(now).toISOString().slice(0, 10);
 }
 
 function secondsUntilNextUtcDay() {
@@ -461,8 +535,8 @@ async function parseImageRequest(request) {
   return { response: null, value: { prompt } };
 }
 
-async function callProvider(input, env, fetchProvider) {
-  const openAiResult = await callOpenAi(input, env, fetchProvider);
+async function callProvider(input, env, fetchProvider, telemetry) {
+  const openAiResult = await callOpenAi(input, env, fetchProvider, telemetry);
   if (openAiResult.response !== null) {
     return openAiResult.response;
   }
@@ -471,11 +545,11 @@ async function callProvider(input, env, fetchProvider) {
     return openAiResult.failureResponse;
   }
 
-  const openRouterResponse = await callOpenRouter(input, env, fetchProvider);
+  const openRouterResponse = await callOpenRouter(input, env, fetchProvider, telemetry);
   return openRouterResponse ?? openAiResult.failureResponse;
 }
 
-async function callOpenAi(input, env, fetchProvider) {
+async function callOpenAi(input, env, fetchProvider, telemetry) {
   const providerApiKey = configuredValue(env.OPENAI_API_KEY);
   const model = configuredValue(env.OPENAI_MODEL);
 
@@ -502,6 +576,7 @@ async function callOpenAi(input, env, fetchProvider) {
       body: JSON.stringify(providerBody),
     },
     OPENAI_TIMEOUT_MS,
+    telemetry,
   );
 
   if (fetchResult.error !== null) {
@@ -564,7 +639,7 @@ async function callOpenAi(input, env, fetchProvider) {
   });
 }
 
-async function callOpenAiImage(input, env, fetchProvider) {
+async function callOpenAiImage(input, env, fetchProvider, telemetry) {
   const providerApiKey = configuredValue(env.OPENAI_API_KEY);
 
   if (providerApiKey.length === 0) {
@@ -594,6 +669,7 @@ async function callOpenAiImage(input, env, fetchProvider) {
       }),
     },
     OPENAI_TIMEOUT_MS,
+    telemetry,
   );
 
   if (fetchResult.error !== null) {
@@ -642,7 +718,7 @@ async function callOpenAiImage(input, env, fetchProvider) {
   });
 }
 
-async function callOpenRouter(input, env, fetchProvider) {
+async function callOpenRouter(input, env, fetchProvider, telemetry) {
   const providerApiKey = configuredValue(env.OPENROUTER_API_KEY);
   const model = configuredValue(env.OPENROUTER_MODEL);
 
@@ -667,6 +743,7 @@ async function callOpenRouter(input, env, fetchProvider) {
       }),
     },
     OPENROUTER_TIMEOUT_MS,
+    telemetry,
   );
 
   if (fetchResult.error !== null || !fetchResult.response.ok) {
@@ -703,9 +780,10 @@ async function callOpenRouter(input, env, fetchProvider) {
   });
 }
 
-async function fetchWithTimeout(fetchProvider, url, options, timeoutMs) {
+async function fetchWithTimeout(fetchProvider, url, options, timeoutMs, telemetry) {
   const abortController = new AbortController();
   const timeoutId = setTimeout(() => abortController.abort(), timeoutMs);
+  const startedAt = telemetry?.now?.() ?? Date.now();
 
   try {
     const response = await fetchProvider(url, { ...options, signal: abortController.signal });
@@ -718,6 +796,10 @@ async function fetchWithTimeout(fetchProvider, url, options, timeoutMs) {
     };
   } finally {
     clearTimeout(timeoutId);
+    if (telemetry !== undefined) {
+      const elapsedMs = Math.max(0, (telemetry.now?.() ?? Date.now()) - startedAt);
+      telemetry.providerLatencyMs = (telemetry.providerLatencyMs ?? 0) + elapsedMs;
+    }
   }
 }
 
@@ -784,4 +866,55 @@ function jsonResponse(payload, status = 200, headers = {}) {
       ...headers,
     },
   });
+}
+
+async function hashTesterId(testerId) {
+  try {
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(`ovexiq-beta-tester:${testerId}`),
+    );
+    return Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    )
+      .join("")
+      .slice(0, 16);
+  } catch {
+    return null;
+  }
+}
+
+async function logRequestOutcome(log, telemetry, response) {
+  if (typeof log !== "function") {
+    return;
+  }
+
+  const rejection = response.status >= 400 ? await responseErrorCode(response) : null;
+  const event = {
+    event: "ovexiq_ai_request",
+    requestId: telemetry.requestId,
+    testerIdHash: telemetry.testerIdHash,
+    endpoint: telemetry.endpoint,
+    capability: telemetry.capability,
+    status: response.status,
+    rejection,
+    ...(telemetry.providerLatencyMs === null
+      ? {}
+      : { providerLatencyMs: telemetry.providerLatencyMs }),
+  };
+
+  try {
+    log(JSON.stringify(event));
+  } catch {
+    // Observability must not change a safe API response.
+  }
+}
+
+async function responseErrorCode(response) {
+  try {
+    const body = await response.clone().json();
+    return typeof body?.error?.code === "string" ? body.error.code : "request_failed";
+  } catch {
+    return "request_failed";
+  }
 }

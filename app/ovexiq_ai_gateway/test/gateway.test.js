@@ -14,6 +14,7 @@ function createEnv({
   imageRateLimitSuccess = true,
   dailyQuotaAllowed = true,
   includeOpenRouter = true,
+  betaAiDisabled = false,
 } = {}) {
   const env = {
     OPENAI_API_KEY: openAiSecret,
@@ -43,6 +44,7 @@ function createEnv({
         };
       },
     },
+    ...(betaAiDisabled ? { OVEXIQ_BETA_AI_DISABLED: "true" } : {}),
   };
 
   if (includeOpenRouter) {
@@ -152,6 +154,96 @@ test("rejects missing and invalid beta tokens", async () => {
 
   assert.equal(missing.status, 401);
   assert.equal(invalid.status, 401);
+});
+
+test("global beta deny switch blocks text and image before quota or providers", async () => {
+  let calls = 0;
+  const providerFetch = async () => {
+    calls += 1;
+    throw new Error("provider must not be called");
+  };
+
+  const responses = await Promise.all([
+    handleRequest(
+      createRequest(validBody()),
+      createEnv({ betaAiDisabled: true }),
+      providerFetch,
+    ),
+    handleRequest(
+      createImageRequest({ prompt: "Buddha" }),
+      createEnv({ betaAiDisabled: true }),
+      providerFetch,
+    ),
+  ]);
+
+  for (const response of responses) {
+    const body = await response.json();
+    assert.equal(response.status, 503);
+    assert.equal(body.error.code, "beta_temporarily_unavailable");
+    assert.equal(body.error.message, "Ovexiq AI is temporarily unavailable. Please try again later.");
+  }
+
+  assert.equal(calls, 0);
+});
+
+test("emits one privacy-safe beta observability event", async () => {
+  const events = [];
+  const prompt = "Never include this private prompt in telemetry.";
+  const response = await handleRequest(
+    createRequest({ messages: [{ role: "user", content: prompt }] }),
+    createEnv({ dailyQuotaAllowed: false }),
+    async () => {
+      throw new Error("provider must not be called");
+    },
+    {
+      requestId: () => "request-test-id",
+      log: (event) => events.push(event),
+    },
+  );
+
+  assert.equal(response.status, 429);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].includes(prompt), false);
+  assert.equal(events[0].includes(betaToken), false);
+  assert.equal(events[0].includes(openAiSecret), false);
+
+  assert.deepEqual(JSON.parse(events[0]), {
+    event: "ovexiq_ai_request",
+    requestId: "request-test-id",
+    testerIdHash: "517e50ee6e1544e4",
+    endpoint: "/v1/ai/complete",
+    capability: "text",
+    status: 429,
+    rejection: "beta_limit_reached",
+  });
+});
+
+test("observability records provider latency without response content", async () => {
+  const events = [];
+  let now = 100;
+  const response = await handleRequest(
+    createRequest(validBody()),
+    createEnv(),
+    async () => openAiSuccess("Do not log this result."),
+    {
+      now: () => {
+        now += 7;
+        return now;
+      },
+      requestId: () => "provider-latency-request",
+      log: (event) => events.push(event),
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(events.length, 1);
+  const event = JSON.parse(events[0]);
+  assert.equal(event.requestId, "provider-latency-request");
+  assert.equal(typeof event.providerLatencyMs, "number");
+  assert.ok(event.providerLatencyMs >= 0);
+  assert.equal(events[0].includes("Do not log this result."), false);
+  assert.equal("rejection" in event, true);
+  assert.equal(event.rejection, null);
 });
 
 test("rejects malformed and oversized payloads", async () => {
@@ -434,6 +526,18 @@ test("durable daily quota enforces separate per-tester and beta-wide caps", asyn
   }
   assert.deepEqual(await globalImageQuota.consume("tester-two", "image"), { allowed: true });
   assert.deepEqual(await globalImageQuota.consume("tester-two", "image"), { allowed: false });
+});
+
+test("durable daily quota resets on the next UTC day", async () => {
+  const quota = new BetaDailyQuota({ storage: new InMemoryDurableObjectStorage() });
+  const firstDay = Date.UTC(2026, 7, 26, 23, 59, 59);
+  const nextDay = Date.UTC(2026, 7, 27, 0, 0, 1);
+
+  for (let index = 0; index < 20; index += 1) {
+    assert.deepEqual(await quota.consume("tester-one", "text", firstDay), { allowed: true });
+  }
+  assert.deepEqual(await quota.consume("tester-one", "text", firstDay), { allowed: false });
+  assert.deepEqual(await quota.consume("tester-one", "text", nextDay), { allowed: true });
 });
 
 test("image endpoint rejects invalid beta tokens and non-POST requests", async () => {
