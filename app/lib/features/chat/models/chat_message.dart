@@ -1,3 +1,5 @@
+import 'artifact.dart';
+
 enum ChatRole { user, assistant, system }
 
 /// Provider-neutral metadata for a finished Chat result stored on this device.
@@ -8,6 +10,8 @@ class ChatAttachment {
     required this.localFilePath,
     this.sourcePrompt,
     this.sourceMessageId,
+    this.artifact,
+    this.artifactVersion,
   });
 
   final String id;
@@ -20,6 +24,15 @@ class ChatAttachment {
 
   /// The user message that initiated this result, when available.
   final String? sourceMessageId;
+
+  /// Nullable while existing persisted image results migrate naturally on
+  /// their next creation. The local attachment fields remain authoritative for
+  /// legacy records.
+  final Artifact? artifact;
+  final ArtifactVersion? artifactVersion;
+
+  String? get artifactId => artifact?.id;
+  String? get artifactVersionId => artifactVersion?.id;
 }
 
 class ChatMessage {

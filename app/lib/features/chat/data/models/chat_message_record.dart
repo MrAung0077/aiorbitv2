@@ -23,4 +23,18 @@ class ChatMessageRecord {
   String? attachmentSourcePrompt;
 
   String? attachmentSourceMessageId;
+
+  String? storedAttachmentArtifactId;
+
+  String? storedAttachmentArtifactType;
+
+  DateTime? storedAttachmentArtifactCreatedAt;
+
+  String? storedAttachmentArtifactVersionId;
+
+  String? storedAttachmentRemoteStorageKey;
+
+  String? storedAttachmentSourceArtifactVersionId;
+
+  DateTime? storedAttachmentArtifactVersionCreatedAt;
 }

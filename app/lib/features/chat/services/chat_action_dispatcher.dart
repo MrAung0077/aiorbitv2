@@ -19,11 +19,17 @@ class ChatImageActionRequested extends ChatActionDispatchResult {
     required this.subject,
     this.requestId,
     this.sourceMessageId,
+    this.artifactId,
+    this.artifactCreatedAt,
+    this.sourceArtifactVersionId,
   });
 
   final String subject;
   final String? requestId;
   final String? sourceMessageId;
+  final String? artifactId;
+  final DateTime? artifactCreatedAt;
+  final String? sourceArtifactVersionId;
 }
 
 /// Detects explicit, executable Chat actions before they reach text AI.

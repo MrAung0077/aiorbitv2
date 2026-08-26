@@ -3,6 +3,7 @@ import 'package:isar_community/isar.dart';
 import '../../../core/database/isar_service.dart';
 import '../data/models/chat_message_record.dart';
 import '../data/models/conversation_record.dart';
+import '../models/artifact.dart';
 import '../models/chat_message.dart';
 import '../models/conversation.dart';
 
@@ -94,31 +95,51 @@ class ConversationRepository {
       ..attachmentMimeType = message.attachment?.mimeType
       ..attachmentLocalFilePath = message.attachment?.localFilePath
       ..attachmentSourcePrompt = message.attachment?.sourcePrompt
-      ..attachmentSourceMessageId = message.attachment?.sourceMessageId;
+      ..attachmentSourceMessageId = message.attachment?.sourceMessageId
+      ..storedAttachmentArtifactId = message.attachment?.artifact?.id
+      ..storedAttachmentArtifactType = message.attachment?.artifact?.type.name
+      ..storedAttachmentArtifactCreatedAt =
+          message.attachment?.artifact?.createdAt
+      ..storedAttachmentArtifactVersionId =
+          message.attachment?.artifactVersion?.id
+      ..storedAttachmentRemoteStorageKey =
+          message.attachment?.artifactVersion?.remoteStorageKey
+      ..storedAttachmentSourceArtifactVersionId =
+          message.attachment?.artifactVersion?.sourceArtifactVersionId
+      ..storedAttachmentArtifactVersionCreatedAt =
+          message.attachment?.artifactVersion?.createdAt;
   }
 
   Conversation _recordToConversation(ConversationRecord record) {
     return Conversation(
       id: record.conversationId,
       title: record.title,
-      messages: record.messages.map(_recordToMessage).toList(growable: false),
+      messages: record.messages
+          .map((message) => _recordToMessage(message, record.conversationId))
+          .toList(growable: false),
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     );
   }
 
-  ChatMessage _recordToMessage(ChatMessageRecord record) {
+  ChatMessage _recordToMessage(
+    ChatMessageRecord record,
+    String conversationId,
+  ) {
     return ChatMessage(
       id: record.messageId,
       role: _parseRole(record.role),
       content: record.content,
       createdAt: record.createdAt,
       isError: record.isError,
-      attachment: _recordToAttachment(record),
+      attachment: _recordToAttachment(record, conversationId),
     );
   }
 
-  ChatAttachment? _recordToAttachment(ChatMessageRecord record) {
+  ChatAttachment? _recordToAttachment(
+    ChatMessageRecord record,
+    String conversationId,
+  ) {
     final id = record.attachmentId?.trim();
     final mimeType = record.attachmentMimeType?.trim();
     final localFilePath = record.attachmentLocalFilePath?.trim();
@@ -132,12 +153,68 @@ class ConversationRepository {
       return null;
     }
 
+    final artifact = _recordToArtifact(record, conversationId);
+    final artifactVersion = _recordToArtifactVersion(
+      record,
+      artifactId: artifact?.id,
+      mimeType: mimeType,
+      localFilePath: localFilePath,
+    );
+
     return ChatAttachment(
       id: id,
       mimeType: mimeType,
       localFilePath: localFilePath,
       sourcePrompt: _optionalValue(record.attachmentSourcePrompt),
       sourceMessageId: _optionalValue(record.attachmentSourceMessageId),
+      artifact: artifact,
+      artifactVersion: artifactVersion,
+    );
+  }
+
+  Artifact? _recordToArtifact(ChatMessageRecord record, String conversationId) {
+    final artifactId = _optionalValue(record.storedAttachmentArtifactId);
+    final typeName = _optionalValue(record.storedAttachmentArtifactType);
+    final createdAt = record.storedAttachmentArtifactCreatedAt;
+    if (artifactId == null || typeName == null || createdAt == null) {
+      return null;
+    }
+
+    final type = ArtifactType.values.where((type) => type.name == typeName);
+    if (type.isEmpty) {
+      return null;
+    }
+
+    return Artifact(
+      id: artifactId,
+      conversationId: conversationId,
+      type: type.first,
+      createdAt: createdAt,
+    );
+  }
+
+  ArtifactVersion? _recordToArtifactVersion(
+    ChatMessageRecord record, {
+    required String? artifactId,
+    required String mimeType,
+    required String localFilePath,
+  }) {
+    final versionId = _optionalValue(record.storedAttachmentArtifactVersionId);
+    final createdAt = record.storedAttachmentArtifactVersionCreatedAt;
+    if (artifactId == null || versionId == null || createdAt == null) {
+      return null;
+    }
+
+    return ArtifactVersion(
+      id: versionId,
+      artifactId: artifactId,
+      mimeType: mimeType,
+      localPath: localFilePath,
+      remoteStorageKey: _optionalValue(record.storedAttachmentRemoteStorageKey),
+      sourceArtifactVersionId: _optionalValue(
+        record.storedAttachmentSourceArtifactVersionId,
+      ),
+      createdAt: createdAt,
     );
   }
 

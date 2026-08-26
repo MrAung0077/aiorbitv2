@@ -287,6 +287,10 @@ class ChatController extends StateNotifier<ChatState> {
             ),
             requestId: userMessage.id,
             sourceMessageId: userMessage.id,
+            artifactId: pendingImageRevision.artifactId,
+            artifactCreatedAt: pendingImageRevision.artifactCreatedAt,
+            sourceArtifactVersionId:
+                pendingImageRevision.sourceArtifactVersionId,
           ),
           isImageGenerationInProgress: true,
           activeImageRequestId: userMessage.id,
@@ -617,6 +621,9 @@ class ChatController extends StateNotifier<ChatState> {
         sourceResultMessageId: resultMessageId,
         sourceMessageId: imageSource.sourceMessageId,
         question: question,
+        artifactId: imageSource.artifactId,
+        artifactCreatedAt: imageSource.artifactCreatedAt,
+        sourceArtifactVersionId: imageSource.artifactVersionId,
       ),
       clearError: true,
       clearMissionSuggestion: true,
@@ -670,6 +677,9 @@ class ChatController extends StateNotifier<ChatState> {
         subject: imageSource.prompt,
         requestId: requestId,
         sourceMessageId: imageSource.sourceMessageId,
+        artifactId: imageSource.artifactId,
+        artifactCreatedAt: imageSource.artifactCreatedAt,
+        sourceArtifactVersionId: imageSource.artifactVersionId,
       ),
       activeImageRequestId: requestId,
       clearError: true,
@@ -740,6 +750,9 @@ class ChatController extends StateNotifier<ChatState> {
         return _ImageResultSource(
           prompt: storedPrompt,
           sourceMessageId: storedSourceMessageId,
+          artifactId: attachment.artifactId,
+          artifactCreatedAt: attachment.artifact?.createdAt,
+          artifactVersionId: attachment.artifactVersionId,
         );
       }
 
@@ -748,6 +761,9 @@ class ChatController extends StateNotifier<ChatState> {
         return _ImageResultSource(
           prompt: sourcePrompt,
           sourceMessageId: storedSourceMessageId,
+          artifactId: attachment.artifactId,
+          artifactCreatedAt: attachment.artifact?.createdAt,
+          artifactVersionId: attachment.artifactVersionId,
         );
       }
     }
@@ -759,6 +775,9 @@ class ChatController extends StateNotifier<ChatState> {
         return _ImageResultSource(
           prompt: sourcePrompt,
           sourceMessageId: sourceMessage.id,
+          artifactId: attachment.artifactId,
+          artifactCreatedAt: attachment.artifact?.createdAt,
+          artifactVersionId: attachment.artifactVersionId,
         );
       }
     }
@@ -1144,10 +1163,16 @@ class _ImageResultSource {
   const _ImageResultSource({
     required this.prompt,
     required this.sourceMessageId,
+    this.artifactId,
+    this.artifactCreatedAt,
+    this.artifactVersionId,
   });
 
   final String prompt;
   final String sourceMessageId;
+  final String? artifactId;
+  final DateTime? artifactCreatedAt;
+  final String? artifactVersionId;
 }
 
 class ChatState {

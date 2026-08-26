@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:aiorbit/core/ai/ai.dart';
 import 'package:aiorbit/core/ai/providers/ovexiq_image_api_client.dart';
 import 'package:aiorbit/features/chat/ai_chat_screen.dart';
+import 'package:aiorbit/features/chat/models/artifact.dart';
 import 'package:aiorbit/features/chat/models/chat_message.dart';
 import 'package:aiorbit/features/chat/models/conversation.dart';
 import 'package:aiorbit/features/chat/providers/chat_controller.dart';
@@ -148,6 +149,59 @@ void main() {
       await tester.pump(const Duration(seconds: 3));
     },
   );
+
+  testWidgets('new generated image receives durable artifact and version IDs', (
+    tester,
+  ) async {
+    final imageGenerator = _FakeChatImageGenerator(
+      (_) async => _testGeneratedImage(),
+    );
+    final imageResultStore = _FakeGeneratedImageResultStore(
+      '/safe/artifact-image.png',
+    );
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(
+          _MemoryConversationRepository(),
+        ),
+        aiChatServiceProvider.overrideWithValue(_SuccessfulAIChatService()),
+        missionRepositoryProvider.overrideWithValue(MemoryMissionRepository()),
+        chatImageGenerationServiceProvider.overrideWithValue(imageGenerator),
+        generatedImageResultStoreProvider.overrideWithValue(imageResultStore),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AIChatScreen()),
+      ),
+    );
+    await tester.enterText(
+      find.byType(TextField),
+      'Create a picture of Buddha',
+    );
+    await tester.tap(find.byTooltip('Send'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+
+    final attachment = container
+        .read(chatControllerProvider)
+        .messages
+        .last
+        .attachment!;
+    expect(attachment.artifact?.type, ArtifactType.image);
+    expect(
+      attachment.artifact?.conversationId,
+      container.read(chatControllerProvider).conversation?.id,
+    );
+    expect(attachment.artifactVersion?.artifactId, attachment.artifact?.id);
+    expect(attachment.artifactVersion?.localPath, attachment.localFilePath);
+    expect(attachment.artifactVersion?.sourceArtifactVersionId, isNull);
+    expect(imageGenerator.prompts, hasLength(1));
+  });
 
   testWidgets(
     'cancelling image work hides Working and ignores a late success',

@@ -8,6 +8,7 @@ import '../../core/widgets/app_message_bubble.dart';
 import '../../core/widgets/app_prompt_composer.dart';
 import '../../core/widgets/app_typing_indicator.dart';
 import 'models/brain_status.dart';
+import 'models/artifact.dart';
 import 'models/chat_message.dart';
 import 'models/message_feedback.dart';
 import 'models/router_decision.dart';
@@ -272,12 +273,30 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
       if (!_isImageRequestActive(requestKey, generation)) {
         return;
       }
+      final versionCreatedAt = DateTime.now();
+      final artifact = Artifact(
+        id:
+            request.artifactId ??
+            'artifact-image-$conversationId-$sourceMessageId',
+        conversationId: conversationId,
+        type: ArtifactType.image,
+        createdAt: request.artifactCreatedAt ?? versionCreatedAt,
+      );
       final attachment = ChatAttachment(
         id: 'image-$conversationId-$requestId',
         mimeType: image.mimeType,
         localFilePath: localFilePath,
         sourcePrompt: request.subject,
         sourceMessageId: sourceMessageId,
+        artifact: artifact,
+        artifactVersion: ArtifactVersion(
+          id: 'artifact-version-image-$conversationId-$requestId',
+          artifactId: artifact.id,
+          mimeType: image.mimeType,
+          localPath: localFilePath,
+          sourceArtifactVersionId: request.sourceArtifactVersionId,
+          createdAt: versionCreatedAt,
+        ),
       );
       final persisted = await ref
           .read(chatControllerProvider.notifier)

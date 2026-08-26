@@ -1,4 +1,5 @@
 import 'package:aiorbit/core/ai/ai.dart';
+import 'package:aiorbit/features/chat/models/artifact.dart';
 import 'package:aiorbit/features/chat/models/chat_message.dart';
 import 'package:aiorbit/features/chat/models/conversation.dart';
 import 'package:aiorbit/features/chat/providers/chat_controller.dart';
@@ -308,6 +309,72 @@ void main() {
           restoredController.state.pendingImageRevision?.sourcePrompt,
           refinedPrompt,
         );
+      },
+    );
+
+    test(
+      'refine and regenerate retain one logical artifact identity',
+      () async {
+        final repository = _MemoryConversationRepository();
+        final controller = _createController(repository);
+        addTearDown(controller.dispose);
+
+        await controller.sendMessage('Create a picture of Buddha');
+        final conversationId = controller.state.conversation!.id;
+        final sourceMessageId = controller.state.messages.single.id;
+        final artifact = Artifact(
+          id: 'artifact-image-1',
+          conversationId: conversationId,
+          type: ArtifactType.image,
+          createdAt: DateTime(2026, 8, 26),
+        );
+        final originalAttachment = ChatAttachment(
+          id: 'original-image',
+          mimeType: 'image/png',
+          localFilePath: '/safe/original.png',
+          sourcePrompt: 'Buddha',
+          sourceMessageId: sourceMessageId,
+          artifact: artifact,
+          artifactVersion: ArtifactVersion(
+            id: 'artifact-version-1',
+            artifactId: artifact.id,
+            mimeType: 'image/png',
+            localPath: '/safe/original.png',
+            createdAt: artifact.createdAt,
+          ),
+        );
+        await controller.persistGeneratedImageResult(
+          conversationId: conversationId,
+          sourceMessageId: sourceMessageId,
+          attachment: originalAttachment,
+        );
+
+        expect(
+          await controller.beginImageRevision(
+            resultMessageId: controller.state.messages.last.id,
+          ),
+          isTrue,
+        );
+        await controller.sendMessage('Make the sky purple');
+        final refineRequest = controller.state.imageActionRequest!;
+        expect(refineRequest.artifactId, artifact.id);
+        expect(refineRequest.artifactCreatedAt, artifact.createdAt);
+        expect(refineRequest.sourceArtifactVersionId, 'artifact-version-1');
+
+        controller.cancelImageGeneration(requestId: refineRequest.requestId!);
+        expect(
+          await controller.regenerateImage(
+            resultMessageId: controller.state.messages
+                .firstWhere(
+                  (message) => message.attachment?.id == 'original-image',
+                )
+                .id,
+          ),
+          isTrue,
+        );
+        final regenerateRequest = controller.state.imageActionRequest!;
+        expect(regenerateRequest.artifactId, artifact.id);
+        expect(regenerateRequest.sourceArtifactVersionId, 'artifact-version-1');
       },
     );
 
