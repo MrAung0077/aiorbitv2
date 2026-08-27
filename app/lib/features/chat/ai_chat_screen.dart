@@ -713,6 +713,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                         _isVideoIngesting,
                     onSend: _sendMessage,
                     onAttach: _attachVideo,
+                    inlineActions: true,
                     hintText: 'Ask Ovexiq anything...',
                     maxLines: 5,
                   ),

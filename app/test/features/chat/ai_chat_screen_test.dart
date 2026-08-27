@@ -241,7 +241,11 @@ void main() {
         child: const MaterialApp(home: AIChatScreen()),
       ),
     );
-    await tester.tap(find.byTooltip('Attach file'));
+    expect(find.byTooltip('Add attachment'), findsOneWidget);
+    await tester.tap(find.byTooltip('Add attachment'));
+    await tester.pumpAndSettle();
+    expect(find.text('Add Video'), findsOneWidget);
+    await tester.tap(find.text('Add Video'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
@@ -256,6 +260,56 @@ void main() {
     expect(attachments.single.attachment?.artifact?.type, ArtifactType.video);
     expect(find.text('Video added'), findsOneWidget);
     expect(aiChatService.requests, isEmpty);
+  });
+
+  testWidgets('cancelling Add Video returns to ordinary Chat safely', (
+    tester,
+  ) async {
+    final videoPicker = _FakeVideoPicker(null);
+    final aiChatService = _SuccessfulAIChatService();
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(
+          _MemoryConversationRepository(),
+        ),
+        aiChatServiceProvider.overrideWithValue(aiChatService),
+        missionRepositoryProvider.overrideWithValue(MemoryMissionRepository()),
+        videoPickerProvider.overrideWithValue(videoPicker),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AIChatScreen()),
+      ),
+    );
+
+    await tester.tap(find.byTooltip('Add attachment'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add Video'));
+    await tester.pumpAndSettle();
+
+    expect(videoPicker.pickCount, 1);
+    expect(
+      container
+          .read(chatControllerProvider)
+          .messages
+          .where((message) => message.attachment != null),
+      isEmpty,
+    );
+    expect(find.text("Couldn't add that video"), findsNothing);
+
+    await tester.enterText(find.byType(TextField), 'Hello');
+    await tester.tap(find.byTooltip('Send'));
+    await tester.pump(const Duration(seconds: 3));
+
+    expect(aiChatService.requests, hasLength(1));
+    expect(
+      container.read(chatControllerProvider).messages.first.content,
+      'Hello',
+    );
   });
 
   testWidgets(
