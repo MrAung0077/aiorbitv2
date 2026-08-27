@@ -37,4 +37,8 @@ class ChatMessageRecord {
   String? storedAttachmentSourceArtifactVersionId;
 
   DateTime? storedAttachmentArtifactVersionCreatedAt;
+
+  int? zStoredAttachmentArtifactVersionByteSize;
+
+  String? zStoredAttachmentArtifactVersionFileName;
 }

@@ -169,6 +169,65 @@ void main() {
     expect(restored?.messages.single.attachment?.artifact, isNull);
     expect(restored?.messages.single.attachment?.artifactVersion, isNull);
   });
+
+  test(
+    'reopens a persisted local video artifact without re-selecting it',
+    () async {
+      final now = DateTime(2026, 8, 26, 12);
+      final artifact = Artifact(
+        id: 'video-artifact',
+        conversationId: 'video-conversation',
+        type: ArtifactType.video,
+        createdAt: now,
+      );
+      final conversation = Conversation(
+        id: 'video-conversation',
+        title: 'Video',
+        messages: <ChatMessage>[
+          ChatMessage(
+            id: 'video-message',
+            role: ChatRole.user,
+            content: 'Video added',
+            createdAt: now,
+            attachment: ChatAttachment(
+              id: 'video-attachment',
+              mimeType: 'video/mp4',
+              localFilePath: '/app/documents/ovexiq_media/videos/video.mp4',
+              artifact: artifact,
+              artifactVersion: ArtifactVersion(
+                id: 'video-version',
+                artifactId: artifact.id,
+                mimeType: 'video/mp4',
+                localPath: '/app/documents/ovexiq_media/videos/video.mp4',
+                fileName: 'video.mp4',
+                byteSize: 4096,
+                createdAt: now,
+              ),
+            ),
+          ),
+        ],
+        createdAt: now,
+        updatedAt: now,
+      );
+
+      await ConversationRepository().saveConversation(conversation);
+      await IsarService.close();
+      await IsarService.initialize(
+        directoryPath: databaseDirectory.path,
+        name: databaseName,
+        inspector: false,
+      );
+
+      final restored = await ConversationRepository().getConversation(
+        conversation.id,
+      );
+      final attachment = restored?.messages.single.attachment;
+      expect(attachment?.artifact?.type, ArtifactType.video);
+      expect(attachment?.artifactVersion?.fileName, 'video.mp4');
+      expect(attachment?.artifactVersion?.byteSize, 4096);
+      expect(attachment?.localFilePath, contains('ovexiq_media'));
+    },
+  );
 }
 
 Future<void> _initializeTestIsarCore() async {

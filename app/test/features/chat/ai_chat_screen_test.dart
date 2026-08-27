@@ -11,10 +11,13 @@ import 'package:aiorbit/features/chat/models/chat_message.dart';
 import 'package:aiorbit/features/chat/models/conversation.dart';
 import 'package:aiorbit/features/chat/providers/chat_controller.dart';
 import 'package:aiorbit/features/chat/providers/chat_image_generation_provider.dart';
+import 'package:aiorbit/features/chat/providers/chat_video_ingest_provider.dart';
 import 'package:aiorbit/features/chat/repositories/conversation_repository.dart';
 import 'package:aiorbit/features/chat/services/ai_chat_service.dart';
 import 'package:aiorbit/features/chat/services/chat_image_generation_service.dart';
 import 'package:aiorbit/features/chat/services/local_generated_image_result_store.dart';
+import 'package:aiorbit/features/chat/services/local_video_ingest_service.dart';
+import 'package:aiorbit/features/chat/services/video_picker.dart';
 import 'package:aiorbit/features/mission/providers/chat_mission_coordinator_provider.dart';
 import 'package:aiorbit/features/mission/providers/mission_provider.dart';
 import 'package:aiorbit/features/mission/controllers/mission_controller.dart';
@@ -201,6 +204,58 @@ void main() {
     expect(attachment.artifactVersion?.localPath, attachment.localFilePath);
     expect(attachment.artifactVersion?.sourceArtifactVersionId, isNull);
     expect(imageGenerator.prompts, hasLength(1));
+  });
+
+  testWidgets('attaching one video ingests and persists one video artifact', (
+    tester,
+  ) async {
+    final localVideo = File(Platform.resolvedExecutable);
+    final videoPicker = _FakeVideoPicker(
+      _selectedVideo(name: 'summer.mp4', bytes: Uint8List.fromList(<int>[1])),
+    );
+    final videoIngestService = _FakeLocalVideoIngestService(
+      IngestedVideo(
+        fileName: 'summer.mp4',
+        mimeType: 'video/mp4',
+        localPath: localVideo.path,
+        byteSize: 4,
+      ),
+    );
+    final aiChatService = _SuccessfulAIChatService();
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(
+          _MemoryConversationRepository(),
+        ),
+        aiChatServiceProvider.overrideWithValue(aiChatService),
+        missionRepositoryProvider.overrideWithValue(MemoryMissionRepository()),
+        videoPickerProvider.overrideWithValue(videoPicker),
+        localVideoIngestServiceProvider.overrideWithValue(videoIngestService),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AIChatScreen()),
+      ),
+    );
+    await tester.tap(find.byTooltip('Attach file'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final attachments = container
+        .read(chatControllerProvider)
+        .messages
+        .where((message) => message.attachment != null)
+        .toList(growable: false);
+    expect(videoPicker.pickCount, 1);
+    expect(videoIngestService.ingestCount, 1);
+    expect(attachments, hasLength(1));
+    expect(attachments.single.attachment?.artifact?.type, ArtifactType.video);
+    expect(find.text('Video added'), findsOneWidget);
+    expect(aiChatService.requests, isEmpty);
   });
 
   testWidgets(
@@ -847,6 +902,47 @@ class _FakeGeneratedImageResultStore implements GeneratedImageResultStore {
     savedPaths.add(_path);
     return _path;
   }
+}
+
+class _FakeVideoPicker implements VideoPicker {
+  _FakeVideoPicker(this._video);
+
+  final SelectedVideoFile? _video;
+  var pickCount = 0;
+
+  @override
+  Future<SelectedVideoFile?> pickOneVideo() async {
+    pickCount++;
+    return _video;
+  }
+}
+
+class _FakeLocalVideoIngestService extends LocalVideoIngestService {
+  _FakeLocalVideoIngestService(this._result);
+
+  final IngestedVideo _result;
+  var ingestCount = 0;
+
+  @override
+  Future<IngestedVideo> ingest({
+    required String conversationId,
+    required String ingestId,
+    required SelectedVideoFile source,
+  }) async {
+    ingestCount++;
+    return _result;
+  }
+}
+
+SelectedVideoFile _selectedVideo({
+  required String name,
+  required Uint8List bytes,
+}) {
+  return SelectedVideoFile(
+    name: name,
+    readLength: () async => bytes.length,
+    readStream: () => Stream<Uint8List>.value(bytes),
+  );
 }
 
 Future<_FakeGeneratedImageResultStore> _createImageResultStore() async {

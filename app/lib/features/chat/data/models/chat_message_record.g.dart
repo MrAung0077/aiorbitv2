@@ -86,6 +86,16 @@ const ChatMessageRecordSchema = Schema(
       name: r'storedAttachmentSourceArtifactVersionId',
       type: IsarType.string,
     ),
+    r'zStoredAttachmentArtifactVersionByteSize': PropertySchema(
+      id: 17,
+      name: r'zStoredAttachmentArtifactVersionByteSize',
+      type: IsarType.long,
+    ),
+    r'zStoredAttachmentArtifactVersionFileName': PropertySchema(
+      id: 18,
+      name: r'zStoredAttachmentArtifactVersionFileName',
+      type: IsarType.string,
+    ),
   },
 
   estimateSize: _chatMessageRecordEstimateSize,
@@ -163,6 +173,12 @@ int _chatMessageRecordEstimateSize(
       bytesCount += 3 + value.length * 3;
     }
   }
+  {
+    final value = object.zStoredAttachmentArtifactVersionFileName;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
   return bytesCount;
 }
 
@@ -194,6 +210,14 @@ void _chatMessageRecordSerialize(
   writer.writeString(
     offsets[16],
     object.storedAttachmentSourceArtifactVersionId,
+  );
+  writer.writeLong(
+    offsets[17],
+    object.zStoredAttachmentArtifactVersionByteSize,
+  );
+  writer.writeString(
+    offsets[18],
+    object.zStoredAttachmentArtifactVersionFileName,
   );
 }
 
@@ -230,6 +254,12 @@ ChatMessageRecord _chatMessageRecordDeserialize(
   );
   object.storedAttachmentSourceArtifactVersionId = reader.readStringOrNull(
     offsets[16],
+  );
+  object.zStoredAttachmentArtifactVersionByteSize = reader.readLongOrNull(
+    offsets[17],
+  );
+  object.zStoredAttachmentArtifactVersionFileName = reader.readStringOrNull(
+    offsets[18],
   );
   return object;
 }
@@ -274,6 +304,10 @@ P _chatMessageRecordDeserializeProp<P>(
     case 15:
       return (reader.readStringOrNull(offset)) as P;
     case 16:
+      return (reader.readStringOrNull(offset)) as P;
+    case 17:
+      return (reader.readLongOrNull(offset)) as P;
+    case 18:
       return (reader.readStringOrNull(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -2667,6 +2701,276 @@ extension ChatMessageRecordQueryFilter
       return query.addFilterCondition(
         FilterCondition.greaterThan(
           property: r'storedAttachmentSourceArtifactVersionId',
+          value: '',
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  zStoredAttachmentArtifactVersionByteSizeIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(
+          property: r'zStoredAttachmentArtifactVersionByteSize',
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  zStoredAttachmentArtifactVersionByteSizeIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(
+          property: r'zStoredAttachmentArtifactVersionByteSize',
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  zStoredAttachmentArtifactVersionByteSizeEqualTo(int? value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'zStoredAttachmentArtifactVersionByteSize',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  zStoredAttachmentArtifactVersionByteSizeGreaterThan(
+    int? value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'zStoredAttachmentArtifactVersionByteSize',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  zStoredAttachmentArtifactVersionByteSizeLessThan(
+    int? value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'zStoredAttachmentArtifactVersionByteSize',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  zStoredAttachmentArtifactVersionByteSizeBetween(
+    int? lower,
+    int? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'zStoredAttachmentArtifactVersionByteSize',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  zStoredAttachmentArtifactVersionFileNameIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(
+          property: r'zStoredAttachmentArtifactVersionFileName',
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  zStoredAttachmentArtifactVersionFileNameIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(
+          property: r'zStoredAttachmentArtifactVersionFileName',
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  zStoredAttachmentArtifactVersionFileNameEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'zStoredAttachmentArtifactVersionFileName',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  zStoredAttachmentArtifactVersionFileNameGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'zStoredAttachmentArtifactVersionFileName',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  zStoredAttachmentArtifactVersionFileNameLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'zStoredAttachmentArtifactVersionFileName',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  zStoredAttachmentArtifactVersionFileNameBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'zStoredAttachmentArtifactVersionFileName',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  zStoredAttachmentArtifactVersionFileNameStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'zStoredAttachmentArtifactVersionFileName',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  zStoredAttachmentArtifactVersionFileNameEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'zStoredAttachmentArtifactVersionFileName',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  zStoredAttachmentArtifactVersionFileNameContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'zStoredAttachmentArtifactVersionFileName',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  zStoredAttachmentArtifactVersionFileNameMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'zStoredAttachmentArtifactVersionFileName',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  zStoredAttachmentArtifactVersionFileNameIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'zStoredAttachmentArtifactVersionFileName',
+          value: '',
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ChatMessageRecord, ChatMessageRecord, QAfterFilterCondition>
+  zStoredAttachmentArtifactVersionFileNameIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          property: r'zStoredAttachmentArtifactVersionFileName',
           value: '',
         ),
       );

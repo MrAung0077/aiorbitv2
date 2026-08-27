@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/chat_message.dart';
+import '../models/artifact.dart';
 import '../models/conversation.dart';
 import '../models/pending_chat_clarification.dart';
 import '../models/pending_image_revision.dart';
@@ -855,6 +856,58 @@ class ChatController extends StateNotifier<ChatState> {
       );
     }
 
+    return true;
+  }
+
+  /// Adds one durable, local-only video attachment after it has been copied
+  /// into Ovexiq-owned storage.
+  Future<bool> persistVideoAttachment({
+    required String conversationId,
+    required ChatAttachment attachment,
+  }) async {
+    if (attachment.artifact?.type != ArtifactType.video ||
+        attachment.artifactVersion == null) {
+      return false;
+    }
+
+    final conversation = await _conversationRepository.getConversation(
+      conversationId,
+    );
+    if (conversation == null) {
+      return false;
+    }
+
+    final alreadyPersisted = conversation.messages.any(
+      (message) => message.attachment?.id == attachment.id,
+    );
+    if (alreadyPersisted) {
+      return true;
+    }
+
+    final createdAt = _nextActivityTime();
+    final updatedConversation = conversation.copyWith(
+      messages: <ChatMessage>[
+        ...conversation.messages,
+        ChatMessage(
+          id: 'video-attachment-${attachment.id}',
+          role: ChatRole.user,
+          content: 'Video added',
+          createdAt: createdAt,
+          attachment: attachment,
+        ),
+      ],
+      updatedAt: createdAt,
+    );
+
+    await _conversationRepository.saveConversation(updatedConversation);
+
+    if (mounted && state.conversation?.id == conversationId) {
+      state = state.copyWith(
+        conversation: updatedConversation,
+        isSending: false,
+        clearError: true,
+      );
+    }
     return true;
   }
 

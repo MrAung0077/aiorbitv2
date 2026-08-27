@@ -107,7 +107,11 @@ class ConversationRepository {
       ..storedAttachmentSourceArtifactVersionId =
           message.attachment?.artifactVersion?.sourceArtifactVersionId
       ..storedAttachmentArtifactVersionCreatedAt =
-          message.attachment?.artifactVersion?.createdAt;
+          message.attachment?.artifactVersion?.createdAt
+      ..zStoredAttachmentArtifactVersionByteSize =
+          message.attachment?.artifactVersion?.byteSize
+      ..zStoredAttachmentArtifactVersionFileName =
+          message.attachment?.artifactVersion?.fileName;
   }
 
   Conversation _recordToConversation(ConversationRecord record) {
@@ -214,6 +218,8 @@ class ConversationRepository {
       sourceArtifactVersionId: _optionalValue(
         record.storedAttachmentSourceArtifactVersionId,
       ),
+      fileName: _optionalValue(record.zStoredAttachmentArtifactVersionFileName),
+      byteSize: record.zStoredAttachmentArtifactVersionByteSize,
       createdAt: createdAt,
     );
   }

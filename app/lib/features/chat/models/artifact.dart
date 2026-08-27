@@ -31,6 +31,8 @@ class ArtifactVersion {
     required this.createdAt,
     this.remoteStorageKey,
     this.sourceArtifactVersionId,
+    this.fileName,
+    this.byteSize,
   });
 
   final String id;
@@ -39,5 +41,7 @@ class ArtifactVersion {
   final String localPath;
   final String? remoteStorageKey;
   final String? sourceArtifactVersionId;
+  final String? fileName;
+  final int? byteSize;
   final DateTime createdAt;
 }

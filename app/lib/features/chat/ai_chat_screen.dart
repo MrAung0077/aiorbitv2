@@ -15,12 +15,15 @@ import 'models/router_decision.dart';
 import 'providers/brain_provider.dart';
 import 'providers/chat_controller.dart';
 import 'providers/chat_image_generation_provider.dart';
+import 'providers/chat_video_ingest_provider.dart';
 import 'providers/device_image_save_provider.dart';
 import 'services/router_preview_service.dart';
 import 'services/chat_image_generation_service.dart';
+import 'services/local_video_ingest_service.dart';
 import 'widgets/brain_overlay.dart';
 import 'widgets/finished_result_card.dart';
 import 'widgets/generated_image_card.dart';
+import 'widgets/video_attachment_card.dart';
 import '../mission/providers/chat_mission_coordinator_provider.dart';
 import '../mission/services/chat_mission_coordinator.dart';
 import '../mission/services/chat_mission_result_adapter.dart';
@@ -49,6 +52,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
   final Set<String> _cancelledImageRequestKeys = <String>{};
   ChatImageGenerationOperation? _activeImageGeneration;
   String? _activeImageRequestKey;
+  var _isVideoIngesting = false;
 
   @override
   void initState() {
@@ -181,6 +185,92 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
+  }
+
+  Future<void> _attachVideo() async {
+    if (_isVideoIngesting ||
+        _imageWorkState == _ImageWorkState.working ||
+        _missionWorkState == _MissionWorkState.working ||
+        ref.read(chatControllerProvider).isSending) {
+      return;
+    }
+
+    setState(() {
+      _isVideoIngesting = true;
+    });
+
+    try {
+      final selectedVideo = await ref.read(videoPickerProvider).pickOneVideo();
+      if (selectedVideo == null) {
+        return;
+      }
+
+      final controller = ref.read(chatControllerProvider.notifier);
+      var conversation = ref.read(chatControllerProvider).conversation;
+      if (conversation == null) {
+        final created = await controller.createNewConversation();
+        if (!created) {
+          throw const VideoIngestException();
+        }
+        conversation = ref.read(chatControllerProvider).conversation;
+      }
+      if (conversation == null) {
+        throw const VideoIngestException();
+      }
+
+      final createdAt = DateTime.now();
+      final ingestId = 'video-${createdAt.microsecondsSinceEpoch}';
+      final ingestedVideo = await ref
+          .read(localVideoIngestServiceProvider)
+          .ingest(
+            conversationId: conversation.id,
+            ingestId: ingestId,
+            source: selectedVideo,
+          );
+      final artifact = Artifact(
+        id: 'artifact-video-${conversation.id}-$ingestId',
+        conversationId: conversation.id,
+        type: ArtifactType.video,
+        createdAt: createdAt,
+      );
+      final attachment = ChatAttachment(
+        id: 'video-${conversation.id}-$ingestId',
+        mimeType: ingestedVideo.mimeType,
+        localFilePath: ingestedVideo.localPath,
+        artifact: artifact,
+        artifactVersion: ArtifactVersion(
+          id: 'artifact-version-video-${conversation.id}-$ingestId',
+          artifactId: artifact.id,
+          mimeType: ingestedVideo.mimeType,
+          localPath: ingestedVideo.localPath,
+          fileName: ingestedVideo.fileName,
+          byteSize: ingestedVideo.byteSize,
+          createdAt: createdAt,
+        ),
+      );
+      final persisted = await controller.persistVideoAttachment(
+        conversationId: conversation.id,
+        attachment: attachment,
+      );
+      if (!persisted) {
+        throw const VideoIngestException();
+      }
+      _scrollToBottom();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(content: Text("Couldn't add that video")),
+          );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isVideoIngesting = false;
+        });
+      }
+    }
   }
 
   Future<void> _startSuggestedMissionIfNeeded(ChatState chatState) async {
@@ -482,6 +572,12 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                               final message = messages[index];
 
                               if (message.attachment != null) {
+                                if (message.attachment!.artifact?.type ==
+                                    ArtifactType.video) {
+                                  return VideoAttachmentCard(
+                                    attachment: message.attachment!,
+                                  );
+                                }
                                 return GeneratedImageCard(
                                   attachment: message.attachment!,
                                   previewBytes:
@@ -613,8 +709,10 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                     isSending:
                         chatState.isSending ||
                         isMissionWorking ||
-                        isImageWorking,
+                        isImageWorking ||
+                        _isVideoIngesting,
                     onSend: _sendMessage,
+                    onAttach: _attachVideo,
                     hintText: 'Ask Ovexiq anything...',
                     maxLines: 5,
                   ),

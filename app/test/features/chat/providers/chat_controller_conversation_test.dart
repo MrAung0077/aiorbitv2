@@ -206,6 +206,66 @@ void main() {
       );
     });
 
+    test('persists exactly one local video artifact attachment', () async {
+      final repository = _MemoryConversationRepository();
+      final controller = _createController(repository);
+      addTearDown(controller.dispose);
+      await controller.createNewConversation();
+      final conversationId = controller.state.conversation!.id;
+      final createdAt = DateTime(2026, 8, 26);
+      final artifact = Artifact(
+        id: 'video-artifact',
+        conversationId: conversationId,
+        type: ArtifactType.video,
+        createdAt: createdAt,
+      );
+      final attachment = ChatAttachment(
+        id: 'video-attachment',
+        mimeType: 'video/mp4',
+        localFilePath: '/safe/ovexiq-media/video.mp4',
+        artifact: artifact,
+        artifactVersion: ArtifactVersion(
+          id: 'video-version',
+          artifactId: artifact.id,
+          mimeType: 'video/mp4',
+          localPath: '/safe/ovexiq-media/video.mp4',
+          fileName: 'video.mp4',
+          byteSize: 1024,
+          createdAt: createdAt,
+        ),
+      );
+
+      expect(
+        await controller.persistVideoAttachment(
+          conversationId: conversationId,
+          attachment: attachment,
+        ),
+        isTrue,
+      );
+      expect(
+        await controller.persistVideoAttachment(
+          conversationId: conversationId,
+          attachment: attachment,
+        ),
+        isTrue,
+      );
+
+      final persisted = await repository.getConversation(conversationId);
+      final videoMessages = persisted!.messages
+          .where(
+            (message) =>
+                message.attachment?.artifact?.type == ArtifactType.video,
+          )
+          .toList(growable: false);
+      expect(videoMessages, hasLength(1));
+      expect(videoMessages.single.role, ChatRole.user);
+      expect(videoMessages.single.content, 'Video added');
+      expect(
+        videoMessages.single.attachment?.artifactVersion?.id,
+        'video-version',
+      );
+    });
+
     test(
       'refines a persisted image with one new prompt-based version',
       () async {
