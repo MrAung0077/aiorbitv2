@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/design/app_radius.dart';
 import '../../../core/design/app_shadows.dart';
 import '../../../core/design/app_spacing.dart';
+import '../../../core/text/response_language.dart';
 
 class MissionSuggestionCard extends StatelessWidget {
   const MissionSuggestionCard({
@@ -20,6 +21,7 @@ class MissionSuggestionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final burmese = isBurmeseResponse(title);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
@@ -46,8 +48,12 @@ class MissionSuggestionCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   isExistingMission
-                      ? 'Continue Mission'
-                      : 'Continue as a Mission',
+                      ? (burmese
+                            ? 'Mission ကို ဆက်လုပ်ရန်'
+                            : 'Continue Mission')
+                      : (burmese
+                            ? 'Mission အဖြစ် ဆက်လုပ်ရန်'
+                            : 'Continue as a Mission'),
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                     color: colorScheme.onSecondaryContainer,
@@ -68,8 +74,12 @@ class MissionSuggestionCard extends StatelessWidget {
           const SizedBox(height: AppSpacing.sm),
           Text(
             isExistingMission
-                ? 'Return to your saved workflow.'
-                : 'Turn this goal into a guided workflow.',
+                ? (burmese
+                      ? 'သိမ်းထားသော workflow သို့ ပြန်သွားပါ။'
+                      : 'Return to your saved workflow.')
+                : (burmese
+                      ? 'ဤရည်ရွယ်ချက်ကို လမ်းညွှန်ထားသည့် workflow အဖြစ် ပြင်ဆင်ပါ။'
+                      : 'Turn this goal into a guided workflow.'),
             style: theme.textTheme.bodyMedium?.copyWith(
               color: colorScheme.onSurfaceVariant,
             ),
@@ -88,10 +98,10 @@ class MissionSuggestionCard extends StatelessWidget {
                   : const Icon(Icons.arrow_forward_rounded),
               label: Text(
                 isLoading
-                    ? 'Checking...'
+                    ? (burmese ? 'စစ်ဆေးနေသည်...' : 'Checking...')
                     : isExistingMission
-                    ? 'Open Mission'
-                    : 'Continue',
+                    ? (burmese ? 'Mission ဖွင့်ရန်' : 'Open Mission')
+                    : (burmese ? 'ဆက်လုပ်ရန်' : 'Continue'),
               ),
             ),
           ),

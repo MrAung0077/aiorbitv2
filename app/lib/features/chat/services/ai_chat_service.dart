@@ -1,5 +1,7 @@
 import 'package:aiorbit/core/ai/ai.dart';
 
+import '../../../core/text/response_language.dart';
+
 class AIChatService {
   AIChatService({AIService? aiService})
     : _aiService =
@@ -38,9 +40,21 @@ class AIChatService {
   }
 
   Stream<AIChunk> sendMessages(List<AIMessage> messages) {
+    final latestPrompt =
+        messages
+            .where((message) => message.role == AIMessageRole.user)
+            .lastOrNull
+            ?.content ??
+        '';
+    final languagePolicy =
+        responseLanguageFor(latestPrompt) == ResponseLanguage.burmese
+        ? 'Respond in Burmese. Keep only genuinely useful technical names, '
+              'product names, dimensions, and code identifiers in English.'
+        : 'Respond in the user\'s requested language.';
     final request = AIRequest(
       messages: List<AIMessage>.unmodifiable(<AIMessage>[
         _responsePolicy,
+        AIMessage(role: AIMessageRole.system, content: languagePolicy),
         ...messages,
       ]),
     );

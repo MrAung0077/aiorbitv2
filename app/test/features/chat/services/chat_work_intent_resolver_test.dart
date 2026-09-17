@@ -24,14 +24,35 @@ void main() {
     expect(result, isA<ChatWorkOrchestrate>());
   });
 
-  test('rejects unsupported video editing without a tutorial', () {
-    final result = resolver.resolve('Edit these 5 videos into one video');
+  test('prepares an honest handoff for actual Burmese video editing', () {
+    final result = resolver.resolve(
+      'ဒီ video ကို ဖြတ်ပြီး subtitle ထည့်ကာ MP4 export လုပ်ပေးပါ။',
+    );
 
-    expect(result, isA<ChatWorkUnsupportedAction>());
-    final unsupported = result as ChatWorkUnsupportedAction;
-    expect(unsupported.actionKind, ChatUnsupportedActionKind.videoEditing);
-    expect(unsupported.userMessage, 'Video editing isn’t connected yet.');
-    expect(unsupported.userMessage.toLowerCase(), isNot(contains('how')));
+    expect(result, isA<ChatWorkProceed>());
+    final handoff = result as ChatWorkProceed;
+    expect(handoff.responseGuidance, contains('cannot perform'));
+    expect(handoff.responseGuidance, contains('Never claim'));
+  });
+
+  test('keeps Burmese Reel hooks as text content, not video execution', () {
+    final result = resolver.resolve(
+      'Creator growth page အတွက် လူတွေ scroll ရပ်သွားစေမယ့် Reel hook 10 ခုကို တိုက်ရိုက်ရေးပေးပါ။',
+    );
+
+    expect(result, isA<ChatWorkProceed>());
+    expect((result as ChatWorkProceed).responseGuidance, isNull);
+  });
+
+  test('routes a Burmese CapCut package to a text preparation mission', () {
+    final result = resolver.resolve(
+      'Myanmar small business owners အတွက် 20-second Facebook Reel တစ်ခုလုပ်ချင်တယ်။ CapCut မှာ ချက်ချင်းဆက်လုပ်နိုင်အောင် scene timing, script, on-screen text, asset list, BGM mood နဲ့ export settings ပြင်ပေးပါ။',
+    );
+
+    expect(result, isA<ChatWorkOrchestrate>());
+    final suggestion = (result as ChatWorkOrchestrate).missionSuggestion;
+    expect(suggestion.reason, contains('workflow'));
+    expect(suggestion.plannedSteps.join('\n'), contains('CapCut'));
   });
 
   test('keeps informational video questions on normal text chat', () {

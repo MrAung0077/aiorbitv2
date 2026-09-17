@@ -728,13 +728,19 @@ void main() {
 
       await controller.sendMessage('Easy home cooking');
 
-      expect(aiChatService.requests, isEmpty);
+      expect(aiChatService.requests, hasLength(1));
       expect(controller.state.pendingClarification, isNull);
       expect(
         controller.state.messages.last.content,
-        'Video creation isn’t connected yet.',
+        startsWith('Response to:'),
       );
       expect(controller.state.missionSuggestion, isNull);
+      expect(
+        aiChatService.requests.single
+            .firstWhere((message) => message.role == AIMessageRole.system)
+            .content,
+        contains('cannot perform internally'),
+      );
     });
 
     test(
@@ -752,17 +758,23 @@ void main() {
           'Make TikTok videos about easy home cooking',
         );
 
-        expect(aiChatService.requests, isEmpty);
+        expect(aiChatService.requests, hasLength(1));
         expect(controller.state.pendingClarification, isNull);
         expect(
           controller.state.messages.last.content,
-          'Video creation isn’t connected yet.',
+          startsWith('Response to:'),
+        );
+        expect(
+          aiChatService.requests.single
+              .firstWhere((message) => message.role == AIMessageRole.system)
+              .content,
+          contains('Never claim that a video or MP4 was created.'),
         );
       },
     );
 
     test(
-      'rejects video editing without text completion or Mission work',
+      'sends actual video editing to an honest external-editor handoff',
       () async {
         final repository = _MemoryConversationRepository();
         final aiChatService = _FakeAIChatService();
@@ -774,20 +786,21 @@ void main() {
 
         await controller.sendMessage('Edit these 5 videos into one video');
 
-        expect(aiChatService.requests, isEmpty);
+        expect(aiChatService.requests, hasLength(1));
         expect(controller.state.missionSuggestion, isNull);
         expect(
           controller.state.messages.map((message) => message.content),
           <String>[
             'Edit these 5 videos into one video',
-            'Video editing isn’t connected yet.',
+            'Response to: Edit these 5 videos into one video',
           ],
         );
         expect(
-          controller.state.messages.last.content,
-          isNot(contains('Mission')),
+          aiChatService.requests.single
+              .firstWhere((message) => message.role == AIMessageRole.system)
+              .content,
+          contains('ready-to-use external-editor package'),
         );
-        expect(controller.state.messages.last.content, isNot(contains('Task')));
       },
     );
 

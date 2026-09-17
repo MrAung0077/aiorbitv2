@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
-    'prepends one concise result-first policy without altering history',
+    'prepends response and language policies without altering history',
     () async {
       final provider = _CapturingProvider();
       final service = AIChatService(
@@ -28,15 +28,15 @@ void main() {
       await service.sendMessages(history).toList();
 
       final request = provider.requests.single;
-      expect(request.messages, hasLength(history.length + 1));
+      expect(request.messages, hasLength(history.length + 2));
       expect(request.messages.first.role, AIMessageRole.system);
       expect(
         request.messages.where(
           (message) => message.role == AIMessageRole.system,
         ),
-        hasLength(1),
+        hasLength(2),
       );
-      expect(request.messages.skip(1), orderedEquals(history));
+      expect(request.messages.skip(2), orderedEquals(history));
       expect(
         request.messages.last.content,
         'Give a detailed step-by-step guide with examples.',
@@ -47,6 +47,7 @@ void main() {
       expect(policy, contains('concise by default'));
       expect(policy, contains('beginner-friendly language'));
       expect(policy, contains('explicitly asks for detail'));
+      expect(request.messages[1].content, contains('requested language'));
 
       const retryHistory = <AIMessage>[
         AIMessage(role: AIMessageRole.user, content: 'What is a budget?'),
@@ -59,9 +60,27 @@ void main() {
         retryRequest.messages.where(
           (message) => message.role == AIMessageRole.system,
         ),
-        hasLength(1),
+        hasLength(2),
       );
-      expect(retryRequest.messages.skip(1), orderedEquals(retryHistory));
+      expect(retryRequest.messages.skip(2), orderedEquals(retryHistory));
+    },
+  );
+
+  test(
+    'adds a Burmese response instruction for Burmese-dominant input',
+    () async {
+      final provider = _CapturingProvider();
+      final service = AIChatService(
+        aiService: AIService(
+          router: AIRouter(providers: <AIProvider>[provider]),
+        ),
+      );
+
+      await service
+          .sendMessage('Facebook Reel အတွက် hook 10 ခု ရေးပေးပါ။')
+          .toList();
+
+      expect(provider.requests.single.messages[1].content, contains('Burmese'));
     },
   );
 }

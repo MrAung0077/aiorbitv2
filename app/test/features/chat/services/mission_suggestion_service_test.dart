@@ -61,5 +61,32 @@ void main() {
         expect(service.suggestFor(prompt), isNull, reason: prompt);
       }
     });
+
+    test('keeps Burmese mission explanations and steps in Burmese', () {
+      final suggestion = service.suggestFor(
+        'Facebook နဲ့ TikTok အတွက် နေ့စဉ် content strategy နဲ့ posting workflow တစ်ခုလုပ်ပေးပါ။',
+      );
+
+      expect(suggestion, isNotNull);
+      expect(suggestion!.reason, contains('ဤရည်ရွယ်ချက်'));
+      expect(suggestion.plannedSteps.join('\n'), contains('ရည်ရွယ်ချက်'));
+    });
+
+    test('uses honest preparation wording for a development handoff', () {
+      final suggestion = service.suggestFor(
+        'Booking app တစ်ခုအတွက် implementation plan နဲ့ Codex handoff ပြင်ပေးပါ။',
+      );
+
+      expect(suggestion, isNotNull);
+      expect(suggestion!.category, MissionCategory.development);
+      expect(
+        suggestion.plannedSteps.join('\n'),
+        contains('Codex/GitHub handoff'),
+      );
+      expect(
+        suggestion.plannedSteps.join('\n'),
+        isNot(contains('Build the core solution')),
+      );
+    });
   });
 }

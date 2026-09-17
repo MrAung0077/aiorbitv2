@@ -770,12 +770,13 @@ void main() {
   testWidgets('TikTok clarification does not claim unsupported video creation', (
     tester,
   ) async {
+    final aiChatService = _SuccessfulAIChatService();
     final container = ProviderContainer(
       overrides: <Override>[
         conversationRepositoryProvider.overrideWithValue(
           _MemoryConversationRepository(),
         ),
-        aiChatServiceProvider.overrideWithValue(_SuccessfulAIChatService()),
+        aiChatServiceProvider.overrideWithValue(aiChatService),
         missionRepositoryProvider.overrideWithValue(MemoryMissionRepository()),
       ],
     );
@@ -807,9 +808,15 @@ void main() {
     await tester.tap(find.byTooltip('Send'));
     await tester.pump(const Duration(seconds: 3));
 
-    expect(find.text('Video creation isn’t connected yet.'), findsOneWidget);
+    expect(find.text('I will take care of that.'), findsOneWidget);
     expect(find.text('Ovexiq is working...'), findsNothing);
     expect(container.read(chatControllerProvider).missionSuggestion, isNull);
+    expect(
+      aiChatService.requests.single
+          .firstWhere((message) => message.role == AIMessageRole.system)
+          .content,
+      contains('ready-to-use external-editor package'),
+    );
   });
 
   testWidgets('automatic Mission failure becomes a safe Chat message', (

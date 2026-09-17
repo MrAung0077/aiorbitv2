@@ -8,7 +8,11 @@ sealed class ChatWorkIntentResult {
 }
 
 class ChatWorkProceed extends ChatWorkIntentResult {
-  const ChatWorkProceed(super.resolvedPrompt);
+  const ChatWorkProceed(super.resolvedPrompt, {this.responseGuidance});
+
+  /// Private instruction for a useful text-first fallback. It is never added
+  /// to the user's saved message.
+  final String? responseGuidance;
 }
 
 class ChatWorkOrchestrate extends ChatWorkIntentResult {
@@ -18,26 +22,6 @@ class ChatWorkOrchestrate extends ChatWorkIntentResult {
   }) : super(resolvedPrompt);
 
   final MissionSuggestion missionSuggestion;
-}
-
-enum ChatUnsupportedActionKind { videoEditing, videoCreation }
-
-class ChatWorkUnsupportedAction extends ChatWorkIntentResult {
-  const ChatWorkUnsupportedAction({
-    required String resolvedPrompt,
-    required this.actionKind,
-  }) : super(resolvedPrompt);
-
-  final ChatUnsupportedActionKind actionKind;
-
-  String get userMessage {
-    switch (actionKind) {
-      case ChatUnsupportedActionKind.videoEditing:
-        return 'Video editing isn’t connected yet.';
-      case ChatUnsupportedActionKind.videoCreation:
-        return 'Video creation isn’t connected yet.';
-    }
-  }
 }
 
 /// Routes only work Ovexiq can genuinely deliver today.
@@ -58,18 +42,17 @@ class ChatWorkIntentResolver {
     caseSensitive: false,
   );
   static final RegExp _videoEditing = RegExp(
-    r'\b(?:edit|combine|merge|cut|trim)\b.*\bvideos?\b|\bvideos?\b.*\b(?:edit|combine|merge|cut|trim)\b',
+    r'\b(?:edit|combine|merge|cut|trim|export|render)\b.*\b(?:video|clip|mp4)s?\b|\b(?:video|clip|mp4)s?\b.*\b(?:edit|combine|merge|cut|trim|export|render)\b|(?:ဒီ\s*)?(?:video|ဗီဒီယို).*(?:ဖြတ်|တည်းဖြတ်|ပေါင်း|ထည့်).*(?:export|MP4|mp4)',
     caseSensitive: false,
   );
-  static final RegExp _videoCreation = RegExp(
-    r'\b(?:make|create|produce|generate)\s+(?:\w+\s+){0,3}(?:tiktok\s+)?videos?\b',
+  static final RegExp _videoExecution = RegExp(
+    r'\b(?:make|create|produce|generate|render|animate)\b.*\b(?:video|reel|tiktok|mp4)s?\b|\b(?:video|reel|tiktok|mp4)s?\b.*\b(?:make|create|produce|generate|render|animate)\b|(?:ဗီဒီယို|Reel).*(?:generate|render|animate|ဖန်တီး).*(?:ပေး|ပါ)',
     caseSensitive: false,
   );
-  static final RegExp _textOnlyWorkflow = RegExp(
-    r'\b(?:content\s+calendar|article\s+series|blog\s+series|email\s+sequence|newsletter\s+series|social\s+media\s+plan|social\s+media\s+content|content\s+plan)\b',
+  static final RegExp _textFirstMissionWorkflow = RegExp(
+    r'\b(?:content\s+calendar|article\s+series|blog\s+series|email\s+sequence|newsletter\s+series|social\s+media\s+plan|social\s+media\s+content|content\s+plan|posting\s+workflow|capcut|scene\s+timing|storyboard|asset\s+list|export\s+settings)\b',
     caseSensitive: false,
   );
-
   ChatWorkIntentResult resolve(String prompt) {
     final resolvedPrompt = prompt.trim();
 
@@ -79,21 +62,25 @@ class ChatWorkIntentResolver {
     }
 
     if (_videoEditing.hasMatch(resolvedPrompt)) {
-      return ChatWorkUnsupportedAction(
-        resolvedPrompt: resolvedPrompt,
-        actionKind: ChatUnsupportedActionKind.videoEditing,
+      return ChatWorkProceed(
+        resolvedPrompt,
+        responseGuidance: _externalVideoHandoffGuidance,
       );
     }
 
-    if (_videoCreation.hasMatch(resolvedPrompt)) {
-      return ChatWorkUnsupportedAction(
-        resolvedPrompt: resolvedPrompt,
-        actionKind: ChatUnsupportedActionKind.videoCreation,
+    if (_videoExecution.hasMatch(resolvedPrompt)) {
+      return ChatWorkProceed(
+        resolvedPrompt,
+        responseGuidance: _externalVideoHandoffGuidance,
       );
     }
 
     final suggestion = _missionSuggestionService.suggestFor(resolvedPrompt);
-    if (suggestion != null && _textOnlyWorkflow.hasMatch(resolvedPrompt)) {
+    // Missions remain an explicit, text-first preparation surface. Do not
+    // turn ordinary questions or clarification flows into Missions merely
+    // because the suggestion service recognizes a broad topic.
+    if (suggestion != null &&
+        _textFirstMissionWorkflow.hasMatch(resolvedPrompt)) {
       return ChatWorkOrchestrate(
         resolvedPrompt: resolvedPrompt,
         missionSuggestion: suggestion,
@@ -102,4 +89,11 @@ class ChatWorkIntentResolver {
 
     return ChatWorkProceed(resolvedPrompt);
   }
+
+  static const String _externalVideoHandoffGuidance =
+      'The user requested actual video execution, which Ovexiq cannot perform '
+      'internally in this beta. Say that limitation briefly and honestly, then '
+      'deliver a ready-to-use external-editor package: scene/order guidance, '
+      'cut or subtitle instructions when relevant, export settings, and the '
+      'next step in a suitable editor. Never claim that a video or MP4 was created.';
 }

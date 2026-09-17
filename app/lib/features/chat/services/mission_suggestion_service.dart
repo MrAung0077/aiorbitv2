@@ -1,5 +1,6 @@
 import '../../mission/models/mission_category.dart';
 import '../../mission/models/mission_suggestion.dart';
+import '../../../core/text/response_language.dart';
 
 class MissionSuggestionService {
   const MissionSuggestionService();
@@ -18,15 +19,20 @@ class MissionSuggestionService {
     }
 
     final category = _detectCategory(normalizedLowerCase);
+    final language = responseLanguageFor(normalizedPrompt);
 
     return MissionSuggestion(
       title: _buildTitle(normalizedPrompt),
       goal: normalizedPrompt,
       category: category,
-      reason:
-          'This goal appears to require multiple connected steps and may be '
-          'better completed as a guided workflow.',
-      plannedSteps: _buildPlannedSteps(category),
+      reason: language == ResponseLanguage.burmese
+          ? 'ဤရည်ရွယ်ချက်တွင် ဆက်စပ်အဆင့်များ ပါဝင်သောကြောင့် လမ်းညွှန်ထားသည့် workflow အဖြစ် ပြင်ဆင်လျှင် ပိုအသုံးဝင်နိုင်ပါသည်။'
+          : 'This goal requires connected preparation steps and can be completed as a guided workflow.',
+      plannedSteps: _buildPlannedSteps(
+        category,
+        language: language,
+        prompt: normalizedLowerCase,
+      ),
     );
   }
 
@@ -39,6 +45,12 @@ class MissionSuggestionService {
       'content plan',
       'content calendar',
       'content strategy',
+      'posting workflow',
+      'capcut',
+      'scene timing',
+      'storyboard',
+      'asset list',
+      'export settings',
       'content series',
       'editorial plan',
       'editorial calendar',
@@ -440,15 +452,46 @@ class MissionSuggestionService {
     return MissionCategory.custom;
   }
 
-  List<String> _buildPlannedSteps(MissionCategory category) {
+  List<String> _buildPlannedSteps(
+    MissionCategory category, {
+    required ResponseLanguage language,
+    required String prompt,
+  }) {
+    if (_containsAny(prompt, const <String>[
+      'capcut',
+      'scene timing',
+      'storyboard',
+      'asset list',
+      'export settings',
+    ])) {
+      return language == ResponseLanguage.burmese
+          ? const <String>[
+              'Reel ၏ ရည်ရွယ်ချက်၊ ကြာချိန်နှင့် format ကို သတ်မှတ်ပါ',
+              'Hook၊ scene timing နှင့် script ကို ပြင်ဆင်ပါ',
+              'On-screen text၊ asset list နှင့် BGM mood ကို ပြင်ဆင်ပါ',
+              'CapCut အတွက် edit instructions နှင့် export settings ကို ပြင်ဆင်ပါ',
+              'အသုံးပြုရန် အဆင်သင့် handoff package ကို စုစည်းပါ',
+            ]
+          : const <String>[
+              'Define the Reel goal, duration, and format',
+              'Prepare the hook, scene timing, and script',
+              'Prepare on-screen text, asset list, and BGM mood',
+              'Prepare CapCut edit instructions and export settings',
+              'Assemble the ready-to-use handoff package',
+            ];
+    }
+
+    if (language == ResponseLanguage.burmese) {
+      return _burmesePlannedSteps(category);
+    }
     switch (category) {
       case MissionCategory.development:
         return const [
-          'Clarify requirements and expected outcome',
-          'Plan the technical approach and structure',
-          'Build the core solution',
-          'Test and fix important issues',
-          'Prepare the finished result for delivery',
+          'Define the implementation requirements and expected outcome',
+          'Prepare the technical architecture and structure',
+          'Prepare the implementation checklist and acceptance criteria',
+          'Prepare the test plan and verification checklist',
+          'Prepare the Codex/GitHub handoff package',
         ];
 
       case MissionCategory.design:
@@ -484,7 +527,7 @@ class MissionSuggestionService {
           'Choose the content themes and platforms',
           'Create the content plan',
           'Prepare posts, captions, and supporting assets',
-          'Schedule and review content performance',
+          'Prepare scheduling recommendations and a review checklist',
         ];
 
       case MissionCategory.contentCreation:
@@ -521,6 +564,43 @@ class MissionSuggestionService {
           'Create a step-by-step action plan',
           'Complete and review each planned step',
           'Prepare the final result',
+        ];
+    }
+  }
+
+  List<String> _burmesePlannedSteps(MissionCategory category) {
+    switch (category) {
+      case MissionCategory.development:
+        return const [
+          'Implementation requirements နှင့် လိုချင်သောရလဒ်ကို သတ်မှတ်ပါ',
+          'Technical architecture နှင့် structure ကို ပြင်ဆင်ပါ',
+          'Implementation checklist နှင့် acceptance criteria ကို ပြင်ဆင်ပါ',
+          'Test plan နှင့် verification checklist ကို ပြင်ဆင်ပါ',
+          'Codex/GitHub handoff package ကို ပြင်ဆင်ပါ',
+        ];
+      case MissionCategory.socialMedia:
+        return const [
+          'Audience နှင့် content ရည်ရွယ်ချက်ကို သတ်မှတ်ပါ',
+          'Content themes နှင့် platform များကို ရွေးချယ်ပါ',
+          'Content plan ကို ပြင်ဆင်ပါ',
+          'Posts၊ captions နှင့် လိုအပ်သော assets ကို ပြင်ဆင်ပါ',
+          'Posting recommendations နှင့် review checklist ကို ပြင်ဆင်ပါ',
+        ];
+      case MissionCategory.contentCreation:
+        return const [
+          'Topic၊ audience နှင့် လိုချင်သောရလဒ်ကို သတ်မှတ်ပါ',
+          'အဓိကအကြောင်းအရာများကို စုစည်းပါ',
+          'ပထမ draft ကို ရေးပါ',
+          'Content ကို စစ်ဆေးပြီး တိုးတက်အောင်ပြင်ပါ',
+          'Publish-ready version ကို ပြင်ဆင်ပါ',
+        ];
+      default:
+        return const [
+          'ရည်ရွယ်ချက်နှင့် လိုချင်သောရလဒ်ကို သတ်မှတ်ပါ',
+          'လိုအပ်သောအချက်အလက်များကို စုစည်းပါ',
+          'အဆင့်လိုက် plan ကို ပြင်ဆင်ပါ',
+          'လိုအပ်သော deliverables ကို ပြင်ဆင်ပါ',
+          'အသုံးပြုရန် အဆင်သင့် result package ကို စုစည်းပါ',
         ];
     }
   }

@@ -400,36 +400,6 @@ class ChatController extends StateNotifier<ChatState> {
 
       final workIntent = _chatWorkIntentResolver.resolve(resolvedPrompt);
 
-      if (workIntent is ChatWorkUnsupportedAction) {
-        final assistantCreatedAt = _nextActivityTime();
-        final unsupportedConversation = conversation.copyWith(
-          messages: <ChatMessage>[
-            ...conversation.messages,
-            ChatMessage(
-              id: assistantCreatedAt.microsecondsSinceEpoch.toString(),
-              role: ChatRole.assistant,
-              content: workIntent.userMessage,
-              createdAt: assistantCreatedAt,
-            ),
-          ],
-          updatedAt: _nextActivityTime(),
-        );
-
-        await _conversationRepository.saveConversation(unsupportedConversation);
-
-        if (!mounted || state.conversation?.id != conversationId) {
-          return;
-        }
-
-        state = state.copyWith(
-          conversation: unsupportedConversation,
-          isSending: false,
-          clearMissionSuggestion: true,
-          clearImageActionRequest: true,
-        );
-        return;
-      }
-
       if (workIntent is ChatWorkOrchestrate) {
         state = state.copyWith(
           conversation: conversation,
@@ -465,9 +435,20 @@ class ChatController extends StateNotifier<ChatState> {
         isSending: true,
       );
 
-      await for (final chunk in _aiChatService.sendMessages(
-        conversation.messages.map(_toAIMessage).toList(growable: false),
-      )) {
+      final responseGuidance = workIntent is ChatWorkProceed
+          ? workIntent.responseGuidance
+          : null;
+      final conversationAiMessages = conversation.messages
+          .map(_toAIMessage)
+          .toList(growable: false);
+      final aiMessages = <AIMessage>[
+        ...conversationAiMessages.take(conversationAiMessages.length - 1),
+        if (responseGuidance != null && responseGuidance.trim().isNotEmpty)
+          AIMessage(role: AIMessageRole.system, content: responseGuidance),
+        if (conversationAiMessages.isNotEmpty) conversationAiMessages.last,
+      ];
+
+      await for (final chunk in _aiChatService.sendMessages(aiMessages)) {
         if (!mounted || state.conversation?.id != conversationId) {
           return;
         }

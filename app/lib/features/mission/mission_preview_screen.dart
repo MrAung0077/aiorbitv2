@@ -5,6 +5,7 @@ import 'mission_detail_screen.dart';
 import 'models/mission_suggestion.dart';
 import 'providers/mission_execution_provider.dart';
 import 'providers/mission_provider.dart';
+import '../../core/text/response_language.dart';
 
 class MissionPreviewScreen extends ConsumerStatefulWidget {
   const MissionPreviewScreen({
@@ -87,11 +88,14 @@ class _MissionPreviewScreenState extends ConsumerState<MissionPreviewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final burmese = isBurmeseResponse(suggestion.goal);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mission Preview')),
+      appBar: AppBar(
+        title: Text(burmese ? 'Mission အကြိုကြည့်ရန်' : 'Mission Preview'),
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
@@ -107,20 +111,25 @@ class _MissionPreviewScreenState extends ConsumerState<MissionPreviewScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-              _PreviewSection(title: 'Goal', content: suggestion.goal),
+              _PreviewSection(
+                title: burmese ? 'ရည်ရွယ်ချက်' : 'Goal',
+                content: suggestion.goal,
+              ),
               const SizedBox(height: 16),
               _PreviewSection(
-                title: 'Category',
+                title: burmese ? 'အမျိုးအစား' : 'Category',
                 content: suggestion.category.name,
               ),
               const SizedBox(height: 16),
               _PreviewSection(
-                title: 'Why this can become a mission',
+                title: burmese
+                    ? 'Mission အဖြစ် ပြင်ဆင်ရသည့်အကြောင်း'
+                    : 'Why this can become a mission',
                 content: suggestion.reason,
               ),
               const SizedBox(height: 28),
               Text(
-                'Planned workflow',
+                burmese ? 'စီစဉ်ထားသော workflow' : 'Planned workflow',
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
@@ -160,8 +169,12 @@ class _MissionPreviewScreenState extends ConsumerState<MissionPreviewScreen> {
                     Expanded(
                       child: Text(
                         _isCreated
-                            ? 'Your mission has been created and saved.'
-                            : 'This is only a preview. No mission has been created or saved yet.',
+                            ? (burmese
+                                  ? 'Mission ကို ဖန်တီးပြီး သိမ်းဆည်းထားပါသည်။'
+                                  : 'Your mission has been created and saved.')
+                            : (burmese
+                                  ? 'ဤသည် အကြိုကြည့်ရန်သာဖြစ်ပြီး Mission ကို မဖန်တီးရသေးပါ။'
+                                  : 'This is only a preview. No mission has been created or saved yet.'),
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: _isCreated
                               ? colorScheme.onPrimaryContainer
@@ -190,10 +203,14 @@ class _MissionPreviewScreenState extends ConsumerState<MissionPreviewScreen> {
                         ),
                   label: Text(
                     _isStarting
-                        ? 'Starting Mission...'
+                        ? (burmese
+                              ? 'Mission စတင်နေသည်...'
+                              : 'Starting Mission...')
                         : _isCreated
-                        ? 'Mission Created'
-                        : 'Start Mission',
+                        ? (burmese
+                              ? 'Mission ဖန်တီးပြီးပါပြီ'
+                              : 'Mission Created')
+                        : (burmese ? 'Mission စတင်ရန်' : 'Start Mission'),
                   ),
                 ),
               ),
@@ -205,7 +222,7 @@ class _MissionPreviewScreenState extends ConsumerState<MissionPreviewScreen> {
                     Navigator.of(context).pop();
                   },
                   icon: const Icon(Icons.arrow_back_rounded),
-                  label: const Text('Back to Chat'),
+                  label: Text(burmese ? 'Chat သို့ ပြန်ရန်' : 'Back to Chat'),
                 ),
               ),
             ],
