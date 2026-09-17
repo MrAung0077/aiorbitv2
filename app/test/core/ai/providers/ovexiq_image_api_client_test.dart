@@ -40,6 +40,36 @@ void main() {
     },
   );
 
+  test(
+    'sends the opaque device session and clears it after authorization failure',
+    () async {
+      late http.Request capturedRequest;
+      var invalidations = 0;
+      final client = _client(
+        (incoming) async {
+          capturedRequest = incoming;
+          return http.Response('{"error":{"code":"unauthorized"}}', 401);
+        },
+        deviceSession: 'opaque-device-session',
+        onAuthorizationRejected: () async {
+          invalidations++;
+        },
+      );
+      addTearDown(client.close);
+
+      await expectLater(
+        client.generate(prompt: 'Buddha'),
+        throwsA(isA<OvexiqImageApiException>()),
+      );
+
+      expect(
+        capturedRequest.headers['x-ovexiq-device-session'],
+        'opaque-device-session',
+      );
+      expect(invalidations, 1);
+    },
+  );
+
   test('sanitizes gateway failures and malformed image data', () async {
     const leakedBody = 'provider secret raw backend stack trace';
     final failedClient = _client((_) async => http.Response(leakedBody, 502));
@@ -98,11 +128,15 @@ void main() {
 }
 
 OvexiqImageApiClient _client(
-  Future<http.Response> Function(http.Request request) handler,
-) {
+  Future<http.Response> Function(http.Request request) handler, {
+  String? deviceSession,
+  Future<void> Function()? onAuthorizationRejected,
+}) {
   return OvexiqImageApiClient(
     baseUrl: 'https://gateway.example.test',
     betaAccessToken: 'tester-token',
+    deviceSession: deviceSession,
+    onAuthorizationRejected: onAuthorizationRejected,
     httpClient: MockClient(handler),
   );
 }

@@ -8,7 +8,10 @@ import 'providers/ovexiq_backend_provider.dart';
 class AIProviderRegistry {
   const AIProviderRegistry._();
 
-  static List<AIProvider> providers() {
+  static List<AIProvider> providers({
+    String? deviceSession,
+    Future<void> Function()? onAuthorizationRejected,
+  }) {
     if (AppConfig.useMockProviders) {
       return <AIProvider>[
         const MockAIProvider(
@@ -23,6 +26,8 @@ class AIProviderRegistry {
         OvexiqBackendApiClient(
           baseUrl: AppConfig.ovexiqApiBaseUrl,
           betaAccessToken: AppConfig.ovexiqBetaAccessToken,
+          deviceSession: deviceSession,
+          onAuthorizationRejected: onAuthorizationRejected,
         ),
       ),
     ];

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/providers/app_provider.dart';
 import '../core/theme/app_theme.dart';
+import '../features/beta_access/beta_access_gate.dart';
 import '../features/home/home_navigation.dart';
 import '../features/settings/providers/settings_controller.dart';
 import '../features/startup/startup_screen.dart';
@@ -39,6 +40,6 @@ class _ReadyAppHome extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(settingsControllerProvider);
 
-    return const HomeNavigation();
+    return const BetaAccessGate(child: HomeNavigation());
   }
 }

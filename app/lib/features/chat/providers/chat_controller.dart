@@ -3,6 +3,7 @@ import 'package:aiorbit/features/mission/models/mission_suggestion.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../beta_access/providers/beta_access_provider.dart';
 import '../models/chat_message.dart';
 import '../models/artifact.dart';
 import '../models/conversation.dart';
@@ -17,7 +18,18 @@ import '../services/mission_suggestion_service.dart';
 import '../models/message_feedback.dart';
 
 final aiChatServiceProvider = Provider<AIChatService>((ref) {
-  return AIChatService();
+  ref.watch(betaAccessControllerProvider);
+  final betaAccess = ref.read(betaAccessControllerProvider.notifier);
+  return AIChatService(
+    aiService: AIService(
+      router: AIRouter(
+        providers: AIProviderRegistry.providers(
+          deviceSession: betaAccess.deviceSession,
+          onAuthorizationRejected: betaAccess.invalidateSession,
+        ),
+      ),
+    ),
+  );
 });
 
 final missionSuggestionServiceProvider = Provider<MissionSuggestionService>((

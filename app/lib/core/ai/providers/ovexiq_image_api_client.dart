@@ -42,17 +42,23 @@ class OvexiqImageApiClient {
   OvexiqImageApiClient({
     required String baseUrl,
     required String betaAccessToken,
+    String? deviceSession,
+    Future<void> Function()? onAuthorizationRejected,
     http.Client? httpClient,
     http.Client Function()? httpClientFactory,
     this.timeout = const Duration(seconds: 60),
   }) : assert(httpClient == null || httpClientFactory == null),
        _baseUri = Uri.tryParse(baseUrl.trim()),
        _betaAccessToken = betaAccessToken.trim(),
+       _deviceSession = deviceSession?.trim(),
+       _onAuthorizationRejected = onAuthorizationRejected,
        _providedHttpClient = httpClient,
        _httpClientFactory = httpClientFactory ?? http.Client.new;
 
   final Uri? _baseUri;
   final String _betaAccessToken;
+  final String? _deviceSession;
+  final Future<void> Function()? _onAuthorizationRejected;
 
   /// An injected client is retained for tests. Production requests create a
   /// dedicated client so cancelling one image cannot close unrelated work.
@@ -135,6 +141,8 @@ class OvexiqImageApiClient {
             headers: <String, String>{
               'Content-Type': 'application/json',
               'X-Ovexiq-Beta-Token': _betaAccessToken,
+              if (_deviceSession?.isNotEmpty == true)
+                'X-Ovexiq-Device-Session': _deviceSession!,
             },
             body: jsonEncode(<String, String>{'prompt': trimmedPrompt}),
           )
@@ -166,6 +174,9 @@ class OvexiqImageApiClient {
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        await _onAuthorizationRejected?.call();
+      }
       throw const OvexiqImageApiException(
         message: 'Ovexiq couldn’t create that image. Please try again.',
       );

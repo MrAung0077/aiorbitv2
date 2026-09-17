@@ -59,6 +59,46 @@ void main() {
     });
   });
 
+  test(
+    'backend client sends the opaque device session with beta token',
+    () async {
+      late http.Request capturedRequest;
+      final client = _client((request) async {
+        capturedRequest = request;
+        return _successResponse();
+      }, deviceSession: 'opaque-device-session');
+
+      await client.complete(const AIRequest(messages: messages));
+
+      expect(
+        capturedRequest.headers['x-ovexiq-device-session'],
+        'opaque-device-session',
+      );
+      expect(capturedRequest.headers['x-ovexiq-beta-token'], 'tester-token');
+    },
+  );
+
+  test(
+    'authorization rejection invalidates only the session callback',
+    () async {
+      var invalidations = 0;
+      final client = _client(
+        (_) async => http.Response('{"error":{"code":"unauthorized"}}', 401),
+        deviceSession: 'opaque-device-session',
+        onAuthorizationRejected: () async {
+          invalidations++;
+        },
+      );
+
+      await expectLater(
+        client.complete(const AIRequest(messages: messages)),
+        throwsA(isA<OvexiqBackendApiException>()),
+      );
+
+      expect(invalidations, 1);
+    },
+  );
+
   test('complete maps the normalized backend response to AIResponse', () async {
     final provider = OvexiqBackendProvider(
       _client((_) async => _successResponse()),
@@ -131,11 +171,15 @@ void main() {
 }
 
 OvexiqBackendApiClient _client(
-  Future<http.Response> Function(http.Request request) handler,
-) {
+  Future<http.Response> Function(http.Request request) handler, {
+  String? deviceSession,
+  Future<void> Function()? onAuthorizationRejected,
+}) {
   return OvexiqBackendApiClient(
     baseUrl: 'https://gateway.example.test',
     betaAccessToken: 'tester-token',
+    deviceSession: deviceSession,
+    onAuthorizationRejected: onAuthorizationRejected,
     httpClient: MockClient(handler),
   );
 }

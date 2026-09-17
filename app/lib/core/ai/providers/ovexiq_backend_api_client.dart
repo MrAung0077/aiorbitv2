@@ -10,14 +10,20 @@ class OvexiqBackendApiClient {
   OvexiqBackendApiClient({
     required String baseUrl,
     required String betaAccessToken,
+    String? deviceSession,
+    Future<void> Function()? onAuthorizationRejected,
     http.Client? httpClient,
     this.timeout = const Duration(seconds: 60),
   }) : _baseUri = Uri.tryParse(baseUrl.trim()),
        _betaAccessToken = betaAccessToken.trim(),
+       _deviceSession = deviceSession?.trim(),
+       _onAuthorizationRejected = onAuthorizationRejected,
        _httpClient = httpClient ?? http.Client();
 
   final Uri? _baseUri;
   final String _betaAccessToken;
+  final String? _deviceSession;
+  final Future<void> Function()? _onAuthorizationRejected;
   final http.Client _httpClient;
   final Duration timeout;
 
@@ -62,6 +68,8 @@ class OvexiqBackendApiClient {
             headers: <String, String>{
               'Content-Type': 'application/json',
               'X-Ovexiq-Beta-Token': _betaAccessToken,
+              if (_deviceSession?.isNotEmpty == true)
+                'X-Ovexiq-Device-Session': _deviceSession!,
             },
             body: jsonEncode(body),
           )
@@ -95,6 +103,9 @@ class OvexiqBackendApiClient {
     final decodedBody = _tryDecodeObject(response.body);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        await _onAuthorizationRejected?.call();
+      }
       throw OvexiqBackendApiException(
         message: _safeFailureMessage(response.statusCode),
         statusCode: response.statusCode,

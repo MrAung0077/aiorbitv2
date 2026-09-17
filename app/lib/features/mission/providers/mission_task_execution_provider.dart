@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/ai/ai_provider_registry.dart';
 import '../../../core/ai/ai_router.dart';
 import '../../../core/ai/ai_service.dart';
+import '../../beta_access/providers/beta_access_provider.dart';
 import '../models/execution_status.dart';
 import '../models/mission.dart';
 import '../models/mission_execution.dart';
@@ -14,7 +15,16 @@ import '../services/mission_task_executor.dart';
 import 'mission_provider.dart';
 
 final missionAIServiceProvider = Provider<AIService>((ref) {
-  return AIService(router: AIRouter(providers: AIProviderRegistry.providers()));
+  ref.watch(betaAccessControllerProvider);
+  final betaAccess = ref.read(betaAccessControllerProvider.notifier);
+  return AIService(
+    router: AIRouter(
+      providers: AIProviderRegistry.providers(
+        deviceSession: betaAccess.deviceSession,
+        onAuthorizationRejected: betaAccess.invalidateSession,
+      ),
+    ),
+  );
 });
 
 final missionTaskExecutorProvider = Provider<MissionTaskExecutor>((ref) {
