@@ -287,6 +287,57 @@ void main() {
     }
   });
 
+  test(
+    'preserves an explicitly selected English response language through every Mission task',
+    () {
+      final mission = Mission(
+        id: 'mission-english',
+        title: 'Facebook content plan',
+        goal: 'Facebook အတွက် Content အစီအစဉ် ပြင်ဆင်ပေးပါ။ Reply in English.',
+        category: MissionCategory.socialMedia,
+        status: MissionStatus.active,
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+        currentTaskIndex: 0,
+        progressPercent: 0,
+        tasks: <MissionTask>[
+          MissionTask(
+            id: 'task-1',
+            missionId: 'mission-english',
+            title: 'Audience',
+            description: 'Define the audience.',
+            order: 0,
+            status: TaskStatus.pending,
+            taskType: 'planning',
+            createdAt: DateTime(2026),
+          ),
+          MissionTask(
+            id: 'task-2',
+            missionId: 'mission-english',
+            title: 'Plan',
+            description: 'Create the content plan.',
+            order: 1,
+            status: TaskStatus.pending,
+            taskType: 'writing',
+            createdAt: DateTime(2026),
+          ),
+        ],
+      );
+
+      const builder = MissionTaskAIRequestBuilder();
+      for (final task in mission.tasks) {
+        final prompt = builder
+            .build(mission: mission, task: task)
+            .latestUserPrompt;
+        expect(
+          prompt,
+          contains("Language: Respond in the user's requested language."),
+        );
+        expect(prompt, isNot(contains('natural Burmese throughout')));
+      }
+    },
+  );
+
   test('build includes accepted outputs from completed earlier tasks', () {
     final mission = Mission(
       id: 'mission-1',

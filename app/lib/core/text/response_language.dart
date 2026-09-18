@@ -27,18 +27,37 @@ explanation, and finished result in clear everyday Burmese.
 /// readable while allowing technical names such as CapCut to stay unchanged.
 ResponseLanguage responseLanguageFor(String input) {
   final text = input.trim();
-  if (RegExp(
-    r'\b(?:in|respond in|write in)\s+english\b',
-    caseSensitive: false,
-  ).hasMatch(text)) {
+  if (_explicitEnglishRequest.hasMatch(text)) {
     return ResponseLanguage.english;
   }
 
-  final burmeseCharacters = RegExp(r'[\u1000-\u109f]').allMatches(text).length;
-  return burmeseCharacters >= 4
+  if (_explicitBurmeseRequest.hasMatch(text)) {
+    return ResponseLanguage.burmese;
+  }
+
+  final burmeseCharacters = _burmeseCharacter.allMatches(text).length;
+  final latinCharacters = _latinCharacter.allMatches(text).length;
+  // Familiar product names such as Facebook, CapCut, or implementation can
+  // contain more Latin characters than the Burmese grammar around them. Treat
+  // Burmese as dominant once it represents at least half of the Latin-script
+  // content, so those embedded terms do not flip an otherwise Burmese request.
+  return burmeseCharacters > 0 && burmeseCharacters * 2 >= latinCharacters
       ? ResponseLanguage.burmese
       : ResponseLanguage.english;
 }
+
+final RegExp _explicitEnglishRequest = RegExp(
+  r'\b(?:in|respond in|write in|reply in)\s+english\b',
+  caseSensitive: false,
+);
+
+final RegExp _explicitBurmeseRequest = RegExp(
+  r'မြန်မာလို|မြန်မာဘာသာ(?:ဖြင့်|နဲ့|နှင့်)?|\b(?:in|respond in|write in|reply in)\s+burmese\b',
+  caseSensitive: false,
+);
+
+final RegExp _burmeseCharacter = RegExp(r'[\u1000-\u109f]');
+final RegExp _latinCharacter = RegExp(r'[A-Za-z]');
 
 bool isBurmeseResponse(String input) =>
     responseLanguageFor(input) == ResponseLanguage.burmese;
