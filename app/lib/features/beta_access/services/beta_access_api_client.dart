@@ -107,10 +107,7 @@ class BetaAccessApiClient {
 }
 
 class BetaActivationResult {
-  const BetaActivationResult({
-    required this.deviceSession,
-    this.recoveryCode,
-  });
+  const BetaActivationResult({required this.deviceSession, this.recoveryCode});
 
   final String deviceSession;
   final String? recoveryCode;
@@ -126,10 +123,9 @@ class BetaAccessException implements Exception {
   String get userMessage => switch (failure) {
     BetaAccessFailure.invalidInvite =>
       'သင်ထည့်သွင်းသော beta invite code မမှန်ပါ။ ပြန်စစ်ပြီး ထပ်မံကြိုးစားပါ။',
-    BetaAccessFailure.revoked =>
-      'ဤစက်၏ beta အသုံးပြုခွင့်ကို ပိတ်ထားပါသည်။',
+    BetaAccessFailure.revoked => 'ဤစက်၏ beta အသုံးပြုခွင့်ကို ပိတ်ထားပါသည်။',
     BetaAccessFailure.unavailable =>
-      'Beta အသုံးပြုခွင့်ကို ယခု အတည်မပြုနိုင်သေးပါ။ ခဏနောက် ထပ်ကြိုးစားပါ။',
+      'Beta အသုံးပြုခွင့်ကို ယခုအချိန်တွင် အတည်ပြု၍ မရသေးပါ။ ခဏအကြာ ထပ်မံကြိုးစားပါ။',
   };
 
   @override

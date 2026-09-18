@@ -75,7 +75,7 @@ void main() {
 
     expect(result, isA<ChatWorkOrchestrate>());
     final suggestion = (result as ChatWorkOrchestrate).missionSuggestion;
-    expect(suggestion.reason, contains('workflow'));
+    expect(suggestion.reason, contains('Mission အဖြစ် စီစဉ်ပေးထားပါသည်'));
     expect(suggestion.plannedSteps.join('\n'), contains('CapCut'));
   });
 

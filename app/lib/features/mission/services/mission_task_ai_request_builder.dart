@@ -49,9 +49,7 @@ class MissionTaskAIRequestBuilder {
       if (missionGoal.isNotEmpty) 'Mission goal: $missionGoal',
       if (userContext != null && userContext.isNotEmpty)
         'User context: $userContext',
-      responseLanguageFor(missionGoal) == ResponseLanguage.burmese
-          ? 'Language: Respond in Burmese. Keep useful technical names, product names, dimensions, and code identifiers in English.'
-          : 'Language: Respond in the user\'s requested language.',
+      responseLanguageInstructionFor(missionGoal),
       'Honesty: Describe only preparation performed in this response. Do not claim code, files, tests, deployment, designs, videos, or external-tool execution were completed unless the mission context proves it.',
       'When an external execution tool is needed, deliver the complete preparation package and clear handoff instructions instead of a dead end.',
       'Treat numbers, audience ranges, posting times, and performance thresholds as starting assumptions or recommended defaults unless the user supplied evidence.',

@@ -107,7 +107,8 @@ class BetaAccessController extends StateNotifier<BetaAccessState> {
       _deviceSession = null;
       state = const BetaAccessState(
         status: BetaAccessStatus.needsInvitation,
-        message: 'Beta အသုံးပြုခွင့်ကို ယခု အတည်မပြုနိုင်သေးပါ။ ခဏနောက် ထပ်ကြိုးစားပါ။',
+        message:
+            'Beta အသုံးပြုခွင့်ကို ယခုအချိန်တွင် အတည်ပြု၍ မရသေးပါ။ ခဏအကြာ ထပ်မံကြိုးစားပါ။',
       );
       return null;
     }
@@ -122,7 +123,8 @@ class BetaAccessController extends StateNotifier<BetaAccessState> {
     await _store.clearDeviceSession();
     state = const BetaAccessState(
       status: BetaAccessStatus.needsInvitation,
-      message: 'သင်၏ beta အသုံးပြုခွင့်ကို ပြန်လည်အတည်ပြုရန် လိုအပ်ပါသည်။ Invite code ကို ထပ်မံထည့်သွင်းပါ။',
+      message:
+          'ဤစက်၏ Beta အသုံးပြုခွင့်ကို ပြန်လည်အတည်ပြုရန် လိုအပ်ပါသည်။ Invite code ကို ထပ်မံထည့်သွင်းပါ။',
     );
   }
 
@@ -131,7 +133,9 @@ class BetaAccessController extends StateNotifier<BetaAccessState> {
     final bytes = List<int>.generate(16, (_) => random.nextInt(256));
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    final hex = bytes.map((value) => value.toRadixString(16).padLeft(2, '0')).join();
+    final hex = bytes
+        .map((value) => value.toRadixString(16).padLeft(2, '0'))
+        .join();
     return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
   }
 }

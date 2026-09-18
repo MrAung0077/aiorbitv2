@@ -67,7 +67,7 @@ void main() {
   );
 
   test(
-    'adds a Burmese response instruction for Burmese-dominant input',
+    'adds the natural Burmese writing contract for Burmese-dominant input',
     () async {
       final provider = _CapturingProvider();
       final service = AIChatService(
@@ -76,11 +76,27 @@ void main() {
         ),
       );
 
-      await service
-          .sendMessage('Facebook Reel အတွက် hook 10 ခု ရေးပေးပါ။')
-          .toList();
+      const prompts = <String>[
+        'Facebook နဲ့ TikTok အတွက် တစ်ပတ်စာ Content အစီအစဉ် ပြင်ဆင်ပေးပါ။',
+        'CapCut အတွက် scene timing နဲ့ Script ပါတဲ့ Reel plan ပြင်ဆင်ပေးပါ။',
+        'Canva အသုံးပြုရန် Facebook Post အစီအစဉ် ရေးပေးပါ။',
+        'Codex အတွက် app development plan ပြင်ဆင်ပေးပါ။',
+      ];
 
-      expect(provider.requests.single.messages[1].content, contains('Burmese'));
+      for (final prompt in prompts) {
+        await service.sendMessage(prompt).toList();
+      }
+
+      for (final request in provider.requests) {
+        final policy = request.messages[1].content;
+        expect(policy, contains('natural Burmese throughout'));
+        expect(policy, contains('every heading, bullet'));
+        expect(policy, contains('Never use the pronouns မင်း, နင်, or ငါ'));
+        expect(policy, contains('CapCut, Canva, Codex, GitHub'));
+        expect(policy, isNot(contains('ရည်အသွား')));
+        expect(policy, isNot(contains('ဒျမိုန့် tips')));
+        expect(policy, isNot(contains('စိတ်တိုချင်းဖျော်ဖြေရေး')));
+      }
     },
   );
 }

@@ -75,10 +75,10 @@ class MissionSuggestionCard extends StatelessWidget {
           Text(
             isExistingMission
                 ? (burmese
-                      ? 'သိမ်းထားသော workflow သို့ ပြန်သွားပါ။'
+                      ? 'သိမ်းထားသော Mission ကို ဆက်လက်ကြည့်ရှုနိုင်သည်။'
                       : 'Return to your saved workflow.')
                 : (burmese
-                      ? 'ဤရည်ရွယ်ချက်ကို လမ်းညွှန်ထားသည့် workflow အဖြစ် ပြင်ဆင်ပါ။'
+                      ? 'ဤရည်ရွယ်ချက်အတွက် လုပ်ဆောင်ရမည့် အဆင့်များကို Mission အဖြစ် စီစဉ်ပေးမည်။'
                       : 'Turn this goal into a guided workflow.'),
             style: theme.textTheme.bodyMedium?.copyWith(
               color: colorScheme.onSurfaceVariant,

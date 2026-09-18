@@ -46,11 +46,7 @@ class AIChatService {
             .lastOrNull
             ?.content ??
         '';
-    final languagePolicy =
-        responseLanguageFor(latestPrompt) == ResponseLanguage.burmese
-        ? 'Respond in Burmese. Keep only genuinely useful technical names, '
-              'product names, dimensions, and code identifiers in English.'
-        : 'Respond in the user\'s requested language.';
+    final languagePolicy = responseLanguageInstructionFor(latestPrompt);
     final request = AIRequest(
       messages: List<AIMessage>.unmodifiable(<AIMessage>[
         _responsePolicy,

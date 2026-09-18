@@ -26,7 +26,7 @@ class MissionSuggestionService {
       goal: normalizedPrompt,
       category: category,
       reason: language == ResponseLanguage.burmese
-          ? 'ဤရည်ရွယ်ချက်တွင် ဆက်စပ်အဆင့်များ ပါဝင်သောကြောင့် လမ်းညွှန်ထားသည့် workflow အဖြစ် ပြင်ဆင်လျှင် ပိုအသုံးဝင်နိုင်ပါသည်။'
+          ? 'ဤရည်ရွယ်ချက်အတွက် ဆက်စပ်လုပ်ဆောင်ရမည့် အဆင့်များရှိသဖြင့် Mission အဖြစ် စီစဉ်ပေးထားပါသည်။'
           : 'This goal requires connected preparation steps and can be completed as a guided workflow.',
       plannedSteps: _buildPlannedSteps(
         category,
@@ -466,11 +466,11 @@ class MissionSuggestionService {
     ])) {
       return language == ResponseLanguage.burmese
           ? const <String>[
-              'Reel ၏ ရည်ရွယ်ချက်၊ ကြာချိန်နှင့် format ကို သတ်မှတ်ပါ',
-              'Hook၊ scene timing နှင့် script ကို ပြင်ဆင်ပါ',
-              'On-screen text၊ asset list နှင့် BGM mood ကို ပြင်ဆင်ပါ',
-              'CapCut အတွက် edit instructions နှင့် export settings ကို ပြင်ဆင်ပါ',
-              'အသုံးပြုရန် အဆင်သင့် handoff package ကို စုစည်းပါ',
+              'Reel အတွက် ရည်ရွယ်ချက်၊ ကြာချိန်နှင့် ဖော်မတ် သတ်မှတ်ခြင်း',
+              'Hook၊ Scene အစီအစဉ်နှင့် Script ပြင်ဆင်ခြင်း',
+              'Screen ပေါ်တွင် ပါမည့်စာ၊ လိုအပ်သော Asset များနှင့် BGM အငွေ့အသက် ရွေးချယ်ခြင်း',
+              'CapCut တွင် တည်းဖြတ်ရန် အညွှန်းနှင့် Export setting ပြင်ဆင်ခြင်း',
+              'အသုံးပြုရန် အဆင်သင့်ဖြစ်သော Handoff package စုစည်းခြင်း',
             ]
           : const <String>[
               'Define the Reel goal, duration, and format',
@@ -572,35 +572,35 @@ class MissionSuggestionService {
     switch (category) {
       case MissionCategory.development:
         return const [
-          'Implementation requirements နှင့် လိုချင်သောရလဒ်ကို သတ်မှတ်ပါ',
-          'Technical architecture နှင့် structure ကို ပြင်ဆင်ပါ',
-          'Implementation checklist နှင့် acceptance criteria ကို ပြင်ဆင်ပါ',
-          'Test plan နှင့် verification checklist ကို ပြင်ဆင်ပါ',
-          'Codex/GitHub handoff package ကို ပြင်ဆင်ပါ',
+          'လိုအပ်ချက်များနှင့် မျှော်မှန်းရလဒ် သတ်မှတ်ခြင်း',
+          'နည်းပညာပိုင်း ဖွဲ့စည်းပုံ စီစဉ်ခြင်း',
+          'အကောင်အထည်ဖော်ရန် စာရင်းနှင့် လက်ခံစစ်ဆေးမည့် အချက်များ ပြင်ဆင်ခြင်း',
+          'စမ်းသပ်ရန် အစီအစဉ်နှင့် စစ်ဆေးစာရင်း ပြင်ဆင်ခြင်း',
+          'Codex/GitHub အတွက် Handoff package ပြင်ဆင်ခြင်း',
         ];
       case MissionCategory.socialMedia:
         return const [
-          'Audience နှင့် content ရည်ရွယ်ချက်ကို သတ်မှတ်ပါ',
-          'Content themes နှင့် platform များကို ရွေးချယ်ပါ',
-          'Content plan ကို ပြင်ဆင်ပါ',
-          'Posts၊ captions နှင့် လိုအပ်သော assets ကို ပြင်ဆင်ပါ',
-          'Posting recommendations နှင့် review checklist ကို ပြင်ဆင်ပါ',
+          'ပစ်မှတ်ပရိသတ်နှင့် Content ရည်ရွယ်ချက် သတ်မှတ်ခြင်း',
+          'အသုံးပြုမည့် Content အမျိုးအစားနှင့် Platform ရွေးချယ်ခြင်း',
+          'Content အစီအစဉ် ရေးဆွဲခြင်း',
+          'Post၊ Caption နှင့် လိုအပ်သော Asset များ ပြင်ဆင်ခြင်း',
+          'တင်မည့်အချိန် အကြံပြုချက်နှင့် ပြန်လည်စစ်ဆေးရန် စာရင်း ပြင်ဆင်ခြင်း',
         ];
       case MissionCategory.contentCreation:
         return const [
-          'Topic၊ audience နှင့် လိုချင်သောရလဒ်ကို သတ်မှတ်ပါ',
-          'အဓိကအကြောင်းအရာများကို စုစည်းပါ',
-          'ပထမ draft ကို ရေးပါ',
-          'Content ကို စစ်ဆေးပြီး တိုးတက်အောင်ပြင်ပါ',
-          'Publish-ready version ကို ပြင်ဆင်ပါ',
+          'ခေါင်းစဉ်၊ ပစ်မှတ်ပရိသတ်နှင့် မျှော်မှန်းရလဒ် သတ်မှတ်ခြင်း',
+          'အဓိကအကြောင်းအရာများ စုစည်းခြင်း',
+          'ပထမမူကြမ်း ရေးသားခြင်း',
+          'Content ကို စစ်ဆေးပြီး ပိုကောင်းအောင် ပြင်ဆင်ခြင်း',
+          'တင်သွင်းအသုံးပြုရန် အဆင်သင့်ဖြစ်သော မူ ပြင်ဆင်ခြင်း',
         ];
       default:
         return const [
-          'ရည်ရွယ်ချက်နှင့် လိုချင်သောရလဒ်ကို သတ်မှတ်ပါ',
-          'လိုအပ်သောအချက်အလက်များကို စုစည်းပါ',
-          'အဆင့်လိုက် plan ကို ပြင်ဆင်ပါ',
-          'လိုအပ်သော deliverables ကို ပြင်ဆင်ပါ',
-          'အသုံးပြုရန် အဆင်သင့် result package ကို စုစည်းပါ',
+          'ရည်ရွယ်ချက်နှင့် မျှော်မှန်းရလဒ် သတ်မှတ်ခြင်း',
+          'လိုအပ်သည့် အချက်အလက်များ စုစည်းခြင်း',
+          'အဆင့်လိုက် အစီအစဉ် ရေးဆွဲခြင်း',
+          'လိုအပ်သော ရလဒ်များ ပြင်ဆင်ခြင်း',
+          'အသုံးပြုရန် အဆင်သင့်ဖြစ်သော ရလဒ် စုစည်းခြင်း',
         ];
     }
   }

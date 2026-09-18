@@ -69,8 +69,33 @@ void main() {
 
       expect(suggestion, isNotNull);
       expect(suggestion!.reason, contains('ဤရည်ရွယ်ချက်'));
-      expect(suggestion.plannedSteps.join('\n'), contains('ရည်ရွယ်ချက်'));
+      expect(suggestion.plannedSteps.join('\n'), contains('ပစ်မှတ်ပရိသတ်'));
+      expect(
+        suggestion.plannedSteps.join('\n'),
+        isNot(contains('Audience နှင့်')),
+      );
     });
+
+    test(
+      'keeps familiar creator and development terms in natural Burmese plans',
+      () {
+        final cases = <String>[
+          'Facebook နဲ့ TikTok အတွက် တစ်ပတ်စာ Content အစီအစဉ် ပြင်ဆင်ပေးပါ။',
+          'CapCut အတွက် scene timing, Script နဲ့ Asset list ပါတဲ့ Reel plan ပြင်ဆင်ပေးပါ။',
+          'Canva အသုံးပြုရန် Facebook Post Content အစီအစဉ် ပြင်ဆင်ပေးပါ။',
+          'Codex အတွက် app တစ်ခုရဲ့ development plan ပြင်ဆင်ပေးပါ။',
+        ];
+
+        for (final prompt in cases) {
+          final suggestion = service.suggestFor(prompt);
+          expect(suggestion, isNotNull, reason: prompt);
+          final visiblePlan = suggestion!.plannedSteps.join('\n');
+          expect(visiblePlan, isNot(contains('ရည်အသွား')));
+          expect(visiblePlan, isNot(contains('ဒျမိုန့် tips')));
+          expect(visiblePlan, isNot(contains('စိတ်တိုချင်းဖျော်ဖြေရေး')));
+        }
+      },
+    );
 
     test('uses honest preparation wording for a development handoff', () {
       final suggestion = service.suggestFor(
@@ -81,7 +106,7 @@ void main() {
       expect(suggestion!.category, MissionCategory.development);
       expect(
         suggestion.plannedSteps.join('\n'),
-        contains('Codex/GitHub handoff'),
+        contains('Codex/GitHub အတွက် Handoff package'),
       );
       expect(
         suggestion.plannedSteps.join('\n'),

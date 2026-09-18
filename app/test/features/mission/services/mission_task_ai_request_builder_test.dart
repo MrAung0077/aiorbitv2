@@ -238,6 +238,55 @@ void main() {
     );
   });
 
+  test('preserves the Burmese writing contract through every Mission task', () {
+    final mission = Mission(
+      id: 'mission-burmese',
+      title: 'Facebook နှင့် TikTok Content အစီအစဉ်',
+      goal: 'Facebook နဲ့ TikTok အတွက် တစ်ပတ်စာ Content အစီအစဉ် ပြင်ဆင်ပေးပါ။',
+      category: MissionCategory.socialMedia,
+      status: MissionStatus.active,
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+      currentTaskIndex: 0,
+      progressPercent: 0,
+      tasks: <MissionTask>[
+        MissionTask(
+          id: 'task-1',
+          missionId: 'mission-burmese',
+          title: 'ပစ်မှတ်ပရိသတ် သတ်မှတ်ခြင်း',
+          description: 'ပစ်မှတ်ပရိသတ်ကို သတ်မှတ်ပါ။',
+          order: 0,
+          status: TaskStatus.pending,
+          taskType: 'planning',
+          createdAt: DateTime(2026),
+        ),
+        MissionTask(
+          id: 'task-2',
+          missionId: 'mission-burmese',
+          title: 'Content အစီအစဉ် ရေးဆွဲခြင်း',
+          description: 'တစ်ပတ်စာ Content အစီအစဉ် ပြင်ဆင်ပါ။',
+          order: 1,
+          status: TaskStatus.pending,
+          taskType: 'writing',
+          createdAt: DateTime(2026),
+        ),
+      ],
+    );
+
+    const builder = MissionTaskAIRequestBuilder();
+    for (final task in mission.tasks) {
+      final prompt = builder
+          .build(mission: mission, task: task)
+          .latestUserPrompt;
+      expect(prompt, contains('natural Burmese throughout'));
+      expect(prompt, contains('every heading, bullet'));
+      expect(prompt, contains('Never use the pronouns မင်း, နင်, or ငါ'));
+      expect(prompt, isNot(contains('ရည်အသွား')));
+      expect(prompt, isNot(contains('ဒျမိုန့် tips')));
+      expect(prompt, isNot(contains('စိတ်တိုချင်းဖျော်ဖြေရေး')));
+    }
+  });
+
   test('build includes accepted outputs from completed earlier tasks', () {
     final mission = Mission(
       id: 'mission-1',
