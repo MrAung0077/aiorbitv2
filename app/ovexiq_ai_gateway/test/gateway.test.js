@@ -1,25 +1,90 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { BetaDailyQuota, handleRequest } from "../src/index.js";
+import {
+  BetaAccount,
+  BetaDailyQuota,
+  authenticateBetaDeviceSession,
+  handleRequest,
+  normalizeDailyQuotaStateForDay,
+} from "../src/index.js";
 
 const gatewayUrl = "https://gateway.example.test/v1/ai/complete";
 const imageGatewayUrl = "https://gateway.example.test/v1/ai/image";
+const speechGatewayUrl = "https://gateway.example.test/v1/ai/speech";
+const betaActivationUrl = "https://gateway.example.test/v1/beta/activate";
+const videoEditPlanGatewayUrl = "https://gateway.example.test/v1/ai/video/edit-plan";
+const videoTranscriptionGatewayUrl = "https://gateway.example.test/v1/ai/video/transcribe";
 const betaToken = "revocable-tester-token";
 const openAiSecret = "openai-test-secret-must-not-leak";
 const openRouterSecret = "openrouter-test-secret-must-not-leak";
+const quotaDay = "2026-09-08";
+const quotaNow = Date.parse("2026-09-08T12:00:00.000Z");
+const betaInviteCode = "closed-beta-invite-code";
+const sessionSigningKey = "unit-test-session-signing-key-at-least-32-chars";
+
+function createQuotaWithStoredState(storedState) {
+  let state = structuredClone(storedState);
+  const storage = {
+    async transaction(callback) {
+      return callback({
+        async get(key) {
+          assert.equal(key, "current-day");
+          return state;
+        },
+        async put(key, nextState) {
+          assert.equal(key, "current-day");
+          state = nextState;
+        },
+      });
+    },
+  };
+
+  return {
+    quota: new BetaDailyQuota({ storage }, {}),
+    storedState: () => state,
+  };
+}
+
+function createBetaAccountsNamespace() {
+  const states = new Map();
+  const env = { OVEXIQ_SESSION_SIGNING_KEY: sessionSigningKey };
+  return {
+    getByName(name) {
+      let state = states.get(name);
+      const storage = {
+        async transaction(callback) {
+          return callback({
+            async get(key) {
+              assert.equal(key, "beta-account");
+              return state;
+            },
+            async put(key, nextState) {
+              assert.equal(key, "beta-account");
+              state = structuredClone(nextState);
+              states.set(name, state);
+            },
+          });
+        },
+      };
+      return new BetaAccount({ storage }, env);
+    },
+    states,
+  };
+}
 
 function createEnv({
   rateLimitSuccess = true,
   imageRateLimitSuccess = true,
-  dailyQuotaAllowed = true,
   includeOpenRouter = true,
-  betaAiDisabled = false,
 } = {}) {
+  let quotaCalls = 0;
   const env = {
     OPENAI_API_KEY: openAiSecret,
     OPENAI_MODEL: "openai-test-model",
     OVEXIQ_BETA_TOKENS: JSON.stringify({ "tester-one": betaToken }),
+    OVEXIQ_BETA_INVITES: JSON.stringify({ "invite-one": betaInviteCode }),
+    OVEXIQ_SESSION_SIGNING_KEY: sessionSigningKey,
     AI_RATE_LIMITER: {
       async limit({ key }) {
         assert.equal(key, "beta:tester-one");
@@ -36,21 +101,22 @@ function createEnv({
       getByName(name) {
         assert.equal(name, "ovexiq-beta-daily-quota");
         return {
-          async consume(testerId, requestType) {
-            assert.equal(testerId, "tester-one");
-            assert.ok(requestType === "text" || requestType === "image");
-            return { allowed: dailyQuotaAllowed };
+          async consume() {
+            quotaCalls += 1;
+            return { allowed: true };
           },
         };
       },
     },
-    ...(betaAiDisabled ? { OVEXIQ_BETA_AI_DISABLED: "true" } : {}),
   };
 
   if (includeOpenRouter) {
     env.OPENROUTER_API_KEY = openRouterSecret;
     env.OPENROUTER_MODEL = "mistralai/mistral-small-2603";
   }
+
+  env.BETA_ACCOUNTS = createBetaAccountsNamespace();
+  env.quotaCalls = () => quotaCalls;
 
   return env;
 }
@@ -90,6 +156,53 @@ function createImageRequest(
   });
 }
 
+function createVideoEditPlanRequest(
+  body,
+  token = betaToken,
+  { method = "POST", contentType = "application/json" } = {},
+) {
+  const headers = {};
+  if (contentType !== null) {
+    headers["Content-Type"] = contentType;
+  }
+  if (token !== null) {
+    headers["X-Ovexiq-Beta-Token"] = token;
+  }
+
+  return new Request(videoEditPlanGatewayUrl, {
+    method,
+    headers,
+    ...(method === "POST"
+      ? { body: typeof body === "string" ? body : JSON.stringify(body) }
+      : {}),
+  });
+}
+
+function createVideoTranscriptionRequest(
+  {
+    clipId = "clip-one",
+    bytes = new Uint8Array([1, 2, 3]),
+    mimeType = "audio/mp4",
+  } = {},
+  token = betaToken,
+  { method = "POST", contentType = null } = {},
+) {
+  const headers = {};
+  if (token !== null) {
+    headers["X-Ovexiq-Beta-Token"] = token;
+  }
+  if (contentType !== null) {
+    headers["Content-Type"] = contentType;
+  }
+  if (method !== "POST" || contentType !== null) {
+    return new Request(videoTranscriptionGatewayUrl, { method, headers });
+  }
+  const form = new FormData();
+  form.set("clipId", clipId);
+  form.set("audio", new Blob([bytes], { type: mimeType }), "clip.m4a");
+  return new Request(videoTranscriptionGatewayUrl, { method, headers, body: form });
+}
+
 function validBody() {
   return {
     messages: [
@@ -102,6 +215,90 @@ function validBody() {
     maxTokens: 800,
     metadata: { missionId: "mission-1", taskId: "task-2" },
   };
+}
+
+function createSpeechRequest(
+  body,
+  token = betaToken,
+  { method = "POST", contentType = "application/json" } = {},
+) {
+  const headers = {};
+  if (contentType !== null) {
+    headers["Content-Type"] = contentType;
+  }
+  if (token !== null) {
+    headers["X-Ovexiq-Beta-Token"] = token;
+  }
+  return new Request(speechGatewayUrl, {
+    method,
+    headers,
+    ...(method === "POST"
+      ? { body: typeof body === "string" ? body : JSON.stringify(body) }
+      : {}),
+  });
+}
+
+function normalBurmeseBody() {
+  return {
+    ...validBody(),
+    metadata: { routing_hint: "normal_burmese" },
+  };
+}
+
+function createBetaActivationRequest(
+  body,
+  token = betaToken,
+  { method = "POST", contentType = "application/json" } = {},
+) {
+  const headers = {};
+  if (contentType !== null) {
+    headers["Content-Type"] = contentType;
+  }
+  if (token !== null) {
+    headers["X-Ovexiq-Beta-Token"] = token;
+  }
+  return new Request(betaActivationUrl, {
+    method,
+    headers,
+    ...(method === "POST"
+      ? { body: typeof body === "string" ? body : JSON.stringify(body) }
+      : {}),
+  });
+}
+
+let protectedRequestActivationCount = 0;
+
+async function activateDeviceSession(
+  env,
+  activationId = `protected-installation-${++protectedRequestActivationCount}-abcdefghijklmnop`,
+) {
+  const activationResponse = await handleRequest(
+    createBetaActivationRequest({
+      inviteCode: betaInviteCode,
+      activationId,
+    }),
+    env,
+    globalThis.fetch,
+  );
+  assert.equal(activationResponse.status, 201);
+  return activationResponse.json();
+}
+
+function withDeviceSession(request, deviceSession, accountId) {
+  const headers = new Headers(request.headers);
+  headers.set("X-Ovexiq-Device-Session", deviceSession);
+  if (accountId !== undefined) {
+    headers.set("X-Ovexiq-Account-Id", accountId);
+  }
+  return new Request(request, { headers });
+}
+
+async function handleAuthorizedRequest(request, env, fetchProvider) {
+  return handleRequest(
+    withDeviceSession(request, (await activateDeviceSession(env)).deviceSession),
+    env,
+    fetchProvider,
+  );
 }
 
 function openAiSuccess(text = "Normalized result") {
@@ -136,6 +333,94 @@ function openAiImageSuccess(base64 = "safe-image-base64") {
   );
 }
 
+function openAiSpeechSuccess(bytes = new Uint8Array([1, 2, 3])) {
+  return new Response(bytes, {
+    status: 200,
+    headers: { "Content-Type": "audio/mpeg" },
+  });
+}
+
+function validVideoEditPlanRequest() {
+  return {
+    instruction: "Make a 30 second TikTok.",
+    clips: [
+      {
+        clipId: "clip-one",
+        durationMs: 15_000,
+        width: 1920,
+        height: 1080,
+        orientation: "landscape",
+        hasAudio: true,
+        fileSizeBytes: 2_000,
+        frameRate: 30,
+        contentAnalysis: {
+          analysisVersion: "local_signals_v1",
+          speechPresent: true,
+          transcriptSegments: [
+            { startMs: 0, endMs: 1_000, text: "A welcome to the lake." },
+          ],
+          sceneSegments: [
+            { startMs: 0, endMs: 1_000, label: "outdoors" },
+          ],
+          audioActivity: [{ startMs: 0, endMs: 1_000 }],
+        },
+      },
+      {
+        clipId: "clip-two",
+        durationMs: 15_000,
+        width: 1080,
+        height: 1920,
+        orientation: "portrait",
+        hasAudio: true,
+        fileSizeBytes: 2_000,
+        contentAnalysis: { analysisVersion: "local_empty_v1" },
+      },
+    ],
+    output: { targetDurationMs: 30_000, verticalSocialVideo: true },
+  };
+}
+
+function validSingleVideoEditPlanRequest() {
+  const request = validVideoEditPlanRequest();
+  request.clips = [{
+    ...request.clips[0],
+    durationMs: 90_000,
+  }];
+  return request;
+}
+
+function openAiVideoEditPlanSuccess(plan = {
+  targetDurationMs: 30_000,
+  segments: [
+    {
+      clipId: "clip-one",
+      keep: true,
+      order: 0,
+      trimStartMs: null,
+      trimEndMs: null,
+    },
+    {
+      clipId: "clip-two",
+      keep: true,
+      order: 1,
+      trimStartMs: null,
+      trimEndMs: null,
+    },
+  ],
+}) {
+  return openAiSuccess(JSON.stringify(plan));
+}
+
+function openAiTranscriptionSuccess({
+  language = "my",
+  segments = [{ start: 0, end: 3.2, text: "မင်္ဂလာပါ" }],
+} = {}) {
+  return new Response(
+    JSON.stringify({ language, segments }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
 test("rejects missing and invalid beta tokens", async () => {
   const providerFetch = async () => {
     throw new Error("provider must not be called");
@@ -155,95 +440,83 @@ test("rejects missing and invalid beta tokens", async () => {
   assert.equal(missing.status, 401);
   assert.equal(invalid.status, 401);
 });
-
-test("global beta deny switch blocks text and image before quota or providers", async () => {
-  let calls = 0;
-  const providerFetch = async () => {
-    calls += 1;
-    throw new Error("provider must not be called");
-  };
-
-  const responses = await Promise.all([
-    handleRequest(
-      createRequest(validBody()),
-      createEnv({ betaAiDisabled: true }),
-      providerFetch,
-    ),
-    handleRequest(
-      createImageRequest({ prompt: "Buddha" }),
-      createEnv({ betaAiDisabled: true }),
-      providerFetch,
-    ),
-  ]);
-
-  for (const response of responses) {
-    const body = await response.json();
-    assert.equal(response.status, 503);
-    assert.equal(body.error.code, "beta_temporarily_unavailable");
-    assert.equal(body.error.message, "Ovexiq AI is temporarily unavailable. Please try again later.");
-  }
-
-  assert.equal(calls, 0);
-});
-
-test("emits one privacy-safe beta observability event", async () => {
-  const events = [];
-  const prompt = "Never include this private prompt in telemetry.";
-  const response = await handleRequest(
-    createRequest({ messages: [{ role: "user", content: prompt }] }),
-    createEnv({ dailyQuotaAllowed: false }),
-    async () => {
-      throw new Error("provider must not be called");
+test("requires an active device session before budgeted routes use quota or providers", async () => {
+  const routes = [
+    {
+      name: "complete",
+      request: () => createRequest(validBody()),
+      success: () => openAiSuccess(),
     },
     {
-      requestId: () => "request-test-id",
-      log: (event) => events.push(event),
+      name: "image",
+      request: () => createImageRequest({ prompt: "Buddha" }),
+      success: () => openAiImageSuccess(),
     },
-  );
-
-  assert.equal(response.status, 429);
-  assert.equal(events.length, 1);
-  assert.equal(events[0].includes(prompt), false);
-  assert.equal(events[0].includes(betaToken), false);
-  assert.equal(events[0].includes(openAiSecret), false);
-
-  assert.deepEqual(JSON.parse(events[0]), {
-    event: "ovexiq_ai_request",
-    requestId: "request-test-id",
-    testerIdHash: "517e50ee6e1544e4",
-    endpoint: "/v1/ai/complete",
-    capability: "text",
-    status: 429,
-    rejection: "beta_limit_reached",
-  });
-});
-
-test("observability records provider latency without response content", async () => {
-  const events = [];
-  let now = 100;
-  const response = await handleRequest(
-    createRequest(validBody()),
-    createEnv(),
-    async () => openAiSuccess("Do not log this result."),
     {
-      now: () => {
-        now += 7;
-        return now;
+      name: "speech",
+      request: () => createSpeechRequest({ text: "မင်္ဂလာပါ" }),
+      success: () => openAiSpeechSuccess(),
+    },
+  ];
+
+  for (const route of routes) {
+    const missingEnv = createEnv();
+    let missingProviderCalls = 0;
+    const missing = await handleRequest(
+      route.request(),
+      missingEnv,
+      async () => {
+        missingProviderCalls += 1;
+        return route.success();
       },
-      requestId: () => "provider-latency-request",
-      log: (event) => events.push(event),
-    },
-  );
+    );
+    assert.equal(missing.status, 401, `${route.name} missing session`);
+    assert.equal((await missing.json()).error.code, "unauthorized");
+    assert.equal(missingProviderCalls, 0);
+    assert.equal(missingEnv.quotaCalls(), 0);
 
-  assert.equal(response.status, 200);
-  assert.equal(events.length, 1);
-  const event = JSON.parse(events[0]);
-  assert.equal(event.requestId, "provider-latency-request");
-  assert.equal(typeof event.providerLatencyMs, "number");
-  assert.ok(event.providerLatencyMs >= 0);
-  assert.equal(events[0].includes("Do not log this result."), false);
-  assert.equal("rejection" in event, true);
-  assert.equal(event.rejection, null);
+    const activeEnv = createEnv();
+    const activation = await activateDeviceSession(activeEnv);
+    let activeProviderCalls = 0;
+    const active = await handleRequest(
+      withDeviceSession(
+        route.request(),
+        activation.deviceSession,
+        "acct_client_claim_must_be_ignored",
+      ),
+      activeEnv,
+      async () => {
+        activeProviderCalls += 1;
+        return route.success();
+      },
+    );
+    assert.equal(active.status, 200, `${route.name} active session`);
+    assert.equal(activeProviderCalls, 1);
+
+    const revokedEnv = createEnv();
+    const revokedActivation = await activateDeviceSession(revokedEnv);
+    const account = revokedEnv.BETA_ACCOUNTS.getByName(
+      "ovexiq-beta-account:invite-one",
+    );
+    assert.equal(
+      (await account.revokeSession(revokedActivation.deviceSession.split(".")[2]))
+        .revoked,
+      true,
+    );
+    let revokedProviderCalls = 0;
+    const revoked = await handleRequest(
+      withDeviceSession(route.request(), revokedActivation.deviceSession),
+      revokedEnv,
+      async () => {
+        revokedProviderCalls += 1;
+        return route.success();
+      },
+    );
+    assert.equal(revoked.status, 401, `${route.name} revoked session`);
+    assert.equal((await revoked.json()).error.code, "unauthorized");
+    assert.equal(revokedProviderCalls, 0);
+    assert.equal(revokedEnv.quotaCalls(), 0);
+  }
 });
 
 test("rejects malformed and oversized payloads", async () => {
@@ -251,12 +524,12 @@ test("rejects malformed and oversized payloads", async () => {
     throw new Error("provider must not be called");
   };
 
-  const malformed = await handleRequest(
+  const malformed = await handleAuthorizedRequest(
     createRequest("{not-json"),
     createEnv(),
     providerFetch,
   );
-  const oversized = await handleRequest(
+  const oversized = await handleAuthorizedRequest(
     createRequest({ messages: [{ role: "user", content: "x".repeat(12_001) }] }),
     createEnv(),
     providerFetch,
@@ -277,7 +550,7 @@ test("uses OpenAI as the primary provider without calling OpenRouter when it suc
     return openAiSuccess();
   };
 
-  const response = await handleRequest(createRequest(validBody()), createEnv(), providerFetch);
+  const response = await handleAuthorizedRequest(createRequest(validBody()), createEnv(), providerFetch);
   const payload = await response.json();
 
   assert.equal(response.status, 200);
@@ -292,6 +565,132 @@ test("uses OpenAI as the primary provider without calling OpenRouter when it suc
     requestId: "provider-request-id",
     usage: { promptTokens: 42, completionTokens: 17 },
   });
+});
+
+test("accepts the mixed Burmese and English KG lesson-plan chat contract", async () => {
+  const lessonPlanRequest = {
+    messages: [
+      { role: "system", content: "Give a useful answer first." },
+      {
+        role: "user",
+        content: "Help me write Transportation lesson plan for KG kids - KG ကလေးတွေအတွက် lesson plan တစ်ခုရေးပေး",
+      },
+    ],
+    temperature: 0.7,
+  };
+  let calls = 0;
+  const response = await handleAuthorizedRequest(
+    createRequest(lessonPlanRequest),
+    createEnv(),
+    async (url, options) => {
+      calls += 1;
+      assert.equal(url, "https://api.openai.com/v1/responses");
+      const body = JSON.parse(options.body);
+      assert.deepEqual(body.input, lessonPlanRequest.messages);
+      return openAiSuccess("Transportation lesson plan");
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(calls, 1);
+  assert.deepEqual(await response.json(), {
+    content: "Transportation lesson plan",
+    model: "openai-test-model",
+    requestId: "provider-request-id",
+    usage: { promptTokens: 42, completionTokens: 17 },
+  });
+});
+
+test("routes the exact normal Burmese hint to Sol pinned to Azure", async () => {
+  let calls = 0;
+  let upstreamBody;
+  const providerFetch = async (url, options) => {
+    calls += 1;
+    assert.equal(url, "https://openrouter.ai/api/v1/chat/completions");
+    upstreamBody = JSON.parse(options.body);
+    return openRouterSuccess("Azure Sol result");
+  };
+
+  const response = await handleAuthorizedRequest(
+    createRequest(normalBurmeseBody()),
+    createEnv(),
+    providerFetch,
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(calls, 1);
+  assert.equal(upstreamBody.model, "openai/gpt-5.6-sol");
+  assert.deepEqual(upstreamBody.provider, {
+    only: ["azure"],
+    allow_fallbacks: false,
+  });
+  assert.notEqual(upstreamBody.model, "openrouter/auto");
+});
+
+test("falls back from a safe Azure Sol failure to OpenAI-pinned Sol", async () => {
+  const calls = [];
+  const providerFetch = async (url, options) => {
+    assert.equal(url, "https://openrouter.ai/api/v1/chat/completions");
+    const body = JSON.parse(options.body);
+    calls.push(body);
+    if (calls.length === 1) {
+      return new Response("", { status: 503 });
+    }
+    return openRouterSuccess("OpenAI Sol result");
+  };
+
+  const response = await handleAuthorizedRequest(
+    createRequest(normalBurmeseBody()),
+    createEnv(),
+    providerFetch,
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls.map((body) => body.provider), [
+    { only: ["azure"], allow_fallbacks: false },
+    { only: ["openai"], allow_fallbacks: false },
+  ]);
+  assert.deepEqual(calls.map((body) => body.model), [
+    "openai/gpt-5.6-sol",
+    "openai/gpt-5.6-sol",
+  ]);
+});
+
+test("does not fall back from a non-safe Azure Sol failure", async () => {
+  let calls = 0;
+  const response = await handleAuthorizedRequest(
+    createRequest(normalBurmeseBody()),
+    createEnv(),
+    async () => {
+      calls += 1;
+      return new Response("", { status: 401 });
+    },
+  );
+
+  assert.equal(response.status, 502);
+  assert.equal(calls, 1);
+});
+
+test("ignores unknown routing hints and preserves generic routing", async () => {
+  const requestBody = validBody();
+  requestBody.metadata = { routing_hint: "arbitrary-model" };
+  let calls = 0;
+  let upstreamBody;
+  const response = await handleAuthorizedRequest(
+    createRequest(requestBody),
+    createEnv(),
+    async (url, options) => {
+      calls += 1;
+      assert.equal(url, "https://api.openai.com/v1/responses");
+      upstreamBody = JSON.parse(options.body);
+      return openAiSuccess();
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(calls, 1);
+  assert.equal(upstreamBody.model, "openai-test-model");
 });
 
 test("falls back after each allowed transient primary failure", async () => {
@@ -326,7 +725,7 @@ test("falls back after each allowed transient primary failure", async () => {
       return openRouterSuccess(transientFailure.name);
     };
 
-    const response = await handleRequest(createRequest(validBody()), createEnv(), providerFetch);
+  const response = await handleAuthorizedRequest(createRequest(validBody()), createEnv(), providerFetch);
     const payload = await response.json();
 
     assert.equal(response.status, 200, transientFailure.name);
@@ -346,7 +745,7 @@ test("maps the neutral request to OpenRouter and keeps its credential backend-on
     return openRouterSuccess();
   };
 
-  const response = await handleRequest(createRequest(validBody()), createEnv(), providerFetch);
+  const response = await handleAuthorizedRequest(createRequest(validBody()), createEnv(), providerFetch);
   const payload = await response.json();
 
   assert.equal(response.status, 200);
@@ -385,7 +784,7 @@ test("omits OpenRouter temperature when the validated request does not include i
     return openRouterSuccess();
   };
 
-  const response = await handleRequest(createRequest(requestBody), createEnv(), providerFetch);
+  const response = await handleAuthorizedRequest(createRequest(requestBody), createEnv(), providerFetch);
 
   assert.equal(response.status, 200);
   assert.equal("temperature" in openRouterBody, false);
@@ -398,7 +797,7 @@ test("does not fall back when OpenRouter is not configured", async () => {
     return new Response("", { status: 503 });
   };
 
-  const response = await handleRequest(
+  const response = await handleAuthorizedRequest(
     createRequest(validBody()),
     createEnv({ includeOpenRouter: false }),
     providerFetch,
@@ -418,7 +817,7 @@ test("does not fall back after primary request or authentication errors", async 
       return new Response("", { status });
     };
 
-    const response = await handleRequest(createRequest(validBody()), createEnv(), providerFetch);
+  const response = await handleAuthorizedRequest(createRequest(validBody()), createEnv(), providerFetch);
 
     assert.equal(response.status, 502);
     assert.equal(calls, 1);
@@ -436,7 +835,7 @@ test("sanitizes credentials and raw failures when both providers fail", async ()
     return new Response(`Authorization Bearer ${openRouterSecret}`, { status: 503 });
   };
 
-  const response = await handleRequest(createRequest(validBody()), createEnv(), providerFetch);
+  const response = await handleAuthorizedRequest(createRequest(validBody()), createEnv(), providerFetch);
   const body = await response.text();
   const lowerBody = body.toLowerCase();
 
@@ -455,7 +854,7 @@ test("returns 429 when the tester rate limit is exhausted", async () => {
     throw new Error("provider must not be called");
   };
 
-  const response = await handleRequest(
+  const response = await handleAuthorizedRequest(
     createRequest(validBody()),
     createEnv({ rateLimitSuccess: false }),
     providerFetch,
@@ -463,81 +862,6 @@ test("returns 429 when the tester rate limit is exhausted", async () => {
 
   assert.equal(response.status, 429);
   assert.equal(response.headers.get("retry-after"), "60");
-});
-
-test("daily beta limits block text and image provider calls with a safe response", async () => {
-  let calls = 0;
-  const providerFetch = async () => {
-    calls += 1;
-    throw new Error("provider must not be called");
-  };
-
-  const textResponse = await handleRequest(
-    createRequest(validBody()),
-    createEnv({ dailyQuotaAllowed: false }),
-    providerFetch,
-  );
-  const imageResponse = await handleRequest(
-    createImageRequest({ prompt: "Buddha" }),
-    createEnv({ dailyQuotaAllowed: false }),
-    providerFetch,
-  );
-
-  for (const response of [textResponse, imageResponse]) {
-    const body = await response.json();
-    assert.equal(response.status, 429);
-    assert.equal(body.error.code, "beta_limit_reached");
-    assert.equal(body.error.message, "Beta request limit reached. Try again tomorrow.");
-    assert.ok(Number(response.headers.get("retry-after")) > 0);
-    assert.equal(JSON.stringify(body).toLowerCase().includes("openai"), false);
-    assert.equal(JSON.stringify(body).toLowerCase().includes("openrouter"), false);
-  }
-
-  assert.equal(calls, 0);
-});
-
-test("durable daily quota enforces separate per-tester and beta-wide caps", async () => {
-  const quota = new BetaDailyQuota({ storage: new InMemoryDurableObjectStorage() });
-
-  for (let index = 0; index < 20; index += 1) {
-    assert.deepEqual(await quota.consume("tester-one", "text"), { allowed: true });
-  }
-  assert.deepEqual(await quota.consume("tester-one", "text"), { allowed: false });
-
-  for (let index = 0; index < 2; index += 1) {
-    assert.deepEqual(await quota.consume("tester-one", "image"), { allowed: true });
-  }
-  assert.deepEqual(await quota.consume("tester-one", "image"), { allowed: false });
-
-  const globalQuota = new BetaDailyQuota({ storage: new InMemoryDurableObjectStorage() });
-  for (let index = 0; index < 20; index += 1) {
-    assert.deepEqual(await globalQuota.consume("tester-one", "text"), { allowed: true });
-  }
-  for (let index = 0; index < 10; index += 1) {
-    assert.deepEqual(await globalQuota.consume("tester-two", "text"), { allowed: true });
-  }
-  assert.deepEqual(await globalQuota.consume("tester-two", "text"), { allowed: false });
-
-  const globalImageQuota = new BetaDailyQuota({
-    storage: new InMemoryDurableObjectStorage(),
-  });
-  for (let index = 0; index < 2; index += 1) {
-    assert.deepEqual(await globalImageQuota.consume("tester-one", "image"), { allowed: true });
-  }
-  assert.deepEqual(await globalImageQuota.consume("tester-two", "image"), { allowed: true });
-  assert.deepEqual(await globalImageQuota.consume("tester-two", "image"), { allowed: false });
-});
-
-test("durable daily quota resets on the next UTC day", async () => {
-  const quota = new BetaDailyQuota({ storage: new InMemoryDurableObjectStorage() });
-  const firstDay = Date.UTC(2026, 7, 26, 23, 59, 59);
-  const nextDay = Date.UTC(2026, 7, 27, 0, 0, 1);
-
-  for (let index = 0; index < 20; index += 1) {
-    assert.deepEqual(await quota.consume("tester-one", "text", firstDay), { allowed: true });
-  }
-  assert.deepEqual(await quota.consume("tester-one", "text", firstDay), { allowed: false });
-  assert.deepEqual(await quota.consume("tester-one", "text", nextDay), { allowed: true });
 });
 
 test("image endpoint rejects invalid beta tokens and non-POST requests", async () => {
@@ -566,7 +890,7 @@ test("image endpoint accepts JSON only and rejects malformed, missing, empty, an
     throw new Error("provider must not be called");
   };
 
-  const malformed = await handleRequest(
+  const malformed = await handleAuthorizedRequest(
     createImageRequest("{not-json"),
     createEnv(),
     providerFetch,
@@ -576,18 +900,18 @@ test("image endpoint accepts JSON only and rejects malformed, missing, empty, an
     createEnv(),
     providerFetch,
   );
-  const missing = await handleRequest(createImageRequest({}), createEnv(), providerFetch);
-  const empty = await handleRequest(
+  const missing = await handleAuthorizedRequest(createImageRequest({}), createEnv(), providerFetch);
+  const empty = await handleAuthorizedRequest(
     createImageRequest({ prompt: "   " }),
     createEnv(),
     providerFetch,
   );
-  const oversizedPrompt = await handleRequest(
+  const oversizedPrompt = await handleAuthorizedRequest(
     createImageRequest({ prompt: "x".repeat(4_001) }),
     createEnv(),
     providerFetch,
   );
-  const oversizedPayload = await handleRequest(
+  const oversizedPayload = await handleAuthorizedRequest(
     createImageRequest({ prompt: "x".repeat(64 * 1024) }),
     createEnv(),
     providerFetch,
@@ -606,7 +930,7 @@ test("image endpoint applies its separate one-per-minute rate limit", async () =
     throw new Error("provider must not be called");
   };
 
-  const response = await handleRequest(
+  const response = await handleAuthorizedRequest(
     createImageRequest({ prompt: "Buddha" }),
     createEnv({ imageRateLimitSuccess: false }),
     providerFetch,
@@ -625,7 +949,7 @@ test("image endpoint maps one low-cost OpenAI image request to a neutral respons
     return openAiImageSuccess();
   };
 
-  const response = await handleRequest(
+  const response = await handleAuthorizedRequest(
     createImageRequest({ prompt: "  Buddha meditating beneath a bodhi tree  " }),
     createEnv(),
     providerFetch,
@@ -658,7 +982,7 @@ test("image endpoint sanitizes upstream failures and never calls the text fallba
     return new Response(`Authorization Bearer ${openAiSecret}`, { status: 503 });
   };
 
-  const response = await handleRequest(
+  const response = await handleAuthorizedRequest(
     createImageRequest({ prompt: "Buddha" }),
     createEnv({ includeOpenRouter: true }),
     providerFetch,
@@ -675,18 +999,459 @@ test("image endpoint sanitizes upstream failures and never calls the text fallba
   assert.match(body, /couldn't create that image/);
 });
 
-class InMemoryDurableObjectStorage {
-  #values = new Map();
+test("video transcription is unavailable in the text-first beta before provider invocation", async () => {
+  let calls = 0;
+  const response = await handleRequest(
+    createVideoTranscriptionRequest(),
+    createEnv(),
+    async () => {
+      calls += 1;
+      return openAiTranscriptionSuccess();
+    },
+  );
+  const payload = await response.json();
 
-  async transaction(callback) {
-    return callback(this);
-  }
+  assert.equal(response.status, 503);
+  assert.equal(calls, 0);
+  assert.deepEqual(payload, {
+    error: {
+      code: "beta_video_unavailable",
+      message: "Video features are not available in this beta.",
+    },
+  });
+  assert.equal(JSON.stringify(payload).includes(openAiSecret), false);
+  assert.equal(JSON.stringify(payload).toLowerCase().includes("provider"), false);
+});
 
-  async get(key) {
-    return this.#values.get(key);
-  }
+test("video transcription short-circuits malformed requests before provider invocation", async () => {
+  let calls = 0;
+  const providerFetch = async () => {
+    calls += 1;
+    return openAiTranscriptionSuccess();
+  };
+  const nonMultipart = await handleRequest(
+    createVideoTranscriptionRequest({}, betaToken, { contentType: "application/json" }),
+    createEnv(),
+    providerFetch,
+  );
 
-  async put(key, value) {
-    this.#values.set(key, value);
-  }
+  assert.equal(nonMultipart.status, 503);
+  assert.equal((await nonMultipart.json()).error.code, "beta_video_unavailable");
+  assert.equal(calls, 0);
+});
+
+test("video edit planning is unavailable in the text-first beta before provider invocation", async () => {
+  let calls = 0;
+  const providerFetch = async () => {
+    calls += 1;
+    return openAiVideoEditPlanSuccess();
+  };
+
+  const response = await handleRequest(
+    createVideoEditPlanRequest(validVideoEditPlanRequest()),
+    createEnv(),
+    providerFetch,
+  );
+  const payload = await response.json();
+
+  assert.equal(response.status, 503);
+  assert.equal(calls, 0);
+  assert.deepEqual(payload, {
+    error: {
+      code: "beta_video_unavailable",
+      message: "Video features are not available in this beta.",
+    },
+  });
+  assert.equal(JSON.stringify(payload).toLowerCase().includes("provider"), false);
+});
+
+test("video edit planning short-circuits malformed requests before provider invocation", async () => {
+  let calls = 0;
+  const response = await handleRequest(
+    createVideoEditPlanRequest("{not-json"),
+    createEnv(),
+    async () => {
+      calls += 1;
+      return openAiVideoEditPlanSuccess();
+    },
+  );
+
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error.code, "beta_video_unavailable");
+  assert.equal(calls, 0);
+});
+
+function openAiVideoEditPlanSuccessPlanSegments() {
+  return [
+    {
+      clipId: "clip-one",
+      keep: true,
+      order: 0,
+      trimStartMs: null,
+      trimEndMs: null,
+    },
+    {
+      clipId: "clip-two",
+      keep: true,
+      order: 1,
+      trimStartMs: null,
+      trimEndMs: null,
+    },
+  ];
 }
+
+test("video edit planning remains unavailable for all request payloads without a provider call", async () => {
+  let calls = 0;
+  const providerFetch = async () => {
+    calls += 1;
+    return openAiVideoEditPlanSuccess();
+  };
+  const withPath = validVideoEditPlanRequest();
+  withPath.clips[0].localPath = "/data/user/0/ovexiq/video.mp4";
+  const withBytes = validVideoEditPlanRequest();
+  withBytes.clips[0].contentAnalysis.videoBytes = "not-allowed";
+  const outOfRangeTranscript = validVideoEditPlanRequest();
+  outOfRangeTranscript.clips[0].contentAnalysis.transcriptSegments[0].endMs = 15_001;
+  const oversizedTranscript = validVideoEditPlanRequest();
+  oversizedTranscript.clips[0].contentAnalysis.transcriptSegments[0].text =
+    "x".repeat(501);
+  const unknownIdResponse = openAiVideoEditPlanSuccess({
+    targetDurationMs: 30_000,
+    segments: [
+      {
+        clipId: "not-a-source",
+        keep: true,
+        order: 0,
+        trimStartMs: null,
+        trimEndMs: null,
+      },
+      {
+        clipId: "clip-two",
+        keep: true,
+        order: 1,
+        trimStartMs: null,
+        trimEndMs: null,
+      },
+    ],
+  });
+
+  const pathResponse = await handleRequest(
+    createVideoEditPlanRequest(withPath),
+    createEnv(),
+    providerFetch,
+  );
+  const malformedResponse = await handleRequest(
+    createVideoEditPlanRequest("{not-json"),
+    createEnv(),
+    providerFetch,
+  );
+  const oversizedResponse = await handleRequest(
+    createVideoEditPlanRequest({
+      ...validVideoEditPlanRequest(),
+      instruction: "x".repeat(2_001),
+    }),
+    createEnv(),
+    providerFetch,
+  );
+  const bytesResponse = await handleRequest(
+    createVideoEditPlanRequest(withBytes),
+    createEnv(),
+    providerFetch,
+  );
+  const outOfRangeResponse = await handleRequest(
+    createVideoEditPlanRequest(outOfRangeTranscript),
+    createEnv(),
+    providerFetch,
+  );
+  const oversizedTranscriptResponse = await handleRequest(
+    createVideoEditPlanRequest(oversizedTranscript),
+    createEnv(),
+    providerFetch,
+  );
+
+  assert.equal(pathResponse.status, 503);
+  assert.equal(malformedResponse.status, 503);
+  assert.equal(oversizedResponse.status, 503);
+  assert.equal(bytesResponse.status, 503);
+  assert.equal(outOfRangeResponse.status, 503);
+  assert.equal(oversizedTranscriptResponse.status, 503);
+  assert.equal(calls, 0);
+
+  const malformedProvider = await handleRequest(
+    createVideoEditPlanRequest(validVideoEditPlanRequest()),
+    createEnv(),
+    async () => new Response("not-json", { status: 200 }),
+  );
+  const invalidPlanProvider = await handleRequest(
+    createVideoEditPlanRequest(validVideoEditPlanRequest()),
+    createEnv(),
+    async () => unknownIdResponse,
+  );
+  const malformedBody = await malformedProvider.text();
+  const invalidPlanBody = await invalidPlanProvider.text();
+
+  assert.equal(malformedProvider.status, 503);
+  assert.equal(invalidPlanProvider.status, 503);
+  assert.equal(malformedBody.includes(openAiSecret), false);
+  assert.equal(invalidPlanBody.includes(openAiSecret), false);
+  assert.equal(malformedBody.toLowerCase().includes("openai"), false);
+  assert.equal(invalidPlanBody.toLowerCase().includes("openai"), false);
+});
+
+test("speech endpoint validates access and relays one safe MP3 response", async () => {
+  let upstreamBody;
+  const response = await handleAuthorizedRequest(
+    createSpeechRequest({ text: "  မင်္ဂလာပါ  " }),
+    createEnv(),
+    async (url, options) => {
+      assert.equal(url, "https://api.openai.com/v1/audio/speech");
+      assert.equal(options.headers.Authorization, `Bearer ${openAiSecret}`);
+      upstreamBody = JSON.parse(options.body);
+      return openAiSpeechSuccess();
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "audio/mpeg");
+  assert.deepEqual(upstreamBody, {
+    model: "gpt-4o-mini-tts",
+    voice: "nova",
+    input: "မင်္ဂလာပါ",
+    response_format: "mp3",
+  });
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array([1, 2, 3]));
+});
+
+test("speech endpoint rejects invalid input before contacting the provider", async () => {
+  let calls = 0;
+  const providerFetch = async () => {
+    calls += 1;
+    return openAiSpeechSuccess();
+  };
+  const invalidToken = await handleRequest(
+    createSpeechRequest({ text: "မင်္ဂလာပါ" }, "invalid-token"),
+    createEnv(),
+    providerFetch,
+  );
+  const empty = await handleAuthorizedRequest(
+    createSpeechRequest({ text: "   " }),
+    createEnv(),
+    providerFetch,
+  );
+  const oversized = await handleAuthorizedRequest(
+    createSpeechRequest({ text: "x".repeat(4_001) }),
+    createEnv(),
+    providerFetch,
+  );
+
+  assert.equal(invalidToken.status, 401);
+  assert.equal(empty.status, 400);
+  assert.equal(oversized.status, 413);
+  assert.equal(calls, 0);
+});
+
+test("legacy quota state normalizes missing speech counters without resetting existing usage", () => {
+  const legacyState = {
+    day: quotaDay,
+    totals: { text: 12, image: 2, retainedCounter: 7 },
+    testers: [
+      { id: "tester-one", text: 8, image: 1, retainedTesterField: "keep" },
+    ],
+    retainedStateField: { source: "legacy" },
+  };
+
+  assert.deepEqual(normalizeDailyQuotaStateForDay(legacyState, quotaDay), {
+    day: quotaDay,
+    totals: { text: 12, image: 2, retainedCounter: 7, speech: 0 },
+    testers: [
+      {
+        id: "tester-one",
+        text: 8,
+        image: 1,
+        retainedTesterField: "keep",
+        speech: 0,
+      },
+    ],
+    retainedStateField: { source: "legacy" },
+  });
+});
+
+test("current quota state retains existing speech usage", () => {
+  const currentState = {
+    day: quotaDay,
+    totals: { text: 12, image: 2, speech: 1 },
+    testers: [{ id: "tester-one", text: 8, image: 1, speech: 1 }],
+  };
+
+  assert.deepEqual(normalizeDailyQuotaStateForDay(currentState, quotaDay), currentState);
+});
+
+test("malformed quota state still uses the defensive fresh-state fallback", async () => {
+  const { quota, storedState } = createQuotaWithStoredState({
+    day: quotaDay,
+    totals: { text: "invalid", image: 2 },
+    testers: [],
+  });
+
+  assert.deepEqual(await quota.consume("tester-one", "text", quotaNow), { allowed: true });
+  assert.deepEqual(storedState(), {
+    day: quotaDay,
+    totals: { text: 1, image: 0, speech: 0 },
+    testers: [{ id: "tester-one", text: 1, image: 0, speech: 0 }],
+  });
+});
+
+test("speech quota increments only speech after normalizing a legacy state", async () => {
+  const { quota, storedState } = createQuotaWithStoredState({
+    day: quotaDay,
+    totals: { text: 12, image: 2 },
+    testers: [{ id: "tester-one", text: 8, image: 1 }],
+  });
+
+  assert.deepEqual(await quota.consume("tester-one", "speech", quotaNow), { allowed: true });
+  assert.deepEqual(storedState(), {
+    day: quotaDay,
+    totals: { text: 12, image: 2, speech: 1 },
+    testers: [{ id: "tester-one", text: 8, image: 1, speech: 1 }],
+  });
+});
+
+test("a valid invite activates one server-owned account and returns one device session", async () => {
+  const env = createEnv();
+  const response = await handleRequest(
+    createBetaActivationRequest({
+      inviteCode: betaInviteCode,
+      activationId: "installation-id-abcdefghijklmnopqrstuv",
+    }),
+    env,
+    async () => {
+      throw new Error("activation must not call an AI provider");
+    },
+  );
+  const payload = await response.json();
+
+  assert.equal(response.status, 201);
+  assert.match(payload.accountId, /^acct_[0-9a-f-]{36}$/);
+  assert.match(payload.deviceSession, /^ovs1\.[A-Za-z0-9_-]{32}\.sess_[A-Za-z0-9_-]{32}\.[A-Za-z0-9_-]{43}$/);
+  assert.match(payload.recoveryCode, /^orc1_[A-Za-z0-9_-]{32}$/);
+  assert.equal(JSON.stringify([...env.BETA_ACCOUNTS.states.values()]).includes(payload.recoveryCode), false);
+  assert.equal(JSON.stringify(payload).includes(sessionSigningKey), false);
+});
+
+test("activation retry reuses the same account and device session without another recovery secret", async () => {
+  const env = createEnv();
+  const body = {
+    inviteCode: betaInviteCode,
+    activationId: "installation-id-abcdefghijklmnopqrstuv",
+  };
+  const first = await (await handleRequest(createBetaActivationRequest(body), env, globalThis.fetch)).json();
+  const retryResponse = await handleRequest(createBetaActivationRequest(body), env, globalThis.fetch);
+  const retry = await retryResponse.json();
+
+  assert.equal(retryResponse.status, 200);
+  assert.equal(retry.accountId, first.accountId);
+  assert.equal(retry.deviceSession, first.deviceSession);
+  assert.equal("recoveryCode" in retry, false);
+  const state = [...env.BETA_ACCOUNTS.states.values()][0];
+  assert.equal(state.sessions.length, 1);
+});
+
+test("activation rejects a revoked installation without issuing a replacement session", async () => {
+  const env = createEnv();
+  const body = {
+    inviteCode: betaInviteCode,
+    activationId: "installation-id-abcdefghijklmnopqrstuv",
+  };
+  const activation = await (await handleRequest(
+    createBetaActivationRequest(body),
+    env,
+    globalThis.fetch,
+  )).json();
+  const account = env.BETA_ACCOUNTS.getByName("ovexiq-beta-account:invite-one");
+
+  assert.deepEqual(await account.revokeSession(activation.deviceSession.split(".")[2]), {
+    revoked: true,
+  });
+
+  const retryResponse = await handleRequest(
+    createBetaActivationRequest(body),
+    env,
+    globalThis.fetch,
+  );
+  const retry = await retryResponse.json();
+
+  assert.equal(retryResponse.status, 403);
+  assert.equal(retry.error.code, "installation_revoked");
+  assert.equal("accountId" in retry, false);
+  assert.equal("deviceSession" in retry, false);
+  assert.equal("recoveryCode" in retry, false);
+  assert.equal(await authenticateBetaDeviceSession(env, activation.deviceSession), null);
+});
+
+test("activation rejects an invalid invite without creating an account", async () => {
+  const env = createEnv();
+  const response = await handleRequest(
+    createBetaActivationRequest({
+      inviteCode: "not-a-valid-invite",
+      activationId: "installation-id-abcdefghijklmnopqrstuv",
+    }),
+    env,
+    globalThis.fetch,
+  );
+  const payload = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(payload.error.code, "invalid_beta_invite");
+  assert.equal(env.BETA_ACCOUNTS.states.size, 0);
+});
+
+test("a device session resolves only its server-owned account and ignores any client account claim", async () => {
+  const env = createEnv();
+  env.OVEXIQ_BETA_INVITES = JSON.stringify({
+    "invite-one": betaInviteCode,
+    "invite-two": "second-closed-beta-invite",
+  });
+  const first = await (await handleRequest(
+    createBetaActivationRequest({
+      inviteCode: betaInviteCode,
+      activationId: "installation-id-abcdefghijklmnopqrstuv",
+    }),
+    env,
+    globalThis.fetch,
+  )).json();
+  const second = await (await handleRequest(
+    createBetaActivationRequest({
+      inviteCode: "second-closed-beta-invite",
+      activationId: "another-installation-id-abcdefghijklmnop",
+    }),
+    env,
+    globalThis.fetch,
+  )).json();
+
+  const authenticated = await authenticateBetaDeviceSession(env, first.deviceSession);
+  const arbitraryClientAccountId = second.accountId;
+
+  assert.deepEqual(authenticated, {
+    accountId: first.accountId,
+    sessionId: first.deviceSession.split(".")[2],
+  });
+  assert.notEqual(authenticated.accountId, arbitraryClientAccountId);
+});
+
+test("revoked or invalid device sessions cannot authenticate", async () => {
+  const env = createEnv();
+  const activation = await (await handleRequest(
+    createBetaActivationRequest({
+      inviteCode: betaInviteCode,
+      activationId: "installation-id-abcdefghijklmnopqrstuv",
+    }),
+    env,
+    globalThis.fetch,
+  )).json();
+  const sessionId = activation.deviceSession.split(".")[2];
+  const account = env.BETA_ACCOUNTS.getByName("ovexiq-beta-account:invite-one");
+
+  assert.deepEqual(await account.revokeSession(sessionId), { revoked: true });
+  assert.equal(await authenticateBetaDeviceSession(env, activation.deviceSession), null);
+  assert.equal(await authenticateBetaDeviceSession(env, "ovs1.invalid.invalid.invalid"), null);
+});

@@ -40,6 +40,10 @@
       {
         "name": "BETA_DAILY_QUOTA",
         "class_name": "BetaDailyQuota"
+      },
+      {
+        "name": "BETA_ACCOUNTS",
+        "class_name": "BetaAccount"
       }
     ]
   },
@@ -47,6 +51,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["BetaDailyQuota"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["BetaAccount"]
     }
   ]
 }

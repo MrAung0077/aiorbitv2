@@ -7,7 +7,11 @@
     "enabled": false
   },
   "secrets": {
-    "required": ["OVEXIQ_BETA_TOKENS"]
+    "required": [
+      "OVEXIQ_BETA_TOKENS",
+      "OVEXIQ_BETA_INVITES",
+      "OVEXIQ_SESSION_SIGNING_KEY"
+    ]
   },
   "vars": {
     "OPENAI_MODEL": "gpt-5-mini",
@@ -36,6 +40,10 @@
       {
         "name": "BETA_DAILY_QUOTA",
         "class_name": "BetaDailyQuota"
+      },
+      {
+        "name": "BETA_ACCOUNTS",
+        "class_name": "BetaAccount"
       }
     ]
   },
@@ -43,6 +51,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["BetaDailyQuota"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["BetaAccount"]
     }
   ]
 }
