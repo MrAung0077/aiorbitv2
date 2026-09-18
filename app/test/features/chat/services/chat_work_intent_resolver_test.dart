@@ -41,6 +41,13 @@ void main() {
     );
   });
 
+  test('keeps Burmese explanation requests in normal Chat', () {
+    expect(
+      resolver.resolve('အကြောင်းအရာ အစီအစဉ်ကို ရှင်းပြပေးပါ။'),
+      isA<ChatWorkProceed>(),
+    );
+  });
+
   test('prepares an honest handoff for actual Burmese video editing', () {
     final result = resolver.resolve(
       'ဒီ video ကို ဖြတ်ပြီး subtitle ထည့်ကာ MP4 export လုပ်ပေးပါ။',

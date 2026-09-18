@@ -41,6 +41,7 @@ class ChatWorkIntentResolver {
     r'^\s*(?:how\s+(?:do|can|would|should)|what\s+(?:is|are)|can\s+you\s+(?:explain|tell)|explain\b|tell\s+me\s+how)',
     caseSensitive: false,
   );
+  static final RegExp _burmeseExplanationRequest = RegExp(r'ရှင်းပြ');
   static final RegExp _videoEditing = RegExp(
     r'\b(?:edit|combine|merge|cut|trim|export|render)\b.*\b(?:video|clip|mp4)s?\b|\b(?:video|clip|mp4)s?\b.*\b(?:edit|combine|merge|cut|trim|export|render)\b|(?:ဒီ\s*)?(?:video|ဗီဒီယို).*(?:ဖြတ်|တည်းဖြတ်|ပေါင်း|ထည့်).*(?:export|MP4|mp4)',
     caseSensitive: false,
@@ -57,7 +58,8 @@ class ChatWorkIntentResolver {
     final resolvedPrompt = prompt.trim();
 
     if (resolvedPrompt.isEmpty ||
-        _informationalQuestion.hasMatch(resolvedPrompt)) {
+        _informationalQuestion.hasMatch(resolvedPrompt) ||
+        _burmeseExplanationRequest.hasMatch(resolvedPrompt)) {
       return ChatWorkProceed(resolvedPrompt);
     }
 
