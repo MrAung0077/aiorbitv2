@@ -24,6 +24,23 @@ void main() {
     expect(result, isA<ChatWorkOrchestrate>());
   });
 
+  test('routes a fully Burmese multi-step creator goal to a Mission', () {
+    final result = resolver.resolve(
+      'Facebook စာမျက်နှာအတွက် တစ်လစာ အကြောင်းအရာ အစီအစဉ်နဲ့ အရောင်းမြှင့်တင်ရေး စီမံချက် ပြင်ဆင်ပေးပါ။',
+    );
+
+    expect(result, isA<ChatWorkOrchestrate>());
+    final suggestion = (result as ChatWorkOrchestrate).missionSuggestion;
+    expect(suggestion.reason, contains('ဤရည်ရွယ်ချက်'));
+  });
+
+  test('keeps a broad research request in normal Chat', () {
+    expect(
+      resolver.resolve('Research Kaspa smart contracts'),
+      isA<ChatWorkProceed>(),
+    );
+  });
+
   test('prepares an honest handoff for actual Burmese video editing', () {
     final result = resolver.resolve(
       'ဒီ video ကို ဖြတ်ပြီး subtitle ထည့်ကာ MP4 export လုပ်ပေးပါ။',

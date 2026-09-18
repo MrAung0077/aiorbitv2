@@ -50,7 +50,7 @@ class ChatWorkIntentResolver {
     caseSensitive: false,
   );
   static final RegExp _textFirstMissionWorkflow = RegExp(
-    r'\b(?:content\s+calendar|article\s+series|blog\s+series|email\s+sequence|newsletter\s+series|social\s+media\s+plan|social\s+media\s+content|content\s+plan|posting\s+workflow|capcut|scene\s+timing|storyboard|asset\s+list|export\s+settings)\b',
+    r'\b(?:content\s+calendar|article\s+series|blog\s+series|email\s+sequence|newsletter\s+series|social\s+media\s+plan|social\s+media\s+content|content\s+plan|posting\s+workflow|capcut|scene\s+timing|storyboard|asset\s+list|export\s+settings)\b|အကြောင်းအရာ\s*အစီအစဉ်|အကြောင်းအရာ\s*စီမံချက်|အရောင်းမြှင့်တင်ရေး\s*စီမံချက်|လမ်းပြမြေပုံ|အဆင့်ဆင့်',
     caseSensitive: false,
   );
   ChatWorkIntentResult resolve(String prompt) {
@@ -76,9 +76,10 @@ class ChatWorkIntentResolver {
     }
 
     final suggestion = _missionSuggestionService.suggestFor(resolvedPrompt);
-    // Missions remain an explicit, text-first preparation surface. Do not
-    // turn ordinary questions or clarification flows into Missions merely
-    // because the suggestion service recognizes a broad topic.
+    // The suggestion service rejects ordinary questions and one-shot
+    // deliverables. This further keeps broad topics such as research in
+    // normal Chat unless the user asked for a concrete text-first workflow.
+    // The workflow signals intentionally cover both English and Burmese.
     if (suggestion != null &&
         _textFirstMissionWorkflow.hasMatch(resolvedPrompt)) {
       return ChatWorkOrchestrate(
