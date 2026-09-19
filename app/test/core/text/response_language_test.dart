@@ -3,6 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('responseLanguageFor', () {
+    test('serializes only the supported gateway response-language values', () {
+      expect(ResponseLanguage.english.wireValue, 'en');
+      expect(ResponseLanguage.burmese.wireValue, 'my');
+      expect(ResponseLanguage.auto.wireValue, 'auto');
+    });
+
     test('keeps an English prompt in English', () {
       expect(
         responseLanguageFor('Create a Facebook content plan for this week.'),

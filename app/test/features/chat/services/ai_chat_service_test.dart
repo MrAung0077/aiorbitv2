@@ -1,5 +1,6 @@
 import 'package:aiorbit/core/ai/ai.dart';
 import 'package:aiorbit/core/ai/ai_capability.dart';
+import 'package:aiorbit/core/text/response_language.dart';
 import 'package:aiorbit/features/chat/services/ai_chat_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -48,6 +49,7 @@ void main() {
       expect(policy, contains('beginner-friendly language'));
       expect(policy, contains('explicitly asks for detail'));
       expect(request.messages[1].content, contains('requested language'));
+      expect(request.responseLanguage, ResponseLanguage.english);
 
       const retryHistory = <AIMessage>[
         AIMessage(role: AIMessageRole.user, content: 'What is a budget?'),
@@ -96,9 +98,32 @@ void main() {
         expect(policy, isNot(contains('ရည်အသွား')));
         expect(policy, isNot(contains('ဒျမိုန့် tips')));
         expect(policy, isNot(contains('စိတ်တိုချင်းဖျော်ဖြေရေး')));
+        expect(request.responseLanguage, ResponseLanguage.burmese);
       }
     },
   );
+
+  test('preserves explicit response-language choices in the gateway request',
+      () async {
+    final provider = _CapturingProvider();
+    final service = AIChatService(
+      aiService: AIService(
+        router: AIRouter(providers: <AIProvider>[provider]),
+      ),
+    );
+
+    await service
+        .sendMessage('Facebook အတွက် Content plan ရေးပေးပါ။ Reply in English.')
+        .toList();
+    await service
+        .sendMessage(
+          'Create a Facebook content plan for this week. မြန်မာလိုပြောပါ။',
+        )
+        .toList();
+
+    expect(provider.requests[0].responseLanguage, ResponseLanguage.english);
+    expect(provider.requests[1].responseLanguage, ResponseLanguage.burmese);
+  });
 }
 
 class _CapturingProvider implements AIProvider {

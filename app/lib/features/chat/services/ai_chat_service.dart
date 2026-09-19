@@ -43,9 +43,10 @@ class AIChatService {
     final latestPrompt =
         messages
             .where((message) => message.role == AIMessageRole.user)
-            .lastOrNull
-            ?.content ??
+        .lastOrNull
+        ?.content ??
         '';
+    final responseLanguage = responseLanguageFor(latestPrompt);
     final languagePolicy = responseLanguageInstructionFor(latestPrompt);
     final request = AIRequest(
       messages: List<AIMessage>.unmodifiable(<AIMessage>[
@@ -53,6 +54,7 @@ class AIChatService {
         AIMessage(role: AIMessageRole.system, content: languagePolicy),
         ...messages,
       ]),
+      responseLanguage: responseLanguage,
     );
 
     if (request.latestUserPrompt.trim().isEmpty) {

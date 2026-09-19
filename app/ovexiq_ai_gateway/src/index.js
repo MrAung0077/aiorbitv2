@@ -39,6 +39,7 @@ const MAX_MESSAGE_CHARS = 12_000;
 const MAX_TOTAL_MESSAGE_CHARS = 40_000;
 const MAX_METADATA_CHARS = 4_096;
 const MAX_OUTPUT_TOKENS = 4_096;
+const MAX_BURMESE_OUTPUT_TOKENS = 1_800;
 const OPENAI_TIMEOUT_MS = 30_000;
 const OPENROUTER_TIMEOUT_MS = 20_000;
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
@@ -50,10 +51,8 @@ const OPENAI_IMAGE_MODEL = "gpt-image-2";
 const OPENAI_SPEECH_MODEL = "gpt-4o-mini-tts";
 const OPENAI_SPEECH_VOICE = "nova";
 const OPENAI_TRANSCRIPTION_MODEL = "whisper-1";
-const NORMAL_BURMESE_ROUTING_HINT = "normal_burmese";
-const BURMESE_NORMAL_CHAT_MODEL = "openai/gpt-5.6-sol";
-const OPENROUTER_AZURE_PROVIDER = "azure";
-const OPENROUTER_OPENAI_PROVIDER = "openai";
+const BURMESE_STRONG_MODEL = "gpt-6-astra";
+const RESPONSE_LANGUAGES = new Set(["my", "en", "auto"]);
 const ALLOWED_ROLES = new Set(["system", "user", "assistant"]);
 const DAILY_QUOTA_OBJECT_NAME = "ovexiq-beta-daily-quota";
 const DAILY_QUOTA_STATE_KEY = "current-day";
@@ -1183,6 +1182,21 @@ async function parseRequest(request) {
     maxTokens = body.maxTokens;
   }
 
+  let responseLanguage = "auto";
+  if (body.response_language !== undefined) {
+    if (
+      typeof body.response_language !== "string" ||
+      !RESPONSE_LANGUAGES.has(body.response_language)
+    ) {
+      return failure(
+        400,
+        "invalid_response_language",
+        "response_language must be my, en, or auto.",
+      );
+    }
+    responseLanguage = body.response_language;
+  }
+
   let metadata;
   if (body.metadata !== undefined) {
     if (body.metadata === null || typeof body.metadata !== "object" || Array.isArray(body.metadata)) {
@@ -1198,7 +1212,7 @@ async function parseRequest(request) {
 
   return {
     response: null,
-    value: { messages, temperature, maxTokens, metadata },
+    value: { messages, temperature, maxTokens, responseLanguage, metadata },
   };
 }
 
@@ -1613,49 +1627,69 @@ async function parseJsonBody(request) {
 }
 
 async function callProvider(input, env, fetchProvider) {
-  if (input.metadata?.routing_hint === NORMAL_BURMESE_ROUTING_HINT) {
-    return callNormalBurmeseProvider(input, env, fetchProvider);
+  const startedAt = Date.now();
+  let routeClass;
+  let providerResult;
+  let fallbackAttempted = false;
+  let selectedModel;
+
+  if (input.responseLanguage === "my") {
+    routeClass = "burmese_strong";
+    selectedModel = BURMESE_STRONG_MODEL;
+    providerResult = await callBurmeseStrongProvider(input, env, fetchProvider);
+  } else {
+    routeClass = "standard";
+    selectedModel = configuredValue(env.OPENAI_MODEL) || "standard";
+    const standardResult = await callStandardProvider(input, env, fetchProvider);
+    providerResult = standardResult.result;
+    fallbackAttempted = standardResult.fallbackAttempted;
   }
 
+  logProviderRouteTelemetry({
+    routeClass,
+    providerResult,
+    fallbackAttempted,
+    startedAt,
+    selectedModel,
+  });
+
+  return providerResult.response ?? providerResult.failureResponse;
+}
+
+async function callStandardProvider(input, env, fetchProvider) {
   const openAiResult = await callOpenAi(input, env, fetchProvider);
   if (openAiResult.response !== null) {
-    return openAiResult.response;
+    return { result: openAiResult, fallbackAttempted: false };
   }
 
   if (!openAiResult.canFallback) {
-    return openAiResult.failureResponse;
+    return { result: openAiResult, fallbackAttempted: false };
   }
 
-  const openRouterResponse = await callOpenRouter(input, env, fetchProvider);
-  return openRouterResponse ?? openAiResult.failureResponse;
+  const openRouterResult = await callOpenRouter(input, env, fetchProvider);
+  return {
+    result: openRouterResult ?? openAiResult,
+    fallbackAttempted: openRouterResult !== null,
+  };
 }
 
-async function callNormalBurmeseProvider(input, env, fetchProvider) {
-  const azureResult = await callPinnedOpenRouter(
+async function callBurmeseStrongProvider(input, env, fetchProvider) {
+  return callOpenAiModel(
     input,
     env,
     fetchProvider,
-    OPENROUTER_AZURE_PROVIDER,
+    BURMESE_STRONG_MODEL,
+    MAX_BURMESE_OUTPUT_TOKENS,
   );
-  if (azureResult.response !== null) {
-    return azureResult.response;
-  }
-  if (!azureResult.canFallback) {
-    return azureResult.failureResponse;
-  }
-
-  const openAiResult = await callPinnedOpenRouter(
-    input,
-    env,
-    fetchProvider,
-    OPENROUTER_OPENAI_PROVIDER,
-  );
-  return openAiResult.response ?? openAiResult.failureResponse;
 }
 
 async function callOpenAi(input, env, fetchProvider) {
-  const providerApiKey = configuredValue(env.OPENAI_API_KEY);
   const model = configuredValue(env.OPENAI_MODEL);
+  return callOpenAiModel(input, env, fetchProvider, model);
+}
+
+async function callOpenAiModel(input, env, fetchProvider, model, maxOutputTokens) {
+  const providerApiKey = configuredValue(env.OPENAI_API_KEY);
 
   if (providerApiKey.length === 0 || model.length === 0) {
     return providerFailure(503, "provider_unavailable", "Ovexiq AI is temporarily unavailable.");
@@ -1665,7 +1699,7 @@ async function callOpenAi(input, env, fetchProvider) {
     model,
     input: input.messages,
     store: false,
-    max_output_tokens: input.maxTokens ?? MAX_OUTPUT_TOKENS,
+    max_output_tokens: effectiveOutputTokenLimit(input, maxOutputTokens),
   };
 
   const fetchResult = await fetchWithTimeout(
@@ -1739,7 +1773,7 @@ async function callOpenAi(input, env, fetchProvider) {
           },
         }
       : {}),
-  });
+  }, model);
 }
 
 async function callOpenAiImage(input, env, fetchProvider) {
@@ -2018,12 +2052,7 @@ async function callOpenRouter(input, env, fetchProvider) {
     return null;
   }
 
-  const result = await callOpenRouterModel(input, env, fetchProvider, model);
-  return result.response;
-}
-
-async function callPinnedOpenRouter(input, env, fetchProvider, provider) {
-  return callOpenRouterModel(input, env, fetchProvider, BURMESE_NORMAL_CHAT_MODEL, provider);
+  return callOpenRouterModel(input, env, fetchProvider, model);
 }
 
 async function callOpenRouterModel(input, env, fetchProvider, model, provider) {
@@ -2044,7 +2073,7 @@ async function callOpenRouterModel(input, env, fetchProvider, model, provider) {
       body: JSON.stringify({
         model,
         messages: input.messages,
-        max_tokens: input.maxTokens ?? MAX_OUTPUT_TOKENS,
+        max_tokens: effectiveOutputTokenLimit(input),
         ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
         ...(provider !== undefined
           ? { provider: { only: [provider], allow_fallbacks: false } }
@@ -2110,7 +2139,36 @@ async function callOpenRouterModel(input, env, fetchProvider, model, provider) {
           },
         }
       : {}),
-  });
+  }, model);
+}
+
+function effectiveOutputTokenLimit(input, routeMaximum = MAX_OUTPUT_TOKENS) {
+  const requested = input.maxTokens ?? routeMaximum;
+  return Math.min(requested, routeMaximum);
+}
+
+function logProviderRouteTelemetry({
+  routeClass,
+  providerResult,
+  fallbackAttempted,
+  startedAt,
+  selectedModel,
+}) {
+  const telemetry = providerResult.telemetry ?? {};
+  const usage = telemetry.usage ?? {};
+  console.info(JSON.stringify({
+    event: "ovexiq_ai_route",
+    route_class: routeClass,
+    provider_outcome: telemetry.outcome ?? "failure",
+    model: telemetry.model ?? selectedModel ?? "unknown",
+    fallback_attempted: fallbackAttempted,
+    failure_category: telemetry.failureCategory ?? null,
+    latency_ms: Math.max(0, Date.now() - startedAt),
+    prompt_tokens: Number.isInteger(usage.promptTokens) ? usage.promptTokens : null,
+    completion_tokens: Number.isInteger(usage.completionTokens)
+      ? usage.completionTokens
+      : null,
+  }));
 }
 
 async function fetchWithTimeout(fetchProvider, url, options, timeoutMs) {
@@ -2286,8 +2344,17 @@ function isFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-function providerSuccess(response) {
-  return { response: jsonResponse(response), failureResponse: null, canFallback: false };
+function providerSuccess(response, telemetryModel) {
+  return {
+    response: jsonResponse(response),
+    failureResponse: null,
+    canFallback: false,
+    telemetry: {
+      outcome: "success",
+      model: typeof response.model === "string" ? response.model : telemetryModel ?? "unknown",
+      usage: response.usage ?? null,
+    },
+  };
 }
 
 function providerFailure(status, code, message, canFallback = false) {
@@ -2295,6 +2362,10 @@ function providerFailure(status, code, message, canFallback = false) {
     response: null,
     failureResponse: errorResponse(status, code, message),
     canFallback,
+    telemetry: {
+      outcome: "failure",
+      failureCategory: code,
+    },
   };
 }
 

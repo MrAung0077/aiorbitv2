@@ -238,10 +238,11 @@ function createSpeechRequest(
   });
 }
 
-function normalBurmeseBody() {
+function burmeseBody({ maxTokens = 800 } = {}) {
   return {
     ...validBody(),
-    metadata: { routing_hint: "normal_burmese" },
+    maxTokens,
+    response_language: "my",
   };
 }
 
@@ -601,70 +602,55 @@ test("accepts the mixed Burmese and English KG lesson-plan chat contract", async
   });
 });
 
-test("routes the exact normal Burmese hint to Sol pinned to Azure", async () => {
+test("routes Burmese requests to the approved strong model", async () => {
   let calls = 0;
   let upstreamBody;
   const providerFetch = async (url, options) => {
     calls += 1;
-    assert.equal(url, "https://openrouter.ai/api/v1/chat/completions");
+    assert.equal(url, "https://api.openai.com/v1/responses");
     upstreamBody = JSON.parse(options.body);
-    return openRouterSuccess("Azure Sol result");
+    return openAiSuccess("Burmese result");
   };
 
   const response = await handleAuthorizedRequest(
-    createRequest(normalBurmeseBody()),
+    createRequest(burmeseBody()),
     createEnv(),
     providerFetch,
   );
 
   assert.equal(response.status, 200);
   assert.equal(calls, 1);
-  assert.equal(upstreamBody.model, "openai/gpt-5.6-sol");
-  assert.deepEqual(upstreamBody.provider, {
-    only: ["azure"],
-    allow_fallbacks: false,
-  });
-  assert.notEqual(upstreamBody.model, "openrouter/auto");
+  assert.equal(upstreamBody.model, "gpt-6-astra");
+  assert.equal(upstreamBody.max_output_tokens, 800);
 });
 
-test("falls back from a safe Azure Sol failure to OpenAI-pinned Sol", async () => {
-  const calls = [];
+test("caps Burmese output tokens at the server-side maximum", async () => {
+  let upstreamBody;
   const providerFetch = async (url, options) => {
-    assert.equal(url, "https://openrouter.ai/api/v1/chat/completions");
-    const body = JSON.parse(options.body);
-    calls.push(body);
-    if (calls.length === 1) {
-      return new Response("", { status: 503 });
-    }
-    return openRouterSuccess("OpenAI Sol result");
+    assert.equal(url, "https://api.openai.com/v1/responses");
+    upstreamBody = JSON.parse(options.body);
+    return openAiSuccess("Burmese result");
   };
 
   const response = await handleAuthorizedRequest(
-    createRequest(normalBurmeseBody()),
+    createRequest(burmeseBody({ maxTokens: 4096 })),
     createEnv(),
     providerFetch,
   );
 
   assert.equal(response.status, 200);
-  assert.equal(calls.length, 2);
-  assert.deepEqual(calls.map((body) => body.provider), [
-    { only: ["azure"], allow_fallbacks: false },
-    { only: ["openai"], allow_fallbacks: false },
-  ]);
-  assert.deepEqual(calls.map((body) => body.model), [
-    "openai/gpt-5.6-sol",
-    "openai/gpt-5.6-sol",
-  ]);
+  assert.equal(upstreamBody.max_output_tokens, 1800);
 });
 
-test("does not fall back from a non-safe Azure Sol failure", async () => {
+test("does not downgrade Burmese requests when the strong model fails", async () => {
   let calls = 0;
   const response = await handleAuthorizedRequest(
-    createRequest(normalBurmeseBody()),
+    createRequest(burmeseBody()),
     createEnv(),
-    async () => {
+    async (url) => {
       calls += 1;
-      return new Response("", { status: 401 });
+      assert.equal(url, "https://api.openai.com/v1/responses");
+      return new Response("", { status: 503 });
     },
   );
 
@@ -672,9 +658,9 @@ test("does not fall back from a non-safe Azure Sol failure", async () => {
   assert.equal(calls, 1);
 });
 
-test("ignores unknown routing hints and preserves generic routing", async () => {
+test("English response language retains standard model routing", async () => {
   const requestBody = validBody();
-  requestBody.metadata = { routing_hint: "arbitrary-model" };
+  requestBody.response_language = "en";
   let calls = 0;
   let upstreamBody;
   const response = await handleAuthorizedRequest(
@@ -691,6 +677,60 @@ test("ignores unknown routing hints and preserves generic routing", async () => 
   assert.equal(response.status, 200);
   assert.equal(calls, 1);
   assert.equal(upstreamBody.model, "openai-test-model");
+});
+
+test("rejects invalid response language before provider invocation", async () => {
+  const requestBody = validBody();
+  requestBody.response_language = "ko";
+  let calls = 0;
+
+  const response = await handleAuthorizedRequest(
+    createRequest(requestBody),
+    createEnv(),
+    async () => {
+      calls += 1;
+      return openAiSuccess();
+    },
+  );
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), {
+    error: {
+      code: "invalid_response_language",
+      message: "response_language must be my, en, or auto.",
+    },
+  });
+  assert.equal(calls, 0);
+});
+
+test("safe route telemetry excludes request content and credentials", async () => {
+  const telemetry = [];
+  const originalInfo = console.info;
+  console.info = (entry) => telemetry.push(entry);
+
+  try {
+    const response = await handleAuthorizedRequest(
+      createRequest(burmeseBody()),
+      createEnv(),
+      async () => openAiSuccess("Burmese result"),
+    );
+
+    assert.equal(response.status, 200);
+  } finally {
+    console.info = originalInfo;
+  }
+
+  assert.equal(telemetry.length, 1);
+  const event = JSON.parse(telemetry[0]);
+  assert.equal(event.event, "ovexiq_ai_route");
+  assert.equal(event.route_class, "burmese_strong");
+  assert.equal(event.provider_outcome, "success");
+  assert.equal(event.model, "openai-test-model");
+  assert.equal(event.fallback_attempted, false);
+  assert.equal(event.failure_category, null);
+  assert.equal(JSON.stringify(event).includes("Research Kaspa"), false);
+  assert.equal(JSON.stringify(event).includes(openAiSecret), false);
+  assert.equal(JSON.stringify(event).includes(betaToken), false);
 });
 
 test("falls back after each allowed transient primary failure", async () => {

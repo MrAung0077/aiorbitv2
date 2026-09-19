@@ -7,6 +7,7 @@ import 'package:aiorbit/core/ai/ai_router.dart';
 import 'package:aiorbit/core/ai/ai_service.dart';
 import 'package:aiorbit/core/ai/providers/ovexiq_backend_api_client.dart';
 import 'package:aiorbit/core/ai/providers/ovexiq_backend_provider.dart';
+import 'package:aiorbit/core/text/response_language.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -53,10 +54,28 @@ void main() {
     ]);
     expect(requestBody!['temperature'], 0.4);
     expect(requestBody!['maxTokens'], 800);
+    expect(requestBody!['response_language'], 'auto');
     expect(requestBody!['metadata'], <String, Object?>{
       'missionId': 'mission-1',
       'taskId': 'task-2',
     });
+  });
+
+  test('backend client sends the selected response language contract', () async {
+    Map<String, dynamic>? requestBody;
+    final client = _client((request) async {
+      requestBody = jsonDecode(request.body) as Map<String, dynamic>;
+      return _successResponse();
+    });
+
+    await client.complete(
+      const AIRequest(
+        messages: messages,
+        responseLanguage: ResponseLanguage.burmese,
+      ),
+    );
+
+    expect(requestBody!['response_language'], 'my');
   });
 
   test(

@@ -33,6 +33,7 @@ class MissionTaskAIRequestBuilder {
     }
 
     final missionGoal = mission.goal.trim();
+    final responseLanguage = responseLanguageFor(missionGoal);
     final userContext = mission.userContext?.trim();
     final inputContext = task.inputContext?.trim();
 
@@ -67,6 +68,7 @@ class MissionTaskAIRequestBuilder {
 
     return AIRequest.fromPrompt(
       prompt: promptLines.join('\n'),
+      responseLanguage: responseLanguage,
       metadata: <String, Object?>{
         'missionId': mission.id,
         'taskId': task.id,

@@ -54,6 +54,7 @@ class OvexiqBackendApiClient {
       'messages': request.messages
           .map((message) => message.toJson())
           .toList(growable: false),
+      'response_language': request.responseLanguage.wireValue,
       'temperature': request.temperature,
       if (request.maxTokens != null) 'maxTokens': request.maxTokens,
       if (request.metadata.isNotEmpty) 'metadata': request.metadata,

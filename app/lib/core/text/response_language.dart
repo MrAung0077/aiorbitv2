@@ -1,4 +1,14 @@
-enum ResponseLanguage { english, burmese }
+enum ResponseLanguage {
+  english,
+  burmese,
+  auto;
+
+  String get wireValue => switch (this) {
+    ResponseLanguage.english => 'en',
+    ResponseLanguage.burmese => 'my',
+    ResponseLanguage.auto => 'auto',
+  };
+}
 
 /// Shared generation contract for Burmese user-facing prose.
 ///
