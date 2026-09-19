@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ai/providers/ovexiq_image_api_client.dart';
+import '../../core/text/response_language.dart';
 import '../../core/widgets/app_conversation_header.dart';
 import '../../core/widgets/app_message_bubble.dart';
 import '../../core/widgets/app_prompt_composer.dart';
@@ -27,6 +28,7 @@ import 'widgets/video_attachment_card.dart';
 import '../mission/providers/chat_mission_coordinator_provider.dart';
 import '../mission/services/chat_mission_coordinator.dart';
 import '../mission/services/chat_mission_result_adapter.dart';
+import '../mission/models/mission_suggestion.dart';
 
 class AIChatScreen extends ConsumerStatefulWidget {
   const AIChatScreen({super.key});
@@ -45,6 +47,8 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
 
   RouterDecision? _routerDecision;
   _MissionWorkState _missionWorkState = _MissionWorkState.idle;
+  MissionSuggestion? _failedMissionSuggestion;
+  ResponseLanguage _failedMissionResponseLanguage = ResponseLanguage.auto;
   ChatMissionResult? _finishedMissionResult;
   _ImageWorkState _imageWorkState = _ImageWorkState.idle;
   final Map<String, Uint8List> _imagePreviewBytes = <String, Uint8List>{};
@@ -103,6 +107,8 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     setState(() {
       _routerDecision = decision;
       _missionWorkState = _MissionWorkState.idle;
+      _failedMissionSuggestion = null;
+      _failedMissionResponseLanguage = ResponseLanguage.auto;
       _finishedMissionResult = null;
       _imageWorkState = _ImageWorkState.idle;
       _imagePreviewBytes.clear();
@@ -273,8 +279,11 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     }
   }
 
-  Future<void> _startSuggestedMissionIfNeeded(ChatState chatState) async {
-    final suggestion = chatState.missionSuggestion;
+  Future<void> _startSuggestedMissionIfNeeded(
+    ChatState chatState, {
+    MissionSuggestion? suggestionOverride,
+  }) async {
+    final suggestion = suggestionOverride ?? chatState.missionSuggestion;
     final conversationId = chatState.conversation?.id;
 
     if (suggestion == null ||
@@ -285,6 +294,8 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
 
     setState(() {
       _missionWorkState = _MissionWorkState.working;
+      _failedMissionSuggestion = null;
+      _failedMissionResponseLanguage = ResponseLanguage.auto;
     });
 
     try {
@@ -310,11 +321,20 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                 packagedResult == null
             ? _MissionWorkState.failed
             : _MissionWorkState.idle;
+        _failedMissionSuggestion = _missionWorkState == _MissionWorkState.failed
+            ? suggestion
+            : null;
+        _failedMissionResponseLanguage =
+            _missionWorkState == _MissionWorkState.failed
+            ? responseLanguageFor(suggestion.goal)
+            : ResponseLanguage.auto;
       });
     } catch (_) {
       if (mounted) {
         setState(() {
           _missionWorkState = _MissionWorkState.failed;
+          _failedMissionSuggestion = suggestion;
+          _failedMissionResponseLanguage = responseLanguageFor(suggestion.goal);
         });
       }
     }
@@ -665,6 +685,25 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
 
                               return _MissionWorkStatus(
                                 isWorking: isMissionWorking,
+                                responseLanguage:
+                                    _failedMissionResponseLanguage,
+                                onCopy: hasMissionFailure
+                                    ? () => _copyMessage(
+                                        _missionFailureMessage(
+                                          _failedMissionResponseLanguage,
+                                        ),
+                                      )
+                                    : null,
+                                onRetry:
+                                    hasMissionFailure &&
+                                        _failedMissionSuggestion != null &&
+                                        !isMissionWorking
+                                    ? () => _startSuggestedMissionIfNeeded(
+                                        ref.read(chatControllerProvider),
+                                        suggestionOverride:
+                                            _failedMissionSuggestion,
+                                      )
+                                    : null,
                               );
                             }
 
@@ -734,14 +773,28 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
   }
 }
 
+String _missionFailureMessage(ResponseLanguage responseLanguage) {
+  return responseLanguage == ResponseLanguage.burmese
+      ? 'Ovexiq က ဒီလုပ်ငန်းကို အပြီးမလုပ်ဆောင်နိုင်သေးပါ။ ထပ်စမ်းကြည့်ပါ။'
+      : "Ovexiq couldn't finish this task. Please try again.";
+}
+
 enum _MissionWorkState { idle, working, failed }
 
 enum _ImageWorkState { idle, working, failed }
 
 class _MissionWorkStatus extends StatelessWidget {
-  const _MissionWorkStatus({required this.isWorking});
+  const _MissionWorkStatus({
+    required this.isWorking,
+    required this.responseLanguage,
+    this.onCopy,
+    this.onRetry,
+  });
 
   final bool isWorking;
+  final ResponseLanguage responseLanguage;
+  final VoidCallback? onCopy;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -749,9 +802,18 @@ class _MissionWorkStatus extends StatelessWidget {
       return const AppTypingIndicator(label: 'Ovexiq is working...');
     }
 
-    return const Padding(
-      padding: EdgeInsets.only(top: 12, bottom: 20),
-      child: Text("Ovexiq couldn't finish that request. Please try again."),
+    final message = _missionFailureMessage(responseLanguage);
+    return AppMessageBubble(
+      key: const ValueKey<String>('mission-error-card'),
+      message: ChatMessage(
+        id: 'mission-error',
+        role: ChatRole.assistant,
+        content: message,
+        createdAt: DateTime.now(),
+        isError: true,
+      ),
+      onCopy: onCopy,
+      onRetry: onRetry,
     );
   }
 }

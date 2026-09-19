@@ -819,16 +819,33 @@ void main() {
     );
   });
 
-  testWidgets('automatic Mission failure becomes a safe Chat message', (
+  testWidgets('automatic English Mission failure shows a retryable error card', (
     tester,
   ) async {
     final missionRepository = MemoryMissionRepository();
     final controller = MissionController(repository: missionRepository);
+    var runCount = 0;
     final coordinator = ChatMissionCoordinator(
       missionController: controller,
       restoreExecutions: (_) async {},
       runMission: (missionId) async {
-        return (await missionRepository.getMission(missionId))!;
+        runCount++;
+        final mission = (await missionRepository.getMission(missionId))!;
+        if (runCount == 1) {
+          return mission;
+        }
+
+        return mission.copyWith(
+          tasks: mission.tasks
+              .map(
+                (task) => task.copyWith(
+                  status: TaskStatus.completed,
+                  output: 'Ready-to-use finished result',
+                  completedAt: DateTime(2026, 9, 19),
+                ),
+              )
+              .toList(growable: false),
+        );
       },
     );
     final container = ProviderContainer(
@@ -858,12 +875,203 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.text("Ovexiq couldn't finish that request. Please try again."),
+      find.byKey(const ValueKey<String>('mission-error-card')),
       findsOneWidget,
     );
+    expect(
+      find.text("Ovexiq couldn't finish this task. Please try again."),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('Copy'), findsOneWidget);
+    expect(find.byTooltip('Retry'), findsOneWidget);
     expect(find.text('Run Task'), findsNothing);
     expect(find.text('Retry Task'), findsNothing);
     expect(find.text('Accept Result'), findsNothing);
+
+    await tester.tap(find.byTooltip('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(runCount, 2);
+    expect(await missionRepository.getAllMissions(), hasLength(1));
+    expect(
+      container
+          .read(chatControllerProvider)
+          .messages
+          .where(
+            (message) =>
+                message.content ==
+                'Create a 30-day social media content calendar for a coffee shop',
+          ),
+      hasLength(1),
+    );
+    expect(
+      find.byKey(const ValueKey<String>('mission-error-card')),
+      findsNothing,
+    );
+    expect(find.text('Ready-to-use finished result'), findsWidgets);
+  });
+
+  testWidgets(
+    'automatic Burmese Mission failure shows a localized error card',
+    (tester) async {
+      final missionRepository = MemoryMissionRepository();
+      final coordinator = ChatMissionCoordinator(
+        missionController: MissionController(repository: missionRepository),
+        restoreExecutions: (_) async {},
+        runMission: (missionId) async {
+          return (await missionRepository.getMission(missionId))!;
+        },
+      );
+      final container = ProviderContainer(
+        overrides: <Override>[
+          conversationRepositoryProvider.overrideWithValue(
+            _MemoryConversationRepository(),
+          ),
+          aiChatServiceProvider.overrideWithValue(_SuccessfulAIChatService()),
+          missionRepositoryProvider.overrideWithValue(missionRepository),
+          chatMissionCoordinatorProvider.overrideWithValue(coordinator),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: AIChatScreen()),
+        ),
+      );
+
+      await tester.enterText(
+        find.byType(TextField),
+        'Facebook နဲ့ TikTok အတွက် 30 ရက်စာ Content Plan ဖန်တီးပေးပါ။',
+      );
+      await tester.tap(find.byTooltip('Send'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          'Ovexiq က ဒီလုပ်ငန်းကို အပြီးမလုပ်ဆောင်နိုင်သေးပါ။ ထပ်စမ်းကြည့်ပါ။',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('mission-error-card')),
+        findsOneWidget,
+      );
+      expect(find.byTooltip('Copy'), findsOneWidget);
+      expect(find.byTooltip('Retry'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Mission Retry is unavailable while the existing Mission is running',
+    (tester) async {
+      final missionRepository = MemoryMissionRepository();
+      final retryCompleter = Completer<Mission>();
+      var runCount = 0;
+      final coordinator = ChatMissionCoordinator(
+        missionController: MissionController(repository: missionRepository),
+        restoreExecutions: (_) async {},
+        runMission: (missionId) {
+          runCount++;
+          if (runCount == 1) {
+            return missionRepository
+                .getMission(missionId)
+                .then((mission) => mission!);
+          }
+          return retryCompleter.future;
+        },
+      );
+      final container = ProviderContainer(
+        overrides: <Override>[
+          conversationRepositoryProvider.overrideWithValue(
+            _MemoryConversationRepository(),
+          ),
+          aiChatServiceProvider.overrideWithValue(_SuccessfulAIChatService()),
+          missionRepositoryProvider.overrideWithValue(missionRepository),
+          chatMissionCoordinatorProvider.overrideWithValue(coordinator),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: AIChatScreen()),
+        ),
+      );
+      await tester.enterText(
+        find.byType(TextField),
+        'Create a 30-day social media content calendar for a coffee shop',
+      );
+      await tester.tap(find.byTooltip('Send'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Retry'));
+      await tester.pump();
+
+      expect(runCount, 2);
+      expect(find.text('Ovexiq is working...'), findsOneWidget);
+      expect(find.byTooltip('Retry'), findsNothing);
+
+      final mission = (await missionRepository.getAllMissions()).single;
+      retryCompleter.complete(_completedMission(mission));
+      await tester.pumpAndSettle();
+      expect(runCount, 2);
+      expect(
+        find.byKey(const ValueKey<String>('finished-result-card')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('a failed Mission retry remains safely retryable', (
+    tester,
+  ) async {
+    final missionRepository = MemoryMissionRepository();
+    var runCount = 0;
+    final coordinator = ChatMissionCoordinator(
+      missionController: MissionController(repository: missionRepository),
+      restoreExecutions: (_) async {},
+      runMission: (missionId) async {
+        runCount++;
+        return (await missionRepository.getMission(missionId))!;
+      },
+    );
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(
+          _MemoryConversationRepository(),
+        ),
+        aiChatServiceProvider.overrideWithValue(_SuccessfulAIChatService()),
+        missionRepositoryProvider.overrideWithValue(missionRepository),
+        chatMissionCoordinatorProvider.overrideWithValue(coordinator),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AIChatScreen()),
+      ),
+    );
+    await tester.enterText(
+      find.byType(TextField),
+      'Create a 30-day social media content calendar for a coffee shop',
+    );
+    await tester.tap(find.byTooltip('Send'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(runCount, 2);
+    expect(
+      find.byKey(const ValueKey<String>('mission-error-card')),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('Retry'), findsOneWidget);
+    expect(await missionRepository.getAllMissions(), hasLength(1));
   });
 }
 

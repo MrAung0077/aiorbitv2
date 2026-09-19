@@ -5,6 +5,7 @@ import 'package:aiorbit/features/mission/models/mission_task.dart';
 import 'package:aiorbit/features/mission/models/task_status.dart';
 import 'package:aiorbit/features/mission/services/mission_task_ai_request_builder.dart';
 import 'package:aiorbit/core/text/response_language.dart';
+import 'package:aiorbit/core/ai/ai_message.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -278,9 +279,20 @@ void main() {
     for (final task in mission.tasks) {
       final request = builder.build(mission: mission, task: task);
       final prompt = request.latestUserPrompt;
-      expect(prompt, contains('natural Burmese throughout'));
-      expect(prompt, contains('every heading, bullet'));
-      expect(prompt, contains('Never use the pronouns မင်း, နင်, or ငါ'));
+      final systemMessages = request.messages.where(
+        (message) => message.role == AIMessageRole.system,
+      );
+      expect(systemMessages, hasLength(1));
+      expect(
+        systemMessages.single.content,
+        contains('natural Burmese throughout'),
+      );
+      expect(systemMessages.single.content, contains('every heading, bullet'));
+      expect(
+        systemMessages.single.content,
+        contains('Never use the pronouns မင်း, နင်, or ငါ'),
+      );
+      expect(prompt, isNot(contains('natural Burmese throughout')));
       expect(prompt, isNot(contains('ရည်အသွား')));
       expect(prompt, isNot(contains('ဒျမိုန့် tips')));
       expect(prompt, isNot(contains('စိတ်တိုချင်းဖျော်ဖြေရေး')));

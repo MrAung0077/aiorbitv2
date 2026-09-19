@@ -1,4 +1,5 @@
 import '../../../core/ai/ai_request.dart';
+import '../../../core/ai/ai_message.dart';
 import '../../../core/text/response_language.dart';
 import '../models/mission.dart';
 import '../models/mission_task.dart';
@@ -50,7 +51,8 @@ class MissionTaskAIRequestBuilder {
       if (missionGoal.isNotEmpty) 'Mission goal: $missionGoal',
       if (userContext != null && userContext.isNotEmpty)
         'User context: $userContext',
-      responseLanguageInstructionFor(missionGoal),
+      if (responseLanguage != ResponseLanguage.burmese)
+        responseLanguageInstructionFor(missionGoal),
       'Honesty: Describe only preparation performed in this response. Do not claim code, files, tests, deployment, designs, videos, or external-tool execution were completed unless the mission context proves it.',
       'When an external execution tool is needed, deliver the complete preparation package and clear handoff instructions instead of a dead end.',
       'Treat numbers, audience ranges, posting times, and performance thresholds as starting assumptions or recommended defaults unless the user supplied evidence.',
@@ -66,8 +68,15 @@ class MissionTaskAIRequestBuilder {
         'Input context: $inputContext',
     ];
 
-    return AIRequest.fromPrompt(
-      prompt: promptLines.join('\n'),
+    return AIRequest(
+      messages: <AIMessage>[
+        if (responseLanguage == ResponseLanguage.burmese)
+          const AIMessage(
+            role: AIMessageRole.system,
+            content: burmeseResponseWritingPolicy,
+          ),
+        AIMessage(role: AIMessageRole.user, content: promptLines.join('\n')),
+      ],
       responseLanguage: responseLanguage,
       metadata: <String, Object?>{
         'missionId': mission.id,
