@@ -42,6 +42,10 @@ const MAX_OUTPUT_TOKENS = 4_096;
 const MAX_BURMESE_OUTPUT_TOKENS = 1_800;
 const OPENAI_TIMEOUT_MS = 30_000;
 const OPENROUTER_TIMEOUT_MS = 20_000;
+// Cloudflare permits an HTTP Worker to wait on a subrequest while the client
+// remains connected. Burmese Mission responses can legitimately need longer
+// than the standard route, so keep this narrowly scoped to that route.
+const BURMESE_STRONG_TIMEOUT_MS = 75_000;
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const OPENAI_IMAGES_URL = "https://api.openai.com/v1/images/generations";
 const OPENAI_SPEECH_URL = "https://api.openai.com/v1/audio/speech";
@@ -51,7 +55,7 @@ const OPENAI_IMAGE_MODEL = "gpt-image-2";
 const OPENAI_SPEECH_MODEL = "gpt-4o-mini-tts";
 const OPENAI_SPEECH_VOICE = "nova";
 const OPENAI_TRANSCRIPTION_MODEL = "whisper-1";
-const BURMESE_STRONG_MODEL = "gpt-6-astra";
+const BURMESE_STRONG_MODEL = "openai/gpt-6-astra";
 const RESPONSE_LANGUAGES = new Set(["my", "en", "auto"]);
 const ALLOWED_ROLES = new Set(["system", "user", "assistant"]);
 const DAILY_QUOTA_OBJECT_NAME = "ovexiq-beta-daily-quota";
@@ -1632,6 +1636,9 @@ async function callProvider(input, env, fetchProvider) {
   let providerResult;
   let fallbackAttempted = false;
   let selectedModel;
+  const correlationId = input.responseLanguage === "my"
+    ? createSafeCorrelationId()
+    : null;
 
   if (input.responseLanguage === "my") {
     routeClass = "burmese_strong";
@@ -1651,9 +1658,14 @@ async function callProvider(input, env, fetchProvider) {
     fallbackAttempted,
     startedAt,
     selectedModel,
+    responseLanguage: input.responseLanguage,
+    correlationId,
   });
 
-  return providerResult.response ?? providerResult.failureResponse;
+  const response = providerResult.response ?? providerResult.failureResponse;
+  return correlationId === null
+    ? response
+    : withSafeCorrelationId(response, correlationId);
 }
 
 async function callStandardProvider(input, env, fetchProvider) {
@@ -1674,13 +1686,133 @@ async function callStandardProvider(input, env, fetchProvider) {
 }
 
 async function callBurmeseStrongProvider(input, env, fetchProvider) {
-  return callOpenAiModel(
-    input,
-    env,
+  const providerApiKey = configuredValue(env.OPENROUTER_API_KEY);
+  const telemetry = {
+    providerTransport: "openrouter_chat_completions",
+    timeout: false,
+  };
+
+  if (providerApiKey.length === 0) {
+    return providerFailure(
+      503,
+      "provider_unavailable",
+      "Ovexiq AI is temporarily unavailable.",
+      false,
+      telemetry,
+    );
+  }
+
+  // This intentionally mirrors the independently verified OpenRouter Chat
+  // Completions request shape. Do not add temperature or reasoning fields:
+  // neither is required for this strong Burmese route.
+  const fetchResult = await fetchWithTimeout(
     fetchProvider,
-    BURMESE_STRONG_MODEL,
-    MAX_BURMESE_OUTPUT_TOKENS,
+    OPENROUTER_CHAT_COMPLETIONS_URL,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${providerApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: BURMESE_STRONG_MODEL,
+        messages: input.messages,
+        max_tokens: effectiveOutputTokenLimit(input, MAX_BURMESE_OUTPUT_TOKENS),
+      }),
+    },
+    BURMESE_STRONG_TIMEOUT_MS,
   );
+
+  if (fetchResult.error !== null) {
+    if (fetchResult.timedOut) {
+      return providerFailure(
+        504,
+        "provider_timeout",
+        "Ovexiq AI timed out. Please try again.",
+        false,
+        { ...telemetry, timeout: true },
+      );
+    }
+
+    return providerFailure(
+      502,
+      "provider_transport_failure",
+      "Ovexiq AI is temporarily unavailable.",
+      false,
+      telemetry,
+    );
+  }
+
+  const providerResponse = fetchResult.response;
+  if (!providerResponse.ok) {
+    const failureCategory = providerFailureCategoryForStatus(providerResponse.status);
+    return providerFailure(
+      502,
+      failureCategory,
+      "Ovexiq AI is temporarily unavailable.",
+      false,
+      {
+        ...telemetry,
+        upstreamHttpStatus: providerResponse.status,
+        upstreamStatusCategory: providerStatusCategory(providerResponse.status),
+      },
+    );
+  }
+
+  let providerPayload;
+  try {
+    providerPayload = await providerResponse.json();
+  } catch {
+    return providerFailure(
+      502,
+      "invalid_provider_response",
+      "Ovexiq AI returned an invalid response.",
+      false,
+      {
+        ...telemetry,
+        upstreamHttpStatus: providerResponse.status,
+        upstreamStatusCategory: providerStatusCategory(providerResponse.status),
+      },
+    );
+  }
+
+  const content = extractOpenRouterOutputText(providerPayload);
+  if (content.length === 0) {
+    return providerFailure(
+      502,
+      "empty_provider_response",
+      "Ovexiq AI returned an empty response.",
+      false,
+      {
+        ...telemetry,
+        upstreamHttpStatus: providerResponse.status,
+        upstreamStatusCategory: providerStatusCategory(providerResponse.status),
+      },
+    );
+  }
+
+  const usage = providerPayload?.usage;
+  return providerSuccess({
+    content,
+    ...(typeof providerPayload?.model === "string" ? { model: providerPayload.model } : {}),
+    ...(typeof providerPayload?.id === "string" ? { requestId: providerPayload.id } : {}),
+    ...(usage !== null && typeof usage === "object"
+      ? {
+          usage: {
+            ...(Number.isInteger(usage.prompt_tokens)
+              ? { promptTokens: usage.prompt_tokens }
+              : {}),
+            ...(Number.isInteger(usage.completion_tokens)
+              ? { completionTokens: usage.completion_tokens }
+              : {}),
+          },
+        }
+      : {}),
+  }, BURMESE_STRONG_MODEL, {
+    ...telemetry,
+    upstreamHttpStatus: providerResponse.status,
+    upstreamStatusCategory: providerStatusCategory(providerResponse.status),
+  });
 }
 
 async function callOpenAi(input, env, fetchProvider) {
@@ -2153,22 +2285,75 @@ function logProviderRouteTelemetry({
   fallbackAttempted,
   startedAt,
   selectedModel,
+  responseLanguage,
+  correlationId,
 }) {
   const telemetry = providerResult.telemetry ?? {};
   const usage = telemetry.usage ?? {};
   console.info(JSON.stringify({
     event: "ovexiq_ai_route",
+    ...(correlationId !== null ? { request_id: correlationId } : {}),
+    response_language: responseLanguage,
     route_class: routeClass,
+    provider_transport: telemetry.providerTransport ?? null,
     provider_outcome: telemetry.outcome ?? "failure",
     model: telemetry.model ?? selectedModel ?? "unknown",
     fallback_attempted: fallbackAttempted,
     failure_category: telemetry.failureCategory ?? null,
+    upstream_http_status: Number.isInteger(telemetry.upstreamHttpStatus)
+      ? telemetry.upstreamHttpStatus
+      : null,
+    upstream_status_category: telemetry.upstreamStatusCategory ?? null,
+    timeout: telemetry.timeout === true,
     latency_ms: Math.max(0, Date.now() - startedAt),
     prompt_tokens: Number.isInteger(usage.promptTokens) ? usage.promptTokens : null,
     completion_tokens: Number.isInteger(usage.completionTokens)
       ? usage.completionTokens
       : null,
   }));
+}
+
+function providerFailureCategoryForStatus(status) {
+  if (status === 429) {
+    return "provider_rate_limited";
+  }
+  if (status >= 500 && status <= 599) {
+    return "provider_upstream_5xx";
+  }
+  if (status >= 400 && status <= 499) {
+    return "provider_rejected_4xx";
+  }
+  return "provider_unexpected_status";
+}
+
+function providerStatusCategory(status) {
+  if (status === 429) {
+    return "429";
+  }
+  if (status >= 500 && status <= 599) {
+    return "5xx";
+  }
+  if (status >= 400 && status <= 499) {
+    return "4xx";
+  }
+  if (status >= 200 && status <= 299) {
+    return "2xx";
+  }
+  return "other";
+}
+
+function createSafeCorrelationId() {
+  return crypto.randomUUID();
+}
+
+function withSafeCorrelationId(response, correlationId) {
+  const headers = new Headers(response.headers);
+  headers.set("X-Ovexiq-Request-Id", correlationId);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 async function fetchWithTimeout(fetchProvider, url, options, timeoutMs) {
@@ -2344,7 +2529,7 @@ function isFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-function providerSuccess(response, telemetryModel) {
+function providerSuccess(response, telemetryModel, telemetryExtras = {}) {
   return {
     response: jsonResponse(response),
     failureResponse: null,
@@ -2353,11 +2538,12 @@ function providerSuccess(response, telemetryModel) {
       outcome: "success",
       model: typeof response.model === "string" ? response.model : telemetryModel ?? "unknown",
       usage: response.usage ?? null,
+      ...telemetryExtras,
     },
   };
 }
 
-function providerFailure(status, code, message, canFallback = false) {
+function providerFailure(status, code, message, canFallback = false, telemetryExtras = {}) {
   return {
     response: null,
     failureResponse: errorResponse(status, code, message),
@@ -2365,6 +2551,7 @@ function providerFailure(status, code, message, canFallback = false) {
     telemetry: {
       outcome: "failure",
       failureCategory: code,
+      ...telemetryExtras,
     },
   };
 }

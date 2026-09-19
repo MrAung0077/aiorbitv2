@@ -607,9 +607,9 @@ test("routes Burmese requests to the approved strong model", async () => {
   let upstreamBody;
   const providerFetch = async (url, options) => {
     calls += 1;
-    assert.equal(url, "https://api.openai.com/v1/responses");
+    assert.equal(url, "https://openrouter.ai/api/v1/chat/completions");
     upstreamBody = JSON.parse(options.body);
-    return openAiSuccess("Burmese result");
+    return openRouterSuccess("Burmese result");
   };
 
   const response = await handleAuthorizedRequest(
@@ -620,16 +620,19 @@ test("routes Burmese requests to the approved strong model", async () => {
 
   assert.equal(response.status, 200);
   assert.equal(calls, 1);
-  assert.equal(upstreamBody.model, "gpt-6-astra");
-  assert.equal(upstreamBody.max_output_tokens, 800);
+  assert.equal(upstreamBody.model, "openai/gpt-6-astra");
+  assert.equal(upstreamBody.max_tokens, 800);
+  assert.deepEqual(upstreamBody.messages, burmeseBody().messages);
+  assert.equal("temperature" in upstreamBody, false);
+  assert.equal("reasoning" in upstreamBody, false);
 });
 
 test("caps Burmese output tokens at the server-side maximum", async () => {
   let upstreamBody;
   const providerFetch = async (url, options) => {
-    assert.equal(url, "https://api.openai.com/v1/responses");
+    assert.equal(url, "https://openrouter.ai/api/v1/chat/completions");
     upstreamBody = JSON.parse(options.body);
-    return openAiSuccess("Burmese result");
+    return openRouterSuccess("Burmese result");
   };
 
   const response = await handleAuthorizedRequest(
@@ -639,7 +642,7 @@ test("caps Burmese output tokens at the server-side maximum", async () => {
   );
 
   assert.equal(response.status, 200);
-  assert.equal(upstreamBody.max_output_tokens, 1800);
+  assert.equal(upstreamBody.max_tokens, 1800);
 });
 
 test("does not downgrade Burmese requests when the strong model fails", async () => {
@@ -649,7 +652,7 @@ test("does not downgrade Burmese requests when the strong model fails", async ()
     createEnv(),
     async (url) => {
       calls += 1;
-      assert.equal(url, "https://api.openai.com/v1/responses");
+      assert.equal(url, "https://openrouter.ai/api/v1/chat/completions");
       return new Response("", { status: 503 });
     },
   );
@@ -712,7 +715,7 @@ test("safe route telemetry excludes request content and credentials", async () =
     const response = await handleAuthorizedRequest(
       createRequest(burmeseBody()),
       createEnv(),
-      async () => openAiSuccess("Burmese result"),
+      async () => openRouterSuccess("Burmese result"),
     );
 
     assert.equal(response.status, 200);
@@ -724,13 +727,129 @@ test("safe route telemetry excludes request content and credentials", async () =
   const event = JSON.parse(telemetry[0]);
   assert.equal(event.event, "ovexiq_ai_route");
   assert.equal(event.route_class, "burmese_strong");
+  assert.equal(event.response_language, "my");
+  assert.equal(event.provider_transport, "openrouter_chat_completions");
   assert.equal(event.provider_outcome, "success");
-  assert.equal(event.model, "openai-test-model");
+  assert.equal(event.model, "openai/gpt-6-astra");
   assert.equal(event.fallback_attempted, false);
   assert.equal(event.failure_category, null);
+  assert.match(event.request_id, /^[0-9a-f-]{36}$/i);
   assert.equal(JSON.stringify(event).includes("Research Kaspa"), false);
   assert.equal(JSON.stringify(event).includes(openAiSecret), false);
   assert.equal(JSON.stringify(event).includes(betaToken), false);
+});
+
+test("maps Burmese upstream failures to safe distinct telemetry without a fallback", async () => {
+  const cases = [
+    { status: 400, category: "provider_rejected_4xx", statusCategory: "4xx" },
+    { status: 429, category: "provider_rate_limited", statusCategory: "429" },
+    { status: 503, category: "provider_upstream_5xx", statusCategory: "5xx" },
+  ];
+
+  for (const { status, category, statusCategory } of cases) {
+    const telemetry = [];
+    const originalInfo = console.info;
+    console.info = (entry) => telemetry.push(entry);
+    try {
+      const response = await handleAuthorizedRequest(
+        createRequest(burmeseBody()),
+        createEnv(),
+        async () => new Response("", { status }),
+      );
+
+      assert.equal(response.status, 502);
+      assert.match(response.headers.get("X-Ovexiq-Request-Id"), /^[0-9a-f-]{36}$/i);
+    } finally {
+      console.info = originalInfo;
+    }
+
+    const event = JSON.parse(telemetry[0]);
+    assert.equal(event.failure_category, category);
+    assert.equal(event.upstream_http_status, status);
+    assert.equal(event.upstream_status_category, statusCategory);
+    assert.equal(event.fallback_attempted, false);
+    assert.equal(event.timeout, false);
+  }
+});
+
+test("maps malformed, empty, and timeout Burmese provider results safely", async () => {
+  const cases = [
+    {
+      name: "malformed",
+      fetch: async () => new Response("not json", { status: 200 }),
+      category: "invalid_provider_response",
+      timedOut: false,
+    },
+    {
+      name: "empty",
+      fetch: async () => new Response(JSON.stringify({ choices: [] }), { status: 200 }),
+      category: "empty_provider_response",
+      timedOut: false,
+    },
+    {
+      name: "timeout",
+      fetch: async () => {
+        const error = new Error("timeout");
+        error.name = "AbortError";
+        throw error;
+      },
+      category: "provider_timeout",
+      timedOut: true,
+    },
+  ];
+
+  for (const testCase of cases) {
+    const telemetry = [];
+    const originalInfo = console.info;
+    console.info = (entry) => telemetry.push(entry);
+    try {
+      const response = await handleAuthorizedRequest(
+        createRequest(burmeseBody()),
+        createEnv(),
+        testCase.fetch,
+      );
+      assert.equal(response.status, testCase.name === "timeout" ? 504 : 502);
+    } finally {
+      console.info = originalInfo;
+    }
+
+    const event = JSON.parse(telemetry[0]);
+    assert.equal(event.failure_category, testCase.category);
+    assert.equal(event.timeout, testCase.timedOut);
+    assert.equal(event.fallback_attempted, false);
+  }
+});
+
+test("uses the extended timeout only for the Burmese strong route", async () => {
+  const observedTimeouts = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (callback, delay, ...args) => {
+    observedTimeouts.push(delay);
+    return originalSetTimeout(callback, delay, ...args);
+  };
+
+  try {
+    const burmeseResponse = await handleAuthorizedRequest(
+      createRequest(burmeseBody()),
+      createEnv(),
+      async () => openRouterSuccess("Burmese result"),
+    );
+    assert.equal(burmeseResponse.status, 200);
+    assert.ok(observedTimeouts.includes(75_000));
+    observedTimeouts.length = 0;
+
+    const englishResponse = await handleAuthorizedRequest(
+      createRequest(validBody()),
+      createEnv(),
+      async () => openAiSuccess("English result"),
+    );
+    assert.equal(englishResponse.status, 200);
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+
+  assert.ok(observedTimeouts.includes(30_000));
+  assert.equal(observedTimeouts.includes(75_000), false);
 });
 
 test("falls back after each allowed transient primary failure", async () => {
