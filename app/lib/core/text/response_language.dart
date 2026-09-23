@@ -57,7 +57,7 @@ ResponseLanguage responseLanguageFor(String input) {
 }
 
 final RegExp _explicitEnglishRequest = RegExp(
-  r'\b(?:in|respond in|write in|reply in)\s+english\b',
+  r'(?:\b(?:in|respond in|write in|reply in)\s+english\b|english\s*(?:လို|နဲ့|ဖြင့်|နှင့်)|အင်္ဂလိပ်လို|အင်္ဂလိပ်ဘာသာ(?:နဲ့|ဖြင့်|နှင့်)?)',
   caseSensitive: false,
 );
 

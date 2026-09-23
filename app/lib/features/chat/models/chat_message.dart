@@ -55,4 +55,21 @@ class ChatMessage {
   });
 
   bool get isUser => role == ChatRole.user;
+
+  ChatMessage copyWith({
+    String? content,
+    String? providerName,
+    bool? isError,
+    ChatAttachment? attachment,
+  }) {
+    return ChatMessage(
+      id: id,
+      role: role,
+      content: content ?? this.content,
+      createdAt: createdAt,
+      providerName: providerName ?? this.providerName,
+      isError: isError ?? this.isError,
+      attachment: attachment ?? this.attachment,
+    );
+  }
 }

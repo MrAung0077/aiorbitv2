@@ -922,7 +922,11 @@ void main() {
 
         expect(controller.state.error, isNotNull);
         expect(controller.state.error!.canRetryLastResponse, isTrue);
-        expect(controller.state.messages.last.content, 'Partial response');
+        expect(
+          controller.state.messages.last.content,
+          "Ovexiq couldn't finish that request. Please try again.",
+        );
+        expect(controller.state.messages.last.isError, isTrue);
 
         await controller.regenerateLastResponse();
 

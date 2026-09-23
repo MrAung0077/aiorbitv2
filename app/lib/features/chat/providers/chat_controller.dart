@@ -1,4 +1,5 @@
 import 'package:aiorbit/core/ai/ai.dart';
+import 'package:aiorbit/core/text/response_language.dart';
 import 'package:aiorbit/features/mission/models/mission_suggestion.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -530,14 +531,10 @@ class ChatController extends StateNotifier<ChatState> {
       debugPrint(stackTrace.toString());
       debugPrint('====================================');
 
-      state = state.copyWith(
-        isSending: false,
-        error: ChatControllerException(
-          error.toString(),
-          cause: error,
-          stackTrace: stackTrace,
-          canRetryLastResponse: true,
-        ),
+      await _recordRetryableFailure(
+        conversation: state.conversation ?? conversation,
+        error: error,
+        stackTrace: stackTrace,
       );
     }
   }
@@ -1078,16 +1075,71 @@ class ChatController extends StateNotifier<ChatState> {
       debugPrint('AI REGENERATE ERROR: $error');
       debugPrintStack(stackTrace: stackTrace);
 
-      state = state.copyWith(
-        isSending: false,
-        error: ChatControllerException(
-          error.toString(),
-          cause: error,
-          stackTrace: stackTrace,
-          canRetryLastResponse: true,
+      await _recordRetryableFailure(
+        conversation: state.conversation ?? conversation,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  Future<void> _recordRetryableFailure({
+    required Conversation conversation,
+    required Object error,
+    required StackTrace stackTrace,
+  }) async {
+    final lastUserIndex = conversation.messages.lastIndexWhere(
+      (message) => message.role == ChatRole.user,
+    );
+    final responseLanguage = lastUserIndex < 0
+        ? ResponseLanguage.english
+        : responseLanguageFor(conversation.messages[lastUserIndex].content);
+    final message = responseLanguage == ResponseLanguage.burmese
+        ? 'Ovexiq က ဒီအဖြေကို အပြီးမပေးနိုင်သေးပါ။ ထပ်စမ်းကြည့်ပါ။'
+        : "Ovexiq couldn't finish that request. Please try again.";
+    final lastAssistantIndex = conversation.messages.lastIndexWhere(
+      (candidate) => candidate.role == ChatRole.assistant,
+    );
+    final messages = <ChatMessage>[...conversation.messages];
+    if (lastAssistantIndex >= 0 && lastAssistantIndex > lastUserIndex) {
+      messages[lastAssistantIndex] = messages[lastAssistantIndex].copyWith(
+        content: message,
+        isError: true,
+      );
+    } else {
+      final createdAt = _nextActivityTime();
+      messages.add(
+        ChatMessage(
+          id: createdAt.microsecondsSinceEpoch.toString(),
+          role: ChatRole.assistant,
+          content: message,
+          createdAt: createdAt,
+          isError: true,
         ),
       );
     }
+    final failedConversation = conversation.copyWith(
+      messages: messages,
+      updatedAt: _nextActivityTime(),
+    );
+    try {
+      await _conversationRepository.saveConversation(failedConversation);
+    } catch (_) {
+      // The visible state remains retryable when persistence is unavailable.
+    }
+    if (!mounted) {
+      return;
+    }
+    state = state.copyWith(
+      conversation: failedConversation,
+      isSending: false,
+      error: ChatControllerException(
+        error.toString(),
+        cause: error,
+        stackTrace: stackTrace,
+        canRetryLastResponse: true,
+      ),
+    );
   }
 
   MessageFeedback feedbackFor(String messageId) {

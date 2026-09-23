@@ -1,4 +1,4 @@
-enum ChatClarificationIntent { facebookPost, tiktokVideos }
+enum ChatClarificationIntent { facebookPost, tiktokVideos, socialContentPlan }
 
 class PendingChatClarification {
   const PendingChatClarification({

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,8 +28,10 @@ import 'widgets/finished_result_card.dart';
 import 'widgets/generated_image_card.dart';
 import 'widgets/video_attachment_card.dart';
 import '../mission/providers/chat_mission_coordinator_provider.dart';
+import '../mission/providers/mission_provider.dart';
 import '../mission/services/chat_mission_coordinator.dart';
 import '../mission/services/chat_mission_result_adapter.dart';
+import '../mission/models/mission_status.dart';
 import '../mission/models/mission_suggestion.dart';
 
 class AIChatScreen extends ConsumerStatefulWidget {
@@ -57,6 +61,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
   ChatImageGenerationOperation? _activeImageGeneration;
   String? _activeImageRequestKey;
   var _isVideoIngesting = false;
+  final Set<String> _recoveredMissionConversations = <String>{};
 
   @override
   void initState() {
@@ -496,6 +501,12 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     final imageActionAppeared =
         previous?.imageActionRequest != next.imageActionRequest &&
         next.imageActionRequest != null;
+    final conversationChanged =
+        previous?.conversation?.id != next.conversation?.id;
+
+    if (conversationChanged && next.conversation != null) {
+      unawaited(_recoverPersistedMissionIfNeeded(next));
+    }
 
     if (missionSuggestionAppeared || imageActionAppeared) {
       if (previous == null) {
@@ -529,6 +540,44 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     }
   }
 
+  Future<void> _recoverPersistedMissionIfNeeded(ChatState chatState) async {
+    final conversation = chatState.conversation;
+    if (conversation == null ||
+        !_recoveredMissionConversations.add(conversation.id) ||
+        _missionWorkState == _MissionWorkState.working ||
+        !ref.read(isarInitializedProvider)) {
+      return;
+    }
+    final mission = await ref
+        .read(missionControllerProvider)
+        .getMissionForConversation(conversation.id);
+    if (!mounted || mission == null) {
+      return;
+    }
+    if (mission.status == MissionStatus.completed ||
+        mission.taskProgress.isComplete) {
+      setState(() {
+        _finishedMissionResult = const ChatMissionResultAdapter().fromMission(
+          mission,
+        );
+      });
+      return;
+    }
+    final suggestion = MissionSuggestion(
+      title: mission.title,
+      goal: mission.goal,
+      category: mission.category,
+      reason: '',
+      plannedSteps: mission.tasks
+          .map((task) => task.title)
+          .toList(growable: false),
+    );
+    await _startSuggestedMissionIfNeeded(
+      chatState,
+      suggestionOverride: suggestion,
+    );
+  }
+
   void _startDetectedWork(
     ChatState chatState, {
     required bool missionSuggestionAppeared,
@@ -550,7 +599,8 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     final isBrainOverlayVisible = ref.watch(brainOverlayVisibleProvider);
 
     final messages = chatState.messages;
-    final hasError = chatState.error != null;
+    final hasPersistedError = messages.isNotEmpty && messages.last.isError;
+    final hasError = chatState.error != null && !hasPersistedError;
     final canRetryLastResponse =
         chatState.error?.canRetryLastResponse == true && !chatState.isSending;
     final isMissionWorking = _missionWorkState == _MissionWorkState.working;
@@ -627,6 +677,11 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                                   index == messages.length - 1 &&
                                   message.role == ChatRole.assistant &&
                                   !message.isError;
+                              final isLastRetryableError =
+                                  index == messages.length - 1 &&
+                                  message.role == ChatRole.assistant &&
+                                  message.isError &&
+                                  !chatState.isSending;
 
                               return AppMessageBubble(
                                 message: message,
@@ -660,6 +715,11 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                                             )
                                             .regenerateLastResponse();
                                       }
+                                    : null,
+                                onRetry: isLastRetryableError
+                                    ? () => ref
+                                          .read(chatControllerProvider.notifier)
+                                          .regenerateLastResponse()
                                     : null,
                               );
                             }

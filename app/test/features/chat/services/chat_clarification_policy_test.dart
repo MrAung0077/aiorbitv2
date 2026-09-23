@@ -87,5 +87,32 @@ void main() {
       );
       expect(result.resolvedPrompt, contains('Our summer sale'));
     });
+
+    test('asks one niche question before a social content-plan Mission', () {
+      final result = policy.resolve(
+        prompt:
+            'Facebook နဲ့ TikTok မှာ fake follower မသုံးဘဲ follower တိုးဖို့ ရက် ၃၀ Content Plan ဖန်တီးပေးပါ။',
+        pendingClarification: null,
+      );
+
+      expect(result, isA<ChatClarificationRequest>());
+      final request = result as ChatClarificationRequest;
+      expect(
+        request.pendingIntent.intent,
+        ChatClarificationIntent.socialContentPlan,
+      );
+      expect(request.pendingIntent.requiredField, 'contentNiche');
+      expect(request.question, contains('Page'));
+    });
+
+    test('does not ask again when a social content-plan niche is supplied', () {
+      final result = policy.resolve(
+        prompt:
+            'Create a 30-day Facebook and TikTok content plan for a home-cooking Page.',
+        pendingClarification: null,
+      );
+
+      expect(result, isA<ChatClarificationProceed>());
+    });
   });
 }

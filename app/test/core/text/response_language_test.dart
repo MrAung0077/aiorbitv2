@@ -62,5 +62,28 @@ void main() {
         ResponseLanguage.burmese,
       );
     });
+
+    test(
+      'honors Burmese-language wording that explicitly requests English',
+      () {
+        expect(
+          responseLanguageFor(
+            'မြန်မာနိုင်ငံအကြောင်းကို English လို အတိုချုံးပြောပါ',
+          ),
+          ResponseLanguage.english,
+        );
+        expect(
+          responseLanguageFor('Facebook အကြောင်းကို အင်္ဂလိပ်လို ရှင်းပြပါ'),
+          ResponseLanguage.english,
+        );
+      },
+    );
+
+    test('honors explicit Burmese wording in otherwise English prompts', () {
+      expect(
+        responseLanguageFor('Explain Myanmar history. မြန်မာဘာသာနဲ့ ပြောပါ။'),
+        ResponseLanguage.burmese,
+      );
+    });
   });
 }

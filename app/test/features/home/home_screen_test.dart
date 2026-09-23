@@ -319,7 +319,7 @@ void main() {
 
     expect(find.byType(AIChatScreen), findsOneWidget);
     expect(
-      find.text('Something went wrong. Please try again.'),
+      find.text("Ovexiq couldn't finish that request. Please try again."),
       findsOneWidget,
     );
     expect(aiChatService.requests, hasLength(1));

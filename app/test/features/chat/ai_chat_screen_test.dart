@@ -911,57 +911,56 @@ void main() {
     expect(find.text('Ready-to-use finished result'), findsWidgets);
   });
 
-  testWidgets(
-    'automatic Burmese Mission failure shows a localized error card',
-    (tester) async {
-      final missionRepository = MemoryMissionRepository();
-      final coordinator = ChatMissionCoordinator(
-        missionController: MissionController(repository: missionRepository),
-        restoreExecutions: (_) async {},
-        runMission: (missionId) async {
-          return (await missionRepository.getMission(missionId))!;
-        },
-      );
-      final container = ProviderContainer(
-        overrides: <Override>[
-          conversationRepositoryProvider.overrideWithValue(
-            _MemoryConversationRepository(),
-          ),
-          aiChatServiceProvider.overrideWithValue(_SuccessfulAIChatService()),
-          missionRepositoryProvider.overrideWithValue(missionRepository),
-          chatMissionCoordinatorProvider.overrideWithValue(coordinator),
-        ],
-      );
-      addTearDown(container.dispose);
-
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: const MaterialApp(home: AIChatScreen()),
+  testWidgets('automatic Burmese Mission failure shows a localized error card', (
+    tester,
+  ) async {
+    final missionRepository = MemoryMissionRepository();
+    final coordinator = ChatMissionCoordinator(
+      missionController: MissionController(repository: missionRepository),
+      restoreExecutions: (_) async {},
+      runMission: (missionId) async {
+        return (await missionRepository.getMission(missionId))!;
+      },
+    );
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(
+          _MemoryConversationRepository(),
         ),
-      );
+        aiChatServiceProvider.overrideWithValue(_SuccessfulAIChatService()),
+        missionRepositoryProvider.overrideWithValue(missionRepository),
+        chatMissionCoordinatorProvider.overrideWithValue(coordinator),
+      ],
+    );
+    addTearDown(container.dispose);
 
-      await tester.enterText(
-        find.byType(TextField),
-        'Facebook နဲ့ TikTok အတွက် 30 ရက်စာ Content Plan ဖန်တီးပေးပါ။',
-      );
-      await tester.tap(find.byTooltip('Send'));
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AIChatScreen()),
+      ),
+    );
 
-      expect(
-        find.text(
-          'Ovexiq က ဒီလုပ်ငန်းကို အပြီးမလုပ်ဆောင်နိုင်သေးပါ။ ထပ်စမ်းကြည့်ပါ။',
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('mission-error-card')),
-        findsOneWidget,
-      );
-      expect(find.byTooltip('Copy'), findsOneWidget);
-      expect(find.byTooltip('Retry'), findsOneWidget);
-    },
-  );
+    await tester.enterText(
+      find.byType(TextField),
+      'Facebook နဲ့ TikTok အတွက် coffee shop Page ရဲ့ 30 ရက်စာ Content Plan ဖန်တီးပေးပါ။',
+    );
+    await tester.tap(find.byTooltip('Send'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'Ovexiq က ဒီလုပ်ငန်းကို အပြီးမလုပ်ဆောင်နိုင်သေးပါ။ ထပ်စမ်းကြည့်ပါ။',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('mission-error-card')),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('Copy'), findsOneWidget);
+    expect(find.byTooltip('Retry'), findsOneWidget);
+  });
 
   testWidgets(
     'Mission Retry is unavailable while the existing Mission is running',
