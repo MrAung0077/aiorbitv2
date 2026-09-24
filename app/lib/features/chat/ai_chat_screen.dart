@@ -33,6 +33,7 @@ import '../mission/services/chat_mission_coordinator.dart';
 import '../mission/services/chat_mission_result_adapter.dart';
 import '../mission/models/mission_suggestion.dart';
 import '../mission/models/mission_status.dart';
+import '../mission/models/task_status.dart';
 
 class AIChatScreen extends ConsumerStatefulWidget {
   const AIChatScreen({super.key});
@@ -570,6 +571,11 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
         _finishedMissionResult = const ChatMissionResultAdapter().fromMission(
           mission,
         );
+        return;
+      }
+      if (mission.status == MissionStatus.active &&
+          mission.tasks.any((task) => task.status == TaskStatus.inProgress)) {
+        _missionWorkState = _MissionWorkState.working;
         return;
       }
       _missionWorkState = _MissionWorkState.failed;
