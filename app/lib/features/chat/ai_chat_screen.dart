@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -28,10 +26,8 @@ import 'widgets/finished_result_card.dart';
 import 'widgets/generated_image_card.dart';
 import 'widgets/video_attachment_card.dart';
 import '../mission/providers/chat_mission_coordinator_provider.dart';
-import '../mission/providers/mission_provider.dart';
 import '../mission/services/chat_mission_coordinator.dart';
 import '../mission/services/chat_mission_result_adapter.dart';
-import '../mission/models/mission_status.dart';
 import '../mission/models/mission_suggestion.dart';
 
 class AIChatScreen extends ConsumerStatefulWidget {
@@ -61,7 +57,6 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
   ChatImageGenerationOperation? _activeImageGeneration;
   String? _activeImageRequestKey;
   var _isVideoIngesting = false;
-  final Set<String> _recoveredMissionConversations = <String>{};
 
   @override
   void initState() {
@@ -501,13 +496,6 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     final imageActionAppeared =
         previous?.imageActionRequest != next.imageActionRequest &&
         next.imageActionRequest != null;
-    final conversationChanged =
-        previous?.conversation?.id != next.conversation?.id;
-
-    if (conversationChanged && next.conversation != null) {
-      unawaited(_recoverPersistedMissionIfNeeded(next));
-    }
-
     if (missionSuggestionAppeared || imageActionAppeared) {
       if (previous == null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -538,44 +526,6 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
         }
       });
     }
-  }
-
-  Future<void> _recoverPersistedMissionIfNeeded(ChatState chatState) async {
-    final conversation = chatState.conversation;
-    if (conversation == null ||
-        !_recoveredMissionConversations.add(conversation.id) ||
-        _missionWorkState == _MissionWorkState.working ||
-        !ref.read(isarInitializedProvider)) {
-      return;
-    }
-    final mission = await ref
-        .read(missionControllerProvider)
-        .getMissionForConversation(conversation.id);
-    if (!mounted || mission == null) {
-      return;
-    }
-    if (mission.status == MissionStatus.completed ||
-        mission.taskProgress.isComplete) {
-      setState(() {
-        _finishedMissionResult = const ChatMissionResultAdapter().fromMission(
-          mission,
-        );
-      });
-      return;
-    }
-    final suggestion = MissionSuggestion(
-      title: mission.title,
-      goal: mission.goal,
-      category: mission.category,
-      reason: '',
-      plannedSteps: mission.tasks
-          .map((task) => task.title)
-          .toList(growable: false),
-    );
-    await _startSuggestedMissionIfNeeded(
-      chatState,
-      suggestionOverride: suggestion,
-    );
   }
 
   void _startDetectedWork(
@@ -614,6 +564,11 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
         isMissionWorking ||
         hasMissionFailure ||
         finishedMissionResult != null;
+    final hasLegacyUnansweredRequest =
+        !chatState.isSending &&
+        !hasWorkStatus &&
+        messages.isNotEmpty &&
+        messages.last.role == ChatRole.user;
 
     return Scaffold(
       appBar: AppConversationHeader(
@@ -636,6 +591,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                               (chatState.isSending && messages.isEmpty
                                   ? 1
                                   : 0) +
+                              (hasLegacyUnansweredRequest ? 1 : 0) +
                               (hasError ? 1 : 0),
                           itemBuilder: (context, index) {
                             if (index < messages.length) {
@@ -775,6 +731,32 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                               );
                             }
 
+                            if (hasLegacyUnansweredRequest &&
+                                index == messages.length) {
+                              final responseLanguage = responseLanguageFor(
+                                messages.last.content,
+                              );
+                              final message = _legacyRecoveryMessage(
+                                responseLanguage,
+                              );
+                              return AppMessageBubble(
+                                key: const ValueKey<String>(
+                                  'legacy-unanswered-error-card',
+                                ),
+                                message: ChatMessage(
+                                  id: 'legacy-unanswered-error',
+                                  role: ChatRole.assistant,
+                                  content: message,
+                                  createdAt: DateTime.now(),
+                                  isError: true,
+                                ),
+                                onCopy: () => _copyMessage(message),
+                                onRetry: () => ref
+                                    .read(chatControllerProvider.notifier)
+                                    .regenerateLastResponse(),
+                              );
+                            }
+
                             const errorMessage =
                                 'Something went wrong. Please try again.';
 
@@ -837,6 +819,12 @@ String _missionFailureMessage(ResponseLanguage responseLanguage) {
   return responseLanguage == ResponseLanguage.burmese
       ? 'Ovexiq က ဒီလုပ်ငန်းကို အပြီးမလုပ်ဆောင်နိုင်သေးပါ။ ထပ်စမ်းကြည့်ပါ။'
       : "Ovexiq couldn't finish this task. Please try again.";
+}
+
+String _legacyRecoveryMessage(ResponseLanguage responseLanguage) {
+  return responseLanguage == ResponseLanguage.burmese
+      ? 'ဒီမေးခွန်းအတွက် အဖြေကို မသိမ်းထားနိုင်ခဲ့ပါ။ ထပ်စမ်းကြည့်ပါ။'
+      : 'This question does not have a saved answer. Please try again.';
 }
 
 enum _MissionWorkState { idle, working, failed }

@@ -107,6 +107,75 @@ void main() {
   });
 
   testWidgets(
+    'legacy unanswered history exposes a manual Retry without auto-execution',
+    (tester) async {
+      final repository = _MemoryConversationRepository();
+      final service = _SuccessfulAIChatService();
+      final createdAt = DateTime(2026, 9, 24, 9);
+      await repository.saveConversation(
+        Conversation(
+          id: 'legacy-unanswered',
+          title: 'Legacy question',
+          messages: <ChatMessage>[
+            ChatMessage(
+              id: 'legacy-user',
+              role: ChatRole.user,
+              content: 'ကျောက်စိမ်းအကြောင်း သိလား',
+              createdAt: createdAt,
+            ),
+          ],
+          createdAt: createdAt,
+          updatedAt: createdAt,
+        ),
+      );
+      final container = ProviderContainer(
+        overrides: <Override>[
+          conversationRepositoryProvider.overrideWithValue(repository),
+          aiChatServiceProvider.overrideWithValue(service),
+          missionRepositoryProvider.overrideWithValue(
+            MemoryMissionRepository(),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(chatControllerProvider.notifier)
+          .loadConversation('legacy-unanswered');
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: AIChatScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(service.requests, isEmpty);
+      expect(
+        find.byKey(const ValueKey<String>('legacy-unanswered-error-card')),
+        findsOneWidget,
+      );
+      expect(find.byTooltip('Retry'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Retry'));
+      await tester.pumpAndSettle();
+
+      expect(service.requests, hasLength(1));
+      expect(
+        service.requests.single.map((message) => message.content),
+        orderedEquals(<String>['ကျောက်စိမ်းအကြောင်း သိလား']),
+      );
+      expect(
+        container
+            .read(chatControllerProvider)
+            .messages
+            .where((message) => message.role == ChatRole.user),
+        hasLength(1),
+      );
+    },
+  );
+
+  testWidgets(
     'image action shows Working while its generated result is pending',
     (tester) async {
       final imageCompleter = Completer<GeneratedImage>();

@@ -168,10 +168,7 @@ class ChatController extends StateNotifier<ChatState> {
 
       _trackActivity(conversation.updatedAt);
 
-      state = ChatState(
-        conversation: conversation,
-        missionSuggestion: _suggestionForConversation(conversation),
-      );
+      state = ChatState(conversation: conversation);
     } catch (error, stackTrace) {
       if (!mounted || revision != _operationRevision) {
         return;
@@ -208,10 +205,7 @@ class ChatController extends StateNotifier<ChatState> {
 
       _trackActivity(conversation.updatedAt);
 
-      state = ChatState(
-        conversation: conversation,
-        missionSuggestion: _suggestionForConversation(conversation),
-      );
+      state = ChatState(conversation: conversation);
     } catch (error, stackTrace) {
       if (!mounted || revision != _operationRevision) {
         return;
@@ -1227,29 +1221,6 @@ class ChatController extends StateNotifier<ChatState> {
     if (timestamp.microsecondsSinceEpoch > _lastActivityMicros) {
       _lastActivityMicros = timestamp.microsecondsSinceEpoch;
     }
-  }
-
-  MissionSuggestion? _suggestionForConversation(Conversation conversation) {
-    for (var index = conversation.messages.length - 1; index >= 0; index--) {
-      final message = conversation.messages[index];
-
-      if (message.role != ChatRole.user) {
-        continue;
-      }
-
-      final prompt = message.content.trim();
-
-      if (prompt.isEmpty) {
-        return null;
-      }
-
-      final workIntent = _chatWorkIntentResolver.resolve(prompt);
-      return workIntent is ChatWorkOrchestrate
-          ? workIntent.missionSuggestion
-          : null;
-    }
-
-    return null;
   }
 
   void clearError() {
