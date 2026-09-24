@@ -22,6 +22,8 @@ import 'package:aiorbit/features/mission/providers/chat_mission_coordinator_prov
 import 'package:aiorbit/features/mission/providers/mission_provider.dart';
 import 'package:aiorbit/features/mission/controllers/mission_controller.dart';
 import 'package:aiorbit/features/mission/models/mission.dart';
+import 'package:aiorbit/features/mission/models/mission_category.dart';
+import 'package:aiorbit/features/mission/models/mission_suggestion.dart';
 import 'package:aiorbit/features/mission/models/task_status.dart';
 import 'package:aiorbit/features/mission/services/chat_mission_coordinator.dart';
 import 'package:aiorbit/features/mission/services/memory_mission_repository.dart';
@@ -171,6 +173,77 @@ void main() {
             .messages
             .where((message) => message.role == ChatRole.user),
         hasLength(1),
+      );
+    },
+  );
+
+  testWidgets(
+    'reopening a completed Mission only renders its saved result',
+    (tester) async {
+      final conversationRepository = _MemoryConversationRepository();
+      final missionRepository = MemoryMissionRepository();
+      final missionController = MissionController(repository: missionRepository);
+      final createdAt = DateTime(2026, 9, 24, 9);
+      const conversationId = 'completed-mission-history';
+      final mission = await missionController.startMission(
+        const MissionSuggestion(
+          title: 'Coffee shop plan',
+          goal: 'Create a plan for a coffee shop',
+          category: MissionCategory.marketing,
+          reason: 'Saved Mission',
+          plannedSteps: <String>['Plan'],
+        ),
+        conversationId: conversationId,
+      );
+      await missionRepository.saveMission(_completedMission(mission));
+      await conversationRepository.saveConversation(
+        Conversation(
+          id: conversationId,
+          title: 'Coffee shop plan',
+          messages: <ChatMessage>[
+            ChatMessage(
+              id: 'mission-user',
+              role: ChatRole.user,
+              content: 'Create a plan for a coffee shop',
+              createdAt: createdAt,
+            ),
+          ],
+          createdAt: createdAt,
+          updatedAt: createdAt,
+        ),
+      );
+      final service = _SuccessfulAIChatService();
+      final container = ProviderContainer(
+        overrides: <Override>[
+          conversationRepositoryProvider.overrideWithValue(
+            conversationRepository,
+          ),
+          aiChatServiceProvider.overrideWithValue(service),
+          missionRepositoryProvider.overrideWithValue(missionRepository),
+          isarInitializedProvider.overrideWithValue(true),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(chatControllerProvider.notifier)
+          .loadConversation(conversationId);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: AIChatScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(service.requests, isEmpty);
+      expect(
+        find.byKey(const ValueKey<String>('finished-result-card')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('legacy-unanswered-error-card')),
+        findsNothing,
       );
     },
   );

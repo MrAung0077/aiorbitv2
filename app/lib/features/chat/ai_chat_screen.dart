@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,9 +28,11 @@ import 'widgets/finished_result_card.dart';
 import 'widgets/generated_image_card.dart';
 import 'widgets/video_attachment_card.dart';
 import '../mission/providers/chat_mission_coordinator_provider.dart';
+import '../mission/providers/mission_provider.dart';
 import '../mission/services/chat_mission_coordinator.dart';
 import '../mission/services/chat_mission_result_adapter.dart';
 import '../mission/models/mission_suggestion.dart';
+import '../mission/models/mission_status.dart';
 
 class AIChatScreen extends ConsumerStatefulWidget {
   const AIChatScreen({super.key});
@@ -57,6 +61,8 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
   ChatImageGenerationOperation? _activeImageGeneration;
   String? _activeImageRequestKey;
   var _isVideoIngesting = false;
+  String? _historyMissionConversationId;
+  var _historyMissionResolved = false;
 
   @override
   void initState() {
@@ -496,6 +502,12 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     final imageActionAppeared =
         previous?.imageActionRequest != next.imageActionRequest &&
         next.imageActionRequest != null;
+    final conversationChanged =
+        previous?.conversation?.id != next.conversation?.id;
+
+    if (conversationChanged && next.conversation != null) {
+      unawaited(_loadHistoryMissionState(next));
+    }
     if (missionSuggestionAppeared || imageActionAppeared) {
       if (previous == null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -526,6 +538,52 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
         }
       });
     }
+  }
+
+  Future<void> _loadHistoryMissionState(ChatState chatState) async {
+    final conversation = chatState.conversation;
+    if (conversation == null) {
+      return;
+    }
+    final conversationId = conversation.id;
+    _historyMissionConversationId = conversationId;
+    _historyMissionResolved = false;
+    if (!ref.read(isarInitializedProvider)) {
+      if (mounted && _historyMissionConversationId == conversationId) {
+        setState(() => _historyMissionResolved = true);
+      }
+      return;
+    }
+    final mission = await ref
+        .read(missionControllerProvider)
+        .getMissionForConversation(conversationId);
+    if (!mounted || _historyMissionConversationId != conversationId) {
+      return;
+    }
+    setState(() {
+      _historyMissionResolved = true;
+      if (mission == null) {
+        return;
+      }
+      if (mission.status == MissionStatus.completed ||
+          mission.taskProgress.isComplete) {
+        _finishedMissionResult = const ChatMissionResultAdapter().fromMission(
+          mission,
+        );
+        return;
+      }
+      _missionWorkState = _MissionWorkState.failed;
+      _failedMissionSuggestion = MissionSuggestion(
+        title: mission.title,
+        goal: mission.goal,
+        category: mission.category,
+        reason: '',
+        plannedSteps: mission.tasks
+            .map((task) => task.title)
+            .toList(growable: false),
+      );
+      _failedMissionResponseLanguage = responseLanguageFor(mission.goal);
+    });
   }
 
   void _startDetectedWork(
@@ -567,6 +625,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
     final hasLegacyUnansweredRequest =
         !chatState.isSending &&
         !hasWorkStatus &&
+        _historyMissionResolved &&
         messages.isNotEmpty &&
         messages.last.role == ChatRole.user;
 
