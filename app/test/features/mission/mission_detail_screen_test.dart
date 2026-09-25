@@ -60,7 +60,7 @@ void main() {
     expect(find.text('Mission Execution'), findsOneWidget);
     expect(find.text('Mission Timeline'), findsOneWidget);
     expect(find.text('Workflow'), findsOneWidget);
-    expect(find.text('Final Results'), findsNothing);
+    expect(find.text('Completed outputs'), findsNothing);
     expect(
       find.byKey(const ValueKey<String>('mission-final-results')),
       findsNothing,
@@ -78,7 +78,7 @@ void main() {
   });
 
   testWidgets(
-    'Final Results use persisted accepted outputs without execution state',
+    'Completed outputs use persisted accepted outputs without execution state',
     (tester) async {
       final mission = _mission(<MissionTask>[
         _task(
@@ -207,7 +207,7 @@ void main() {
     expect(find.text('All tasks completed successfully.'), findsNothing);
     expect(find.text('1 / 1 Tasks Completed'), findsOneWidget);
     expect(find.text('Task progress'), findsOneWidget);
-    expect(find.text('Final Results'), findsNothing);
+    expect(find.text('Completed outputs'), findsNothing);
     expect(find.text('Complete the mission'), findsOneWidget);
     expect(find.text('Mission Timeline'), findsOneWidget);
     expect(find.text('Mission Execution'), findsOneWidget);
@@ -617,7 +617,7 @@ void main() {
     expect(find.text('Task execution completed'), findsNothing);
     expect(find.text('Research execution output'), findsOneWidget);
     expect(find.text('Mission Completed'), findsNothing);
-    expect(find.text('Final Results'), findsNothing);
+    expect(find.text('Completed outputs'), findsNothing);
     expect(find.text('Run Task'), findsOneWidget);
     expect(find.text('Accept Result'), findsOneWidget);
     expect(find.text('View Full Output'), findsOneWidget);
@@ -666,7 +666,7 @@ void main() {
     expect(find.text('Mission Completed'), findsOneWidget);
     expect(find.text('Result accepted'), findsOneWidget);
     expect(find.text('Task completed'), findsNothing);
-    expect(find.text('Final Results'), findsOneWidget);
+    expect(find.text('Completed outputs'), findsOneWidget);
     expect(
       find.byKey(const ValueKey<String>('mission-final-results')),
       findsOneWidget,
@@ -714,7 +714,7 @@ void main() {
     expect(find.text('Mission Completed'), findsNothing);
     expect(find.text('Task progress'), findsOneWidget);
     expect(find.text('0%'), findsOneWidget);
-    expect(find.text('Final Results'), findsNothing);
+    expect(find.text('Completed outputs'), findsNothing);
     expect(
       find.byKey(const ValueKey<String>('mission-final-results')),
       findsNothing,
@@ -1002,7 +1002,7 @@ void main() {
 
     expect(find.text('Mission Completed'), findsNothing);
     expect(find.text('Late execution output'), findsOneWidget);
-    expect(find.text('Final Results'), findsNothing);
+    expect(find.text('Completed outputs'), findsNothing);
     expect(
       find.byKey(const ValueKey<String>('mission-final-results')),
       findsNothing,

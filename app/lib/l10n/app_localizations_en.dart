@@ -87,6 +87,34 @@ class AppLocalizationsEn extends AppLocalizations {
   String get somethingWentWrong => 'Something went wrong. Please try again.';
 
   @override
+  String get resultPackReady => 'Result Pack ready';
+
+  @override
+  String get resultPackOneOutput => '1 output ready.';
+
+  @override
+  String resultPackOutputCount(int count) {
+    return '$count outputs ready.';
+  }
+
+  @override
+  String get completedOutputs => 'Completed outputs';
+
+  @override
+  String get completedOneOutput => '1 completed output.';
+
+  @override
+  String completedOutputCount(int count) {
+    return '$count completed outputs.';
+  }
+
+  @override
+  String get copy => 'Copy';
+
+  @override
+  String get copyAllOutputs => 'Copy all outputs';
+
+  @override
   String get language => 'Language';
 
   @override

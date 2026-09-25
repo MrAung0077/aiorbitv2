@@ -37,6 +37,28 @@
   "aiThinking": "Ovexiq is thinking...",
   "copiedToClipboard": "Copied to clipboard",
   "somethingWentWrong": "Something went wrong. Please try again.",
+  "resultPackReady": "Result Pack ready",
+  "resultPackOneOutput": "1 output ready.",
+  "resultPackOutputCount": "{count} outputs ready.",
+  "@resultPackOutputCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "completedOutputs": "Completed outputs",
+  "completedOneOutput": "1 completed output.",
+  "completedOutputCount": "{count} completed outputs.",
+  "@completedOutputCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "copy": "Copy",
+  "copyAllOutputs": "Copy all outputs",
 
   "language": "Language",
   "systemLanguage": "System language",

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../l10n/app_localizations.dart';
+import '../../l10n/app_localizations_en.dart';
 import 'mission_task_output_screen.dart';
 import 'models/mission_task.dart';
 import 'models/task_status.dart';
@@ -28,6 +30,9 @@ class MissionFinalResultsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final l10n =
+        Localizations.of<AppLocalizations>(context, AppLocalizations) ??
+        AppLocalizationsEn();
 
     final usableResults = results
         .where((result) => result.isUsable)
@@ -55,9 +60,7 @@ class MissionFinalResultsCard extends StatelessWidget {
 
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(content: Text('All final results copied')),
-        );
+        ..showSnackBar(SnackBar(content: Text(l10n.copiedToClipboard)));
     }
 
     return Container(
@@ -95,7 +98,7 @@ class MissionFinalResultsCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Final Results',
+                      l10n.completedOutputs,
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
@@ -103,8 +106,8 @@ class MissionFinalResultsCard extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       usableResults.length == 1
-                          ? '1 finished result is ready.'
-                          : '${usableResults.length} finished results are ready.',
+                          ? l10n.completedOneOutput
+                          : l10n.completedOutputCount(usableResults.length),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: colorScheme.onSurfaceVariant,
                       ),
@@ -133,7 +136,7 @@ class MissionFinalResultsCard extends StatelessWidget {
               key: const ValueKey<String>('copy-all-final-results-button'),
               onPressed: copyAllResults,
               icon: const Icon(Icons.copy_all_rounded),
-              label: const Text('Copy All Results'),
+              label: Text(l10n.copyAllOutputs),
             ),
           ),
         ],
@@ -151,6 +154,9 @@ class _FinalResultTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final l10n =
+        Localizations.of<AppLocalizations>(context, AppLocalizations) ??
+        AppLocalizationsEn();
 
     final taskTitle = result.task.title.trim();
     final outputText = result.outputText!;
@@ -164,7 +170,7 @@ class _FinalResultTile extends StatelessWidget {
 
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(content: Text('Result copied')));
+        ..showSnackBar(SnackBar(content: Text(l10n.copiedToClipboard)));
     }
 
     return Material(
@@ -250,7 +256,7 @@ class _FinalResultTile extends StatelessWidget {
           ),
           IconButton(
             key: ValueKey<String>('copy-final-result-${result.task.id}'),
-            tooltip: 'Copy result',
+            tooltip: l10n.copy,
             onPressed: copyResult,
             icon: const Icon(Icons.copy_rounded),
           ),

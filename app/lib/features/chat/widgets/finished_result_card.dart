@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../l10n/app_localizations.dart';
+import '../../../l10n/app_localizations_en.dart';
 import '../../mission/services/chat_mission_result_adapter.dart';
 
 class FinishedResultCard extends StatelessWidget {
@@ -12,6 +14,9 @@ class FinishedResultCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final l10n =
+        Localizations.of<AppLocalizations>(context, AppLocalizations) ??
+        AppLocalizationsEn();
     final deliverables = result.deliverables;
 
     Future<void> copyAll() async {
@@ -28,7 +33,7 @@ class FinishedResultCard extends StatelessWidget {
 
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(content: Text('Result copied')));
+        ..showSnackBar(SnackBar(content: Text(l10n.copiedToClipboard)));
     }
 
     return Container(
@@ -45,9 +50,18 @@ class FinishedResultCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Done',
+            l10n.resultPackReady,
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w700,
+              color: colorScheme.onTertiaryContainer,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            deliverables.length == 1
+                ? l10n.resultPackOneOutput
+                : l10n.resultPackOutputCount(deliverables.length),
+            style: theme.textTheme.bodySmall?.copyWith(
               color: colorScheme.onTertiaryContainer,
             ),
           ),
@@ -55,7 +69,7 @@ class FinishedResultCard extends StatelessWidget {
           ...deliverables.indexed.map((entry) {
             final index = entry.$1;
             final deliverable = entry.$2;
-            final showTitle = deliverables.length > 1;
+            final showTitle = deliverable.title.trim().isNotEmpty;
 
             return Padding(
               padding: EdgeInsets.only(
@@ -66,7 +80,7 @@ class FinishedResultCard extends StatelessWidget {
                 children: [
                   if (showTitle) ...[
                     Text(
-                      deliverable.title,
+                      deliverable.title.trim(),
                       style: theme.textTheme.labelLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                         color: colorScheme.onTertiaryContainer,
@@ -92,7 +106,7 @@ class FinishedResultCard extends StatelessWidget {
               key: const ValueKey<String>('copy-finished-result-button'),
               onPressed: copyAll,
               icon: const Icon(Icons.copy_rounded, size: 18),
-              label: const Text('Copy'),
+              label: Text(l10n.copy),
             ),
           ),
         ],

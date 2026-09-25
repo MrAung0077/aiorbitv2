@@ -254,6 +254,54 @@ abstract class AppLocalizations {
   /// **'Something went wrong. Please try again.'**
   String get somethingWentWrong;
 
+  /// No description provided for @resultPackReady.
+  ///
+  /// In en, this message translates to:
+  /// **'Result Pack ready'**
+  String get resultPackReady;
+
+  /// No description provided for @resultPackOneOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'1 output ready.'**
+  String get resultPackOneOutput;
+
+  /// No description provided for @resultPackOutputCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} outputs ready.'**
+  String resultPackOutputCount(int count);
+
+  /// No description provided for @completedOutputs.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed outputs'**
+  String get completedOutputs;
+
+  /// No description provided for @completedOneOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'1 completed output.'**
+  String get completedOneOutput;
+
+  /// No description provided for @completedOutputCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} completed outputs.'**
+  String completedOutputCount(int count);
+
+  /// No description provided for @copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get copy;
+
+  /// No description provided for @copyAllOutputs.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy all outputs'**
+  String get copyAllOutputs;
+
   /// No description provided for @language.
   ///
   /// In en, this message translates to:

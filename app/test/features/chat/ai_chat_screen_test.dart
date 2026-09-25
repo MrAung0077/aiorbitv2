@@ -243,6 +243,7 @@ void main() {
       find.byKey(const ValueKey<String>('finished-result-card')),
       findsOneWidget,
     );
+    expect(find.text('Result Pack ready'), findsOneWidget);
     expect(
       find.byKey(const ValueKey<String>('legacy-unanswered-error-card')),
       findsNothing,
@@ -390,7 +391,7 @@ void main() {
           child: const MaterialApp(home: AIChatScreen()),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 100));
 
       expect(runCount, 0);
       expect(service.requests, isEmpty);
@@ -1051,7 +1052,7 @@ void main() {
         find.byKey(const ValueKey<String>('finished-result-card')),
         findsOneWidget,
       );
-      expect(find.text('Done'), findsOneWidget);
+      expect(find.text('Result Pack ready'), findsOneWidget);
       expect(find.text('Finished result'), findsWidgets);
       expect(find.text('Mission'), findsNothing);
       expect(find.text('Task 1'), findsNothing);

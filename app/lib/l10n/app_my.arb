@@ -30,6 +30,28 @@
   "aiThinking": "Ovexiq စဉ်းစားနေပါတယ်...",
   "copiedToClipboard": "Clipboard သို့ ကူးယူပြီးပါပြီ",
   "somethingWentWrong": "တစ်ခုခုမှားယွင်းသွားပါတယ်။ ထပ်ကြိုးစားပါ။",
+  "resultPackReady": "ရလဒ်အစုံ အဆင်သင့်ဖြစ်ပါပြီ",
+  "resultPackOneOutput": "ရလဒ် ၁ ခု အဆင်သင့်ဖြစ်ပါပြီ။",
+  "resultPackOutputCount": "ရလဒ် {count} ခု အဆင်သင့်ဖြစ်ပါပြီ။",
+  "@resultPackOutputCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "completedOutputs": "ပြီးစီးထားသော ရလဒ်များ",
+  "completedOneOutput": "ပြီးစီးထားသော ရလဒ် ၁ ခု",
+  "completedOutputCount": "ပြီးစီးထားသော ရလဒ် {count} ခု",
+  "@completedOutputCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "copy": "ကူးယူမည်",
+  "copyAllOutputs": "ရလဒ်အားလုံး ကူးယူမည်",
 
   "language": "ဘာသာစကား",
   "systemLanguage": "စက်၏ ဘာသာစကား",

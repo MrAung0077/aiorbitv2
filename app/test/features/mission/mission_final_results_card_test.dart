@@ -27,11 +27,11 @@ void main() {
       ),
     );
 
-    expect(find.text('Final Results'), findsOneWidget);
-    expect(find.text('1 finished result is ready.'), findsOneWidget);
+    expect(find.text('Completed outputs'), findsOneWidget);
+    expect(find.text('1 completed output.'), findsOneWidget);
     expect(find.text('Research competitors'), findsOneWidget);
     expect(find.text('Finished competitor research'), findsOneWidget);
-    expect(find.text('Copy All Results'), findsOneWidget);
+    expect(find.text('Copy all outputs'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('open-final-result-research')),
@@ -97,7 +97,7 @@ void main() {
       ),
     );
 
-    expect(find.text('2 finished results are ready.'), findsOneWidget);
+    expect(find.text('2 completed outputs.'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('copy-all-final-results-button')),
@@ -116,7 +116,7 @@ void main() {
           'Launch Ovexiq today.',
     });
 
-    expect(find.text('All final results copied'), findsOneWidget);
+    expect(find.text('Copied to clipboard'), findsOneWidget);
   });
 
   testWidgets('copies an individual final result without opening its output', (
@@ -165,11 +165,13 @@ void main() {
     expect(clipboardMessages.single.arguments, <String, dynamic>{
       'text': 'Finished competitor research',
     });
-    expect(find.text('Result copied'), findsOneWidget);
+    expect(find.text('Copied to clipboard'), findsOneWidget);
     expect(find.byType(MissionTaskOutputScreen), findsNothing);
   });
 
-  testWidgets('empty and incomplete task outputs are excluded', (tester) async {
+  testWidgets('partial results stay neutral and exclude incomplete outputs', (
+    tester,
+  ) async {
     final usableTask = _task(
       id: 'usable',
       title: 'Usable result',
@@ -206,7 +208,9 @@ void main() {
       ),
     );
 
-    expect(find.text('1 finished result is ready.'), findsOneWidget);
+    expect(find.text('Completed outputs'), findsOneWidget);
+    expect(find.text('1 completed output.'), findsOneWidget);
+    expect(find.text('Result Pack ready'), findsNothing);
     expect(find.text('Usable result'), findsOneWidget);
     expect(find.text('Finished usable output'), findsOneWidget);
 
@@ -246,8 +250,8 @@ void main() {
       findsNothing,
     );
 
-    expect(find.text('Final Results'), findsNothing);
-    expect(find.text('Copy All Results'), findsNothing);
+    expect(find.text('Completed outputs'), findsNothing);
+    expect(find.text('Copy all outputs'), findsNothing);
   });
 
   testWidgets('long title and output stay compact in the final results card', (
@@ -340,7 +344,7 @@ void main() {
     );
 
     expect(tester.takeException(), isNull);
-    expect(find.text('5 finished results are ready.'), findsOneWidget);
+    expect(find.text('5 completed outputs.'), findsOneWidget);
 
     for (var index = 0; index < 5; index++) {
       expect(find.text('Finished result ${index + 1}'), findsOneWidget);
@@ -351,7 +355,7 @@ void main() {
       );
     }
 
-    expect(find.text('Copy All Results'), findsOneWidget);
+    expect(find.text('Copy all outputs'), findsOneWidget);
   });
 
   testWidgets('empty final results render nothing', (tester) async {
@@ -366,8 +370,8 @@ void main() {
       findsNothing,
     );
 
-    expect(find.text('Final Results'), findsNothing);
-    expect(find.text('Copy All Results'), findsNothing);
+    expect(find.text('Completed outputs'), findsNothing);
+    expect(find.text('Copy all outputs'), findsNothing);
   });
 }
 

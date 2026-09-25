@@ -191,7 +191,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(MissionFinalResultsCard), findsOneWidget);
-      expect(find.text('Final Results'), findsOneWidget);
+      expect(find.text('Completed outputs'), findsOneWidget);
       expect(find.text('Session-only execution result'), findsOneWidget);
       expect(
         find.byKey(
@@ -413,7 +413,7 @@ void main() {
       );
       expect(task3Card, findsOneWidget);
       expect(find.text('Mission Completed'), findsNothing);
-      expect(find.text('Final Results'), findsNothing);
+      expect(find.text('Completed outputs'), findsNothing);
       expect(
         find.descendant(of: task3Card, matching: find.text('Run Next Task')),
         findsOneWidget,
@@ -499,7 +499,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Mission Completed'), findsNothing);
-      expect(find.text('Final Results'), findsNothing);
+      expect(find.text('Completed outputs'), findsNothing);
       expect(
         find.byKey(const ValueKey<String>('mission-final-results')),
         findsNothing,

@@ -88,6 +88,34 @@ class AppLocalizationsMy extends AppLocalizations {
   String get somethingWentWrong => 'တစ်ခုခုမှားယွင်းသွားပါတယ်။ ထပ်ကြိုးစားပါ။';
 
   @override
+  String get resultPackReady => 'ရလဒ်အစုံ အဆင်သင့်ဖြစ်ပါပြီ';
+
+  @override
+  String get resultPackOneOutput => 'ရလဒ် ၁ ခု အဆင်သင့်ဖြစ်ပါပြီ။';
+
+  @override
+  String resultPackOutputCount(int count) {
+    return 'ရလဒ် $count ခု အဆင်သင့်ဖြစ်ပါပြီ။';
+  }
+
+  @override
+  String get completedOutputs => 'ပြီးစီးထားသော ရလဒ်များ';
+
+  @override
+  String get completedOneOutput => 'ပြီးစီးထားသော ရလဒ် ၁ ခု';
+
+  @override
+  String completedOutputCount(int count) {
+    return 'ပြီးစီးထားသော ရလဒ် $count ခု';
+  }
+
+  @override
+  String get copy => 'ကူးယူမည်';
+
+  @override
+  String get copyAllOutputs => 'ရလဒ်အားလုံး ကူးယူမည်';
+
+  @override
   String get language => 'ဘာသာစကား';
 
   @override
