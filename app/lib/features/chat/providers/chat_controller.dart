@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:aiorbit/core/ai/ai.dart';
 import 'package:aiorbit/core/text/response_language.dart';
 import 'package:aiorbit/features/mission/models/mission_suggestion.dart';
@@ -84,6 +86,9 @@ class ChatController extends StateNotifier<ChatState> {
   int _operationRevision = 0;
   int _lastConversationIdMicros = 0;
   int _lastActivityMicros = 0;
+  Timer? _retryCooldownTimer;
+
+  static const Duration _fallbackRateLimitCooldown = Duration(seconds: 30);
 
   static final RegExp _standaloneRequestDuringImageRevision = RegExp(
     r'^\s*(?:(?:please\s+)?(?:write|draft|summarize|explain|tell|help|research|analyze)\b|(?:how|what|why|where|when|who)\b|(?:create|make)\s+(?:a\s+)?(?:facebook\s+post|marketing\s+plan|content\s+calendar|(?:tiktok\s+)?video|email|(?:blog\s+)?article|script)\b)',
@@ -928,6 +933,12 @@ class ChatController extends StateNotifier<ChatState> {
       return;
     }
 
+    // A rate-limited request is retryable, but not immediately. This also
+    // protects against stale or programmatic Retry taps during the cooldown.
+    if (state.error != null && !state.error!.canRetryLastResponse) {
+      return;
+    }
+
     final currentConversation = state.conversation;
 
     if (currentConversation == null || currentConversation.messages.isEmpty) {
@@ -1116,9 +1127,18 @@ class ChatController extends StateNotifier<ChatState> {
     final responseLanguage = lastUserIndex < 0
         ? ResponseLanguage.english
         : responseLanguageFor(conversation.messages[lastUserIndex].content);
-    final message = responseLanguage == ResponseLanguage.burmese
-        ? 'Ovexiq က ဒီအဖြေကို အပြီးမပေးနိုင်သေးပါ။ ထပ်စမ်းကြည့်ပါ။'
-        : "Ovexiq couldn't finish that request. Please try again.";
+    final typedFailure = error is AIRequestFailure ? error : null;
+    final retryCooldown =
+        typedFailure?.category == AIRequestFailureCategory.rateLimited
+        ? (typedFailure?.retryAfter ?? _fallbackRateLimitCooldown)
+        : null;
+    final retryAvailableAt = retryCooldown == null
+        ? null
+        : DateTime.now().add(retryCooldown);
+    final message = _failureMessage(
+      responseLanguage: responseLanguage,
+      failure: typedFailure,
+    );
     final lastAssistantIndex = conversation.messages.lastIndexWhere(
       (candidate) => candidate.role == ChatRole.assistant,
     );
@@ -1152,17 +1172,69 @@ class ChatController extends StateNotifier<ChatState> {
     if (!mounted) {
       return;
     }
-    final typedFailure = error is AIRequestFailure ? error : null;
     state = state.copyWith(
       conversation: failedConversation,
       isSending: false,
       error: ChatControllerException(
-        typedFailure?.userMessage ?? error.toString(),
+        typedFailure?.category == AIRequestFailureCategory.rateLimited
+            ? message
+            : typedFailure?.userMessage ?? error.toString(),
         cause: error,
         stackTrace: stackTrace,
-        canRetryLastResponse: typedFailure?.retryable ?? true,
+        canRetryLastResponse:
+            (typedFailure?.retryable ?? true) && retryAvailableAt == null,
+        retryAvailableAt: retryAvailableAt,
       ),
     );
+    _scheduleRetryCooldown(retryAvailableAt);
+  }
+
+  String _failureMessage({
+    required ResponseLanguage responseLanguage,
+    required AIRequestFailure? failure,
+  }) {
+    if (failure?.category == AIRequestFailureCategory.rateLimited) {
+      return responseLanguage == ResponseLanguage.burmese
+          ? 'ခဏလောက်စောင့်ပြီး ပြန်စမ်းပေးပါ။'
+          : 'Please wait a moment and try again.';
+    }
+    return responseLanguage == ResponseLanguage.burmese
+        ? 'Ovexiq က ဒီအဖြေကို အပြီးမပေးနိုင်သေးပါ။ ထပ်စမ်းကြည့်ပါ။'
+        : "Ovexiq couldn't finish that request. Please try again.";
+  }
+
+  void _scheduleRetryCooldown(DateTime? retryAvailableAt) {
+    _retryCooldownTimer?.cancel();
+    if (retryAvailableAt == null) {
+      return;
+    }
+    final delay = retryAvailableAt.difference(DateTime.now());
+    if (delay <= Duration.zero) {
+      return;
+    }
+    _retryCooldownTimer = Timer(delay, () {
+      if (!mounted || state.error?.retryAvailableAt != retryAvailableAt) {
+        return;
+      }
+      final error = state.error!;
+      state = state.copyWith(
+        error: ChatControllerException(
+          error.message,
+          cause: error.cause,
+          stackTrace: error.stackTrace,
+          canRetryLastResponse: true,
+        ),
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _retryCooldownTimer?.cancel();
+    if (!mounted) {
+      return;
+    }
+    super.dispose();
   }
 
   void _logRequestFailure(Object error, StackTrace stackTrace) {
@@ -1374,12 +1446,14 @@ class ChatControllerException implements Exception {
     this.cause,
     this.stackTrace,
     this.canRetryLastResponse = false,
+    this.retryAvailableAt,
   });
 
   final String message;
   final Object? cause;
   final StackTrace? stackTrace;
   final bool canRetryLastResponse;
+  final DateTime? retryAvailableAt;
 
   @override
   String toString() => message;

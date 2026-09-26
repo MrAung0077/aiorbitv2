@@ -157,6 +157,7 @@ class OvexiqBackendApiClient {
         statusCode: response.statusCode,
         correlationId: correlationId,
         elapsed: stopwatch.elapsed,
+        retryAfter: _retryAfter(response),
       );
     }
 
@@ -220,6 +221,7 @@ class OvexiqBackendApiClient {
     int? statusCode,
     String? correlationId,
     Duration? elapsed,
+    Duration? retryAfter,
   }) {
     final failure = AIRequestFailure(
       category: category,
@@ -229,12 +231,32 @@ class OvexiqBackendApiClient {
       statusCode: statusCode,
       correlationId: correlationId,
       elapsed: elapsed,
+      retryAfter: retryAfter,
     );
     developer.log(
       'Ovexiq AI request failure ${failure.diagnosticSummary}',
       name: 'ovexiq.ai.request',
     );
     return failure;
+  }
+
+  Duration? _retryAfter(http.Response response) {
+    if (response.statusCode != 429) {
+      return null;
+    }
+
+    // The gateway uses the standard delay-seconds form. Ignore malformed,
+    // zero, and impractically large values rather than trusting them for UI
+    // control flow.
+    final retryAfter = response.headers.entries
+        .where((entry) => entry.key.toLowerCase() == 'retry-after')
+        .map((entry) => entry.value.trim())
+        .firstOrNull;
+    final seconds = int.tryParse(retryAfter ?? '');
+    if (seconds == null || seconds <= 0 || seconds > 24 * 60 * 60) {
+      return null;
+    }
+    return Duration(seconds: seconds);
   }
 
   AIRequestFailureCategory _socketFailureCategory(SocketException error) {

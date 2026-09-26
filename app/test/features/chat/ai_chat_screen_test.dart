@@ -110,6 +110,35 @@ void main() {
     expect(find.byTooltip('Retry'), findsNothing);
   });
 
+  testWidgets('rate-limited Burmese chat waits without an immediate Retry', (
+    tester,
+  ) async {
+    final repository = _MemoryConversationRepository();
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(repository),
+        aiChatServiceProvider.overrideWithValue(_RateLimitedAIChatService()),
+        missionRepositoryProvider.overrideWithValue(MemoryMissionRepository()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final controller = container.read(chatControllerProvider.notifier);
+    await controller.sendMessage('Facebook အတွက် post တစ်ခုရေးပေးပါ။');
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AIChatScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('ခဏလောက်စောင့်ပြီး ပြန်စမ်းပေးပါ။'), findsOneWidget);
+    expect(find.byTooltip('Retry'), findsNothing);
+    controller.dispose();
+  });
+
   testWidgets(
     'legacy unanswered history exposes a manual Retry without auto-execution',
     (tester) async {
@@ -1400,6 +1429,28 @@ class _FailOnceAIChatService extends AIChatService {
       text: 'Replacement response',
     );
     yield const AIChunk.done(provider: ProviderType.openAI);
+  }
+}
+
+class _RateLimitedAIChatService extends AIChatService {
+  @override
+  Stream<AIChunk> sendMessages(List<AIMessage> messages) async* {
+    yield const AIChunk.status(
+      provider: ProviderType.openAI,
+      text: 'Generating',
+    );
+    yield const AIChunk.error(
+      provider: ProviderType.openAI,
+      error: 'Too many requests.',
+      failure: AIRequestFailure(
+        category: AIRequestFailureCategory.rateLimited,
+        retryable: true,
+        executionStage: 'gateway_response',
+        diagnosticReason: 'http_429',
+        statusCode: 429,
+        retryAfter: Duration(seconds: 60),
+      ),
+    );
   }
 }
 

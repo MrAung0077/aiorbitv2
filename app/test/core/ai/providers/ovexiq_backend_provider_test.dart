@@ -386,6 +386,33 @@ void main() {
     },
   );
 
+  test('retains a safe Retry-After delay for a gateway rate limit', () async {
+    final client = _client(
+      (_) async => http.Response(
+        '{"error":{"code":"rate_limited"}}',
+        429,
+        headers: const <String, String>{'Retry-After': '60'},
+      ),
+    );
+
+    await expectLater(
+      client.complete(const AIRequest(messages: messages)),
+      throwsA(
+        isA<AIRequestFailure>()
+            .having(
+              (failure) => failure.category,
+              'category',
+              AIRequestFailureCategory.rateLimited,
+            )
+            .having(
+              (failure) => failure.retryAfter,
+              'retry after',
+              const Duration(seconds: 60),
+            ),
+      ),
+    );
+  });
+
   test(
     'maps an explicit upstream failure separately from a generic server error',
     () async {

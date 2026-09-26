@@ -64,6 +64,14 @@ class ChatWorkIntentResolver {
     r'\b(?:make|create|produce|generate|render|animate)\b.*\b(?:video|reel|tiktok|mp4)s?\b|\b(?:video|reel|tiktok|mp4)s?\b.*\b(?:make|create|produce|generate|render|animate)\b|(?:ဗီဒီယို|Reel).*(?:generate|render|animate|ဖန်တီး).*(?:ပေး|ပါ)',
     caseSensitive: false,
   );
+  // Keep a compact Burmese direct-action shape separate from text planning.
+  // For example, this catches "Reel တစ်ခု ဖန်တီးပေးပါ" while leaving
+  // "Reel idea ပေးပါ" and "Reel script ရေးပေး" on the supported text path.
+  static final RegExp _burmeseDirectVideoCreation = RegExp(
+    r'(?:reel|video|ဗီဒီယို)\s*(?:တစ်ခု|တခု)?\s*(?:ကို)?\s*'
+    r'(?:ဖန်တီး|လုပ်|ထုတ်လုပ်)\s*(?:ပေး\s*)?ပါ',
+    caseSensitive: false,
+  );
   static final RegExp _publishingExecution = RegExp(
     r'\b(?:publish|upload|schedule)\b.*\b(?:to|on)\b.*\b(?:facebook|instagram|tiktok|youtube)\b|\b(?:facebook|instagram|tiktok|youtube)\b.*\b(?:publish|upload|schedule)\b|(?:Facebook|Instagram|TikTok|YouTube).{0,50}(?:တင်ပေးပါ|upload\s*လုပ်ပေးပါ|publish\s*လုပ်ပေးပါ)',
     caseSensitive: false,
@@ -83,6 +91,7 @@ class ChatWorkIntentResolver {
 
     if (_videoEditing.hasMatch(resolvedPrompt) ||
         _videoExecution.hasMatch(resolvedPrompt) ||
+        _burmeseDirectVideoCreation.hasMatch(resolvedPrompt) ||
         _publishingExecution.hasMatch(resolvedPrompt)) {
       return ChatWorkUnsupported(
         resolvedPrompt: resolvedPrompt,

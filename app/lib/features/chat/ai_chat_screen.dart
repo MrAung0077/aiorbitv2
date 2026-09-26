@@ -702,7 +702,8 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                                   index == messages.length - 1 &&
                                   message.role == ChatRole.assistant &&
                                   message.isError &&
-                                  !chatState.isSending;
+                                  !chatState.isSending &&
+                                  canRetryLastResponse;
 
                               return AppMessageBubble(
                                 message: message,

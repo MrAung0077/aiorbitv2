@@ -989,6 +989,40 @@ void main() {
       },
     );
 
+    test(
+      'rate limits use a localized cooldown instead of immediate retry',
+      () async {
+        final repository = _MemoryConversationRepository();
+        final aiChatService = _FakeAIChatService(
+          failingRequestNumbers: <int>{1},
+          failure: const AIRequestFailure(
+            category: AIRequestFailureCategory.rateLimited,
+            retryable: true,
+            executionStage: 'gateway_response',
+            diagnosticReason: 'http_429',
+            statusCode: 429,
+            retryAfter: Duration(seconds: 60),
+          ),
+        );
+        final controller = _createController(
+          repository,
+          aiChatService: aiChatService,
+        );
+        addTearDown(controller.dispose);
+
+        await controller.sendMessage('Facebook အတွက် post တစ်ခုရေးပေးပါ။');
+
+        expect(controller.state.error!.canRetryLastResponse, isFalse);
+        expect(
+          controller.state.messages.last.content,
+          'ခဏလောက်စောင့်ပြီး ပြန်စမ်းပေးပါ။',
+        );
+
+        await controller.regenerateLastResponse();
+        expect(aiChatService.requests, hasLength(1));
+      },
+    );
+
     test('validation errors are not response-retryable', () async {
       final repository = _MemoryConversationRepository();
       final controller = _createController(repository);

@@ -75,6 +75,16 @@ void main() {
     );
   });
 
+  test('routes the exact Burmese direct Reel creation request locally', () {
+    final result = resolver.resolve('Facebook အတွက် Reel တစ်ခု ဖန်တီးပေးပါ။');
+
+    expect(result, isA<ChatWorkUnsupported>());
+    expect(
+      (result as ChatWorkUnsupported).message,
+      contains('ဒီ feature ကို လက်ရှိ Ovexiq beta မှာ မရသေးပါ။'),
+    );
+  });
+
   test('returns neutral information for publishing execution', () {
     expect(
       resolver.resolve('Publish this caption to Facebook'),
@@ -89,6 +99,13 @@ void main() {
 
     expect(result, isA<ChatWorkProceed>());
     expect((result as ChatWorkProceed).responseGuidance, isNull);
+  });
+
+  test('keeps Burmese Reel planning-only work on the supported text path', () {
+    expect(
+      resolver.resolve('Facebook အတွက် Reel idea နဲ့ shot list ပြင်ဆင်ပေးပါ။'),
+      isA<ChatWorkProceed>(),
+    );
   });
 
   test('routes a Burmese CapCut package to a text preparation mission', () {

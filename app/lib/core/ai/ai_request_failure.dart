@@ -28,6 +28,7 @@ class AIRequestFailure implements Exception {
     this.statusCode,
     this.correlationId,
     this.elapsed,
+    this.retryAfter,
   });
 
   final AIRequestFailureCategory category;
@@ -41,6 +42,10 @@ class AIRequestFailure implements Exception {
   final int? statusCode;
   final String? correlationId;
   final Duration? elapsed;
+
+  /// A server-provided cooldown for a retryable request. This is derived only
+  /// from the standard `Retry-After` response header and is never logged.
+  final Duration? retryAfter;
 
   /// Safe, intentionally broad wording for any caller that has no localized
   /// presentation layer of its own.
