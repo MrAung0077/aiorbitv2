@@ -142,10 +142,28 @@ void main() {
     );
     expect(
       prompt,
+      contains(
+        'Treat accepted prior task outputs as completed deliverables. Use '
+        'them as context, but do not repeat, rewrite, summarize, or '
+        'regenerate them unless the current task explicitly asks to revise '
+        'them.',
+      ),
+    );
+    expect(
+      prompt,
+      contains(
+        'Produce only the distinct deliverable defined by the current task '
+        'title and description. If prior work is relevant, refer to it '
+        'briefly and build on it instead of restating it.',
+      ),
+    );
+    expect(
+      prompt,
       contains('End the response once the current task is complete.'),
     );
     expect(prompt, contains('Title: Research the market and key message'));
     expect(prompt, isNot(contains('Title: Publish social posts')));
+    expect(prompt, isNot(contains('Previous accepted results:')));
   });
 
   test('build permits explicit long-form Mission work', () {
@@ -413,6 +431,27 @@ void main() {
       prompt,
       contains('Competitors focus on speed, templates, and automation.'),
     );
+
+    expect(
+      prompt,
+      contains(
+        'Treat accepted prior task outputs as completed deliverables. Use '
+        'them as context, but do not repeat, rewrite, summarize, or '
+        'regenerate them unless the current task explicitly asks to revise '
+        'them.',
+      ),
+    );
+    expect(
+      prompt,
+      contains(
+        'Produce only the distinct deliverable defined by the current task '
+        'title and description. If prior work is relevant, refer to it '
+        'briefly and build on it instead of restating it.',
+      ),
+    );
+
+    expect(prompt, contains('Title: Create strategy'));
+    expect(prompt, contains('Description: Create the launch strategy'));
 
     expect(prompt, isNot(contains('Future output must not be used.')));
   });
