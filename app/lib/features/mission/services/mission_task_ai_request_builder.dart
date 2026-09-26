@@ -10,10 +10,13 @@ class MissionTaskAIRequestBuilder {
 
   static const int _maxPreviousResults = 3;
   static const int _maxPreviousContextChars = 6000;
+  static const int _maxUpcomingTaskScopes = 6;
   static const List<String> _conciseOutputPolicy = <String>[
     'Output policy:',
     '- Complete only the current task. Do not pre-complete future mission tasks or include deliverables that clearly belong to later tasks.',
     '- Use mission context only to understand the current task, not to answer the whole mission.',
+    '- Each task owns one distinct primary deliverable. Keep the current output narrowly scoped to the deliverable named by its title and description.',
+    '- Treat scopes listed under Reserved upcoming task scopes as work owned by later tasks. Do not include, recreate, or pre-complete those deliverables in the current output.',
     '- Treat accepted prior task outputs as completed deliverables. Use them as context, but do not repeat, rewrite, summarize, or regenerate them unless the current task explicitly asks to revise them.',
     '- Produce only the distinct deliverable defined by the current task title and description. If prior work is relevant, refer to it briefly and build on it instead of restating it.',
     '- Do the requested work and give the usable finished result first. Do not begin with background, strategy theory, or lengthy explanation.',
@@ -44,6 +47,10 @@ class MissionTaskAIRequestBuilder {
       mission: mission,
       currentTask: task,
     );
+    final upcomingTaskScopes = _upcomingTaskScopes(
+      mission: mission,
+      currentTask: task,
+    );
 
     final promptLines = <String>[
       'Complete this mission task.',
@@ -66,6 +73,11 @@ class MissionTaskAIRequestBuilder {
       'Title: ${task.title.trim()}',
       'Description: ${task.description.trim()}',
       'Task type: ${task.taskType.trim()}',
+      if (upcomingTaskScopes.isNotEmpty) ...<String>[
+        '',
+        'Reserved upcoming task scopes:',
+        ...upcomingTaskScopes,
+      ],
       if (inputContext != null && inputContext.isNotEmpty)
         'Input context: $inputContext',
     ];
@@ -154,5 +166,28 @@ class MissionTaskAIRequestBuilder {
     }
 
     return selected.reversed.toList(growable: false);
+  }
+
+  List<String> _upcomingTaskScopes({
+    required Mission mission,
+    required MissionTask currentTask,
+  }) {
+    final upcomingTasks =
+        mission.tasks
+            .where((task) => task.order > currentTask.order)
+            .toList(growable: false)
+          ..sort((left, right) => left.order.compareTo(right.order));
+
+    return upcomingTasks
+        .take(_maxUpcomingTaskScopes)
+        .map((task) {
+          final title = task.title.trim();
+          final description = task.description.trim();
+          if (description.isEmpty || description == title) {
+            return '- $title';
+          }
+          return '- $title: $description';
+        })
+        .toList(growable: false);
   }
 }

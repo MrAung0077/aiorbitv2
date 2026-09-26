@@ -143,6 +143,22 @@ void main() {
     expect(
       prompt,
       contains(
+        'Each task owns one distinct primary deliverable. Keep the current '
+        'output narrowly scoped to the deliverable named by its title and '
+        'description.',
+      ),
+    );
+    expect(
+      prompt,
+      contains(
+        'Treat scopes listed under Reserved upcoming task scopes as work '
+        'owned by later tasks. Do not include, recreate, or pre-complete '
+        'those deliverables in the current output.',
+      ),
+    );
+    expect(
+      prompt,
+      contains(
         'Treat accepted prior task outputs as completed deliverables. Use '
         'them as context, but do not repeat, rewrite, summarize, or '
         'regenerate them unless the current task explicitly asks to revise '
@@ -162,6 +178,8 @@ void main() {
       contains('End the response once the current task is complete.'),
     );
     expect(prompt, contains('Title: Research the market and key message'));
+    expect(prompt, contains('Reserved upcoming task scopes:'));
+    expect(prompt, contains('- Publish social posts'));
     expect(prompt, isNot(contains('Title: Publish social posts')));
     expect(prompt, isNot(contains('Previous accepted results:')));
   });
@@ -454,6 +472,74 @@ void main() {
     expect(prompt, contains('Description: Create the launch strategy'));
 
     expect(prompt, isNot(contains('Future output must not be used.')));
+  });
+
+  test('build preserves scoped descriptions for reserved later tasks', () {
+    final mission = Mission(
+      id: 'mission-1',
+      title: 'Project launch',
+      goal: 'Prepare a project launch package',
+      category: MissionCategory.productivity,
+      status: MissionStatus.active,
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+      currentTaskIndex: 0,
+      progressPercent: 0,
+      tasks: <MissionTask>[
+        MissionTask(
+          id: 'audience',
+          missionId: 'mission-1',
+          title: 'Define the target audience',
+          description: 'Provide the target audience profile only.',
+          order: 0,
+          status: TaskStatus.pending,
+          taskType: 'planning',
+          createdAt: DateTime(2026),
+        ),
+        MissionTask(
+          id: 'calendar',
+          missionId: 'mission-1',
+          title: 'Create the launch calendar',
+          description: 'Provide the release calendar only.',
+          order: 1,
+          status: TaskStatus.pending,
+          taskType: 'planning',
+          createdAt: DateTime(2026),
+        ),
+        MissionTask(
+          id: 'assets',
+          missionId: 'mission-1',
+          title: 'Prepare the launch assets',
+          description: 'Provide the ready-to-use asset brief only.',
+          order: 2,
+          status: TaskStatus.pending,
+          taskType: 'writing',
+          createdAt: DateTime(2026),
+        ),
+      ],
+    );
+
+    final prompt = const MissionTaskAIRequestBuilder()
+        .build(mission: mission, task: mission.tasks.first)
+        .latestUserPrompt;
+
+    expect(prompt, contains('Title: Define the target audience'));
+    expect(
+      prompt,
+      contains('Description: Provide the target audience profile only.'),
+    );
+    expect(
+      prompt,
+      contains(
+        '- Create the launch calendar: Provide the release calendar only.',
+      ),
+    );
+    expect(
+      prompt,
+      contains(
+        '- Prepare the launch assets: Provide the ready-to-use asset brief only.',
+      ),
+    );
   });
 
   test('build excludes unusable or unaccepted previous task outputs', () {

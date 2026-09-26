@@ -62,6 +62,28 @@ void main() {
       }
     });
 
+    test('keeps generated Mission plans compact with distinct step scopes', () {
+      const prompts = <String>[
+        'Create a marketing campaign for our product launch',
+        'Write a 10-part article series for new founders',
+        'Design a complete brand identity and asset kit',
+        'Create a 30-day social media content calendar',
+        'Analyze 12 months of revenue data and prepare a report',
+      ];
+
+      for (final prompt in prompts) {
+        final suggestion = service.suggestFor(prompt);
+
+        expect(suggestion, isNotNull, reason: prompt);
+        final scopes = suggestion!.plannedSteps
+            .map((step) => step.trim())
+            .toList(growable: false);
+        expect(scopes, isNotEmpty, reason: prompt);
+        expect(scopes.length, lessThanOrEqualTo(5), reason: prompt);
+        expect(scopes.toSet(), hasLength(scopes.length), reason: prompt);
+      }
+    });
+
     test('keeps Burmese mission explanations and steps in Burmese', () {
       final suggestion = service.suggestFor(
         'Facebook နဲ့ TikTok အတွက် နေ့စဉ် content strategy နဲ့ posting workflow တစ်ခုလုပ်ပေးပါ။',
