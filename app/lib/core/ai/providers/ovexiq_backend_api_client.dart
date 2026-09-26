@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../ai_request_failure.dart';
 import '../ai_request.dart';
 
 class OvexiqBackendApiClient {
@@ -37,16 +39,26 @@ class OvexiqBackendApiClient {
   }
 
   Future<OvexiqBackendApiResult> complete(AIRequest request) async {
+    final stopwatch = Stopwatch()..start();
+
     if (!isConfigured) {
-      throw const OvexiqBackendApiException(
-        message: 'Ovexiq AI is not configured.',
+      throw _failure(
+        category: AIRequestFailureCategory.invalidRequest,
+        retryable: false,
+        executionStage: 'request_validation',
+        diagnosticReason: 'client_not_configured',
+        elapsed: stopwatch.elapsed,
       );
     }
 
     if (request.messages.isEmpty ||
         request.messages.every((message) => message.content.trim().isEmpty)) {
-      throw const OvexiqBackendApiException(
-        message: 'The Ovexiq AI request cannot be empty.',
+      throw _failure(
+        category: AIRequestFailureCategory.invalidRequest,
+        retryable: false,
+        executionStage: 'request_validation',
+        diagnosticReason: 'empty_messages',
+        elapsed: stopwatch.elapsed,
       );
     }
 
@@ -76,54 +88,99 @@ class OvexiqBackendApiClient {
           )
           .timeout(timeout);
     } on TimeoutException {
-      throw const OvexiqBackendApiException(
-        message: 'Ovexiq AI timed out. Please try again.',
+      throw _failure(
+        category: AIRequestFailureCategory.requestTimeout,
+        retryable: true,
+        executionStage: 'gateway_request',
+        diagnosticReason: 'request_timeout',
+        elapsed: stopwatch.elapsed,
       );
-    } on SocketException {
-      throw const OvexiqBackendApiException(
-        message: 'Could not connect to Ovexiq AI.',
+    } on SocketException catch (error) {
+      final category = _socketFailureCategory(error);
+      throw _failure(
+        category: category,
+        retryable: _isRetryableTransportCategory(category),
+        executionStage: 'gateway_request',
+        diagnosticReason: _transportDiagnosticReason(category),
+        elapsed: stopwatch.elapsed,
       );
     } on HandshakeException {
-      throw const OvexiqBackendApiException(
-        message: 'Could not connect securely to Ovexiq AI.',
+      throw _failure(
+        category: AIRequestFailureCategory.networkTransport,
+        retryable: true,
+        executionStage: 'gateway_request',
+        diagnosticReason: 'tls_handshake_failure',
+        elapsed: stopwatch.elapsed,
       );
-    } on http.ClientException {
-      throw const OvexiqBackendApiException(
-        message: 'Could not connect to Ovexiq AI.',
+    } on http.ClientException catch (error) {
+      final category = _transportMessageCategory(error.message);
+      throw _failure(
+        category: category,
+        retryable: _isRetryableTransportCategory(category),
+        executionStage: 'gateway_request',
+        diagnosticReason: _transportDiagnosticReason(category),
+        elapsed: stopwatch.elapsed,
       );
     } on FormatException {
-      throw const OvexiqBackendApiException(
-        message: 'The Ovexiq AI request is invalid.',
+      throw _failure(
+        category: AIRequestFailureCategory.invalidRequest,
+        retryable: false,
+        executionStage: 'request_encoding',
+        diagnosticReason: 'request_encoding_invalid',
+        elapsed: stopwatch.elapsed,
       );
     } catch (_) {
-      throw const OvexiqBackendApiException(
-        message: 'Ovexiq AI is temporarily unavailable.',
+      throw _failure(
+        category: AIRequestFailureCategory.unknown,
+        retryable: true,
+        executionStage: 'gateway_request',
+        diagnosticReason: 'unclassified_transport_failure',
+        elapsed: stopwatch.elapsed,
       );
     }
 
     final decodedBody = _tryDecodeObject(response.body);
+    final correlationId = _responseCorrelationId(response, decodedBody);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       if (response.statusCode == 401 || response.statusCode == 403) {
         await _onAuthorizationRejected?.call();
       }
-      throw OvexiqBackendApiException(
-        message: _safeFailureMessage(response.statusCode),
+      throw _failure(
+        category: _httpFailureCategory(response.statusCode, decodedBody),
+        retryable: _isRetryableStatusCode(response.statusCode),
+        executionStage: 'gateway_response',
+        diagnosticReason: _httpDiagnosticReason(
+          response.statusCode,
+          decodedBody,
+        ),
         statusCode: response.statusCode,
+        correlationId: correlationId,
+        elapsed: stopwatch.elapsed,
       );
     }
 
     if (decodedBody == null) {
-      throw const OvexiqBackendApiException(
-        message: 'Ovexiq AI returned an invalid response.',
+      throw _failure(
+        category: AIRequestFailureCategory.invalidResponse,
+        retryable: true,
+        executionStage: 'response_decoding',
+        diagnosticReason: 'response_not_json_object',
+        correlationId: correlationId,
+        elapsed: stopwatch.elapsed,
       );
     }
 
     final content = decodedBody['content'];
 
     if (content is! String || content.trim().isEmpty) {
-      throw const OvexiqBackendApiException(
-        message: 'Ovexiq AI returned an empty response.',
+      throw _failure(
+        category: AIRequestFailureCategory.invalidResponse,
+        retryable: true,
+        executionStage: 'response_validation',
+        diagnosticReason: 'response_content_empty',
+        correlationId: correlationId,
+        elapsed: stopwatch.elapsed,
       );
     }
 
@@ -155,20 +212,166 @@ class OvexiqBackendApiClient {
     }
   }
 
-  String _safeFailureMessage(int statusCode) {
+  AIRequestFailure _failure({
+    required AIRequestFailureCategory category,
+    required bool retryable,
+    required String executionStage,
+    required String diagnosticReason,
+    int? statusCode,
+    String? correlationId,
+    Duration? elapsed,
+  }) {
+    final failure = AIRequestFailure(
+      category: category,
+      retryable: retryable,
+      executionStage: executionStage,
+      diagnosticReason: diagnosticReason,
+      statusCode: statusCode,
+      correlationId: correlationId,
+      elapsed: elapsed,
+    );
+    developer.log(
+      'Ovexiq AI request failure ${failure.diagnosticSummary}',
+      name: 'ovexiq.ai.request',
+    );
+    return failure;
+  }
+
+  AIRequestFailureCategory _socketFailureCategory(SocketException error) {
+    final message = <String>[
+      error.message,
+      if (error.osError != null) error.osError!.message,
+    ].join(' ').toLowerCase();
+    return _transportMessageCategory(message);
+  }
+
+  AIRequestFailureCategory _transportMessageCategory(String message) {
+    final normalized = message.toLowerCase();
+    if (_containsAny(normalized, const <String>['cancelled', 'canceled'])) {
+      return AIRequestFailureCategory.cancelled;
+    }
+    if (_containsAny(normalized, const <String>[
+      'failed host lookup',
+      'getaddrinfo',
+      'name or service not known',
+      'no address associated',
+    ])) {
+      return AIRequestFailureCategory.dnsFailure;
+    }
+    if (_containsAny(normalized, const <String>[
+      'network is unreachable',
+      'network unreachable',
+      'no route to host',
+      'not connected',
+    ])) {
+      return AIRequestFailureCategory.networkOffline;
+    }
+    if (_containsAny(normalized, const <String>[
+      'connection timed out',
+      'connect timeout',
+    ])) {
+      return AIRequestFailureCategory.connectionTimeout;
+    }
+    return AIRequestFailureCategory.networkTransport;
+  }
+
+  bool _isRetryableTransportCategory(AIRequestFailureCategory category) =>
+      category != AIRequestFailureCategory.cancelled;
+
+  bool _containsAny(String value, List<String> candidates) =>
+      candidates.any(value.contains);
+
+  String _transportDiagnosticReason(AIRequestFailureCategory category) {
+    switch (category) {
+      case AIRequestFailureCategory.networkOffline:
+        return 'network_unreachable';
+      case AIRequestFailureCategory.dnsFailure:
+        return 'dns_lookup_failed';
+      case AIRequestFailureCategory.connectionTimeout:
+        return 'connection_timeout';
+      case AIRequestFailureCategory.networkTransport:
+        return 'network_transport_failure';
+      case AIRequestFailureCategory.cancelled:
+        return 'request_cancelled';
+      default:
+        return 'transport_failure';
+    }
+  }
+
+  AIRequestFailureCategory _httpFailureCategory(
+    int statusCode,
+    Map<String, dynamic>? body,
+  ) {
     if (statusCode == 401 || statusCode == 403) {
-      return 'This Ovexiq beta access is not authorized.';
+      return AIRequestFailureCategory.authentication;
     }
-
+    if (statusCode == 408) {
+      return AIRequestFailureCategory.requestTimeout;
+    }
     if (statusCode == 429) {
-      return 'Too many Ovexiq requests. Please wait and try again.';
+      return AIRequestFailureCategory.rateLimited;
     }
-
-    if (statusCode == 400 || statusCode == 413 || statusCode == 415) {
-      return 'The Ovexiq AI request was rejected.';
+    if (statusCode == 400 ||
+        statusCode == 404 ||
+        statusCode == 413 ||
+        statusCode == 415 ||
+        statusCode == 422) {
+      return AIRequestFailureCategory.invalidRequest;
     }
+    if (statusCode >= 500 && _isUpstreamFailure(body)) {
+      return AIRequestFailureCategory.providerUnavailable;
+    }
+    return AIRequestFailureCategory.serverError;
+  }
 
-    return 'Ovexiq AI is temporarily unavailable.';
+  bool _isRetryableStatusCode(int statusCode) =>
+      statusCode == 408 || statusCode == 429 || statusCode >= 500;
+
+  bool _isUpstreamFailure(Map<String, dynamic>? body) {
+    final code = _safeErrorCode(body);
+    return code == 'provider_unavailable' ||
+        code == 'upstream_unavailable' ||
+        code == 'provider_timeout' ||
+        code == 'upstream_timeout';
+  }
+
+  String _httpDiagnosticReason(int statusCode, Map<String, dynamic>? body) {
+    if (_isUpstreamFailure(body)) {
+      return 'upstream_unavailable';
+    }
+    return 'http_$statusCode';
+  }
+
+  String? _safeErrorCode(Map<String, dynamic>? body) {
+    final error = body?['error'];
+    if (error is! Map) {
+      return null;
+    }
+    final code = error['code'];
+    if (code is! String) {
+      return null;
+    }
+    final normalized = code.toLowerCase();
+    return RegExp(r'^[a-z0-9_-]{1,64}$').hasMatch(normalized)
+        ? normalized
+        : null;
+  }
+
+  String? _responseCorrelationId(
+    http.Response response,
+    Map<String, dynamic>? body,
+  ) {
+    final candidate =
+        body?['requestId'] ??
+        response.headers['x-request-id'] ??
+        response.headers['cf-ray'];
+    if (candidate is! String) {
+      return null;
+    }
+    final normalized = candidate.trim();
+    return RegExp(r'^[A-Za-z0-9._:-]{1,128}$').hasMatch(normalized)
+        ? normalized
+        : null;
   }
 
   void close() {
@@ -190,14 +393,4 @@ class OvexiqBackendApiResult {
   final String? requestId;
   final int? promptTokens;
   final int? completionTokens;
-}
-
-class OvexiqBackendApiException implements Exception {
-  const OvexiqBackendApiException({required this.message, this.statusCode});
-
-  final String message;
-  final int? statusCode;
-
-  @override
-  String toString() => message;
 }

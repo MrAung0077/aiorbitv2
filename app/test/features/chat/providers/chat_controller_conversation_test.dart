@@ -985,6 +985,38 @@ void main() {
       expect(controller.state.error, isNotNull);
       expect(controller.state.error!.canRetryLastResponse, isFalse);
     });
+
+    test('non-retryable typed request failures keep the error safe', () async {
+      final repository = _MemoryConversationRepository();
+      final aiChatService = _FakeAIChatService(
+        failingRequestNumbers: <int>{1},
+        failure: const AIRequestFailure(
+          category: AIRequestFailureCategory.authentication,
+          retryable: false,
+          executionStage: 'gateway_response',
+          diagnosticReason: 'http_403',
+          statusCode: 403,
+        ),
+      );
+      final controller = _createController(
+        repository,
+        aiChatService: aiChatService,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.sendMessage('A private prompt must not be logged.');
+
+      expect(controller.state.error, isNotNull);
+      expect(controller.state.error!.canRetryLastResponse, isFalse);
+      expect(
+        controller.state.error!.toString(),
+        'This Ovexiq beta access is not authorized.',
+      );
+      expect(
+        controller.state.messages.last.content,
+        "Ovexiq couldn't finish that request. Please try again.",
+      );
+    });
   });
 }
 
@@ -999,11 +1031,14 @@ ChatController _createController(
 }
 
 class _FakeAIChatService extends AIChatService {
-  _FakeAIChatService({Set<int> failingRequestNumbers = const <int>{}})
-    : _failingRequestNumbers = <int>{...failingRequestNumbers};
+  _FakeAIChatService({
+    Set<int> failingRequestNumbers = const <int>{},
+    this.failure,
+  }) : _failingRequestNumbers = <int>{...failingRequestNumbers};
 
   final List<List<AIMessage>> requests = <List<AIMessage>>[];
   final Set<int> _failingRequestNumbers;
+  final AIRequestFailure? failure;
 
   @override
   Stream<AIChunk> sendMessages(List<AIMessage> messages) async* {
@@ -1020,9 +1055,10 @@ class _FakeAIChatService extends AIChatService {
         provider: ProviderType.openAI,
         text: 'Partial response',
       );
-      yield const AIChunk.error(
+      yield AIChunk.error(
         provider: ProviderType.openAI,
         error: 'Temporary failure',
+        failure: failure,
       );
       return;
     }

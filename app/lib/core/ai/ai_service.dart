@@ -3,6 +3,7 @@ import 'dart:developer';
 import 'ai_chunk.dart';
 import 'ai_provider.dart';
 import 'ai_request.dart';
+import 'ai_request_failure.dart';
 import 'ai_response.dart';
 import 'ai_router.dart';
 import 'ai_routing_result.dart';
@@ -34,18 +35,11 @@ class AIService {
         return await provider.complete(request);
       } catch (error, stackTrace) {
         lastError = error;
-
-        log(
-          'AIOrbit complete: ${provider.displayName} failed.',
-          error: error,
-          stackTrace: stackTrace,
-        );
+        _logFailure('complete', provider, error, stackTrace);
       }
     }
 
-    throw StateError(
-      'All available AI providers failed. Last error: $lastError',
-    );
+    throw _typedFailure(lastError, executionStage: 'ai_complete');
   }
 
   Stream<AIChunk> stream(AIRequest request) async* {
@@ -95,7 +89,9 @@ class AIService {
           }
 
           if (chunk.type == AIChunkType.error) {
-            lastError = chunk.error ?? 'Unknown provider error.';
+            lastError =
+                chunk.failure ??
+                _typedFailure(null, executionStage: 'provider_stream');
 
             yield AIChunk.status(
               provider: provider.type,
@@ -116,12 +112,7 @@ class AIService {
         }
       } catch (error, stackTrace) {
         lastError = error;
-
-        log(
-          'AIOrbit stream: ${provider.displayName} failed.',
-          error: error,
-          stackTrace: stackTrace,
-        );
+        _logFailure('stream', provider, error, stackTrace);
 
         yield AIChunk.status(
           provider: provider.type,
@@ -129,7 +120,15 @@ class AIService {
         );
 
         if (hasEmittedText) {
-          yield AIChunk.error(provider: provider.type, error: error.toString());
+          final failure = _typedFailure(
+            error,
+            executionStage: 'provider_stream',
+          );
+          yield AIChunk.error(
+            provider: provider.type,
+            error: failure.userMessage,
+            failure: failure,
+          );
 
           return;
         }
@@ -137,10 +136,42 @@ class AIService {
     }
 
     final AIProvider lastProvider = candidates.last;
+    final failure = _typedFailure(lastError, executionStage: 'ai_stream');
 
     yield AIChunk.error(
       provider: lastProvider.type,
-      error: 'All available AI providers failed. Last error: $lastError',
+      error: failure.userMessage,
+      failure: failure,
+    );
+  }
+
+  AIRequestFailure _typedFailure(
+    Object? error, {
+    required String executionStage,
+  }) {
+    if (error is AIRequestFailure) {
+      return error;
+    }
+    return AIRequestFailure(
+      category: AIRequestFailureCategory.unknown,
+      retryable: true,
+      executionStage: executionStage,
+      diagnosticReason: 'unclassified_provider_failure',
+    );
+  }
+
+  void _logFailure(
+    String operation,
+    AIProvider provider,
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    final failure = _typedFailure(error, executionStage: 'ai_$operation');
+    log(
+      'AIOrbit $operation failure provider=${provider.type.name} '
+      '${failure.diagnosticSummary}',
+      name: 'ovexiq.ai',
+      stackTrace: stackTrace,
     );
   }
 

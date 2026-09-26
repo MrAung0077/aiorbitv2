@@ -494,9 +494,10 @@ class ChatController extends StateNotifier<ChatState> {
 
             break;
           case AIChunkType.error:
-            throw StateError(
-              chunk.error ?? 'The AI provider returned an unknown error.',
-            );
+            throw chunk.failure ??
+                StateError(
+                  chunk.error ?? 'The AI provider returned an unknown error.',
+                );
 
           case AIChunkType.usage:
           case AIChunkType.done:
@@ -520,10 +521,7 @@ class ChatController extends StateNotifier<ChatState> {
         return;
       }
 
-      debugPrint('====================================');
-      debugPrint(error.toString());
-      debugPrint(stackTrace.toString());
-      debugPrint('====================================');
+      _logRequestFailure(error, stackTrace);
 
       await _recordRetryableFailure(
         conversation: state.conversation ?? conversation,
@@ -1040,9 +1038,10 @@ class ChatController extends StateNotifier<ChatState> {
             break;
 
           case AIChunkType.error:
-            throw StateError(
-              chunk.error ?? 'The AI provider returned an unknown error.',
-            );
+            throw chunk.failure ??
+                StateError(
+                  chunk.error ?? 'The AI provider returned an unknown error.',
+                );
 
           case AIChunkType.usage:
           case AIChunkType.done:
@@ -1066,8 +1065,7 @@ class ChatController extends StateNotifier<ChatState> {
         return;
       }
 
-      debugPrint('AI REGENERATE ERROR: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      _logRequestFailure(error, stackTrace);
 
       await _recordRetryableFailure(
         conversation: state.conversation ?? conversation,
@@ -1124,16 +1122,30 @@ class ChatController extends StateNotifier<ChatState> {
     if (!mounted) {
       return;
     }
+    final typedFailure = error is AIRequestFailure ? error : null;
     state = state.copyWith(
       conversation: failedConversation,
       isSending: false,
       error: ChatControllerException(
-        error.toString(),
+        typedFailure?.userMessage ?? error.toString(),
         cause: error,
         stackTrace: stackTrace,
-        canRetryLastResponse: true,
+        canRetryLastResponse: typedFailure?.retryable ?? true,
       ),
     );
+  }
+
+  void _logRequestFailure(Object error, StackTrace stackTrace) {
+    if (error is AIRequestFailure) {
+      debugPrint('Ovexiq chat request failure ${error.diagnosticSummary}');
+    } else {
+      debugPrint(
+        'Ovexiq chat request failure '
+        'category=unknown retryable=true stage=chat_stream '
+        'reason=unclassified_chat_failure',
+      );
+    }
+    debugPrintStack(stackTrace: stackTrace);
   }
 
   MessageFeedback feedbackFor(String messageId) {

@@ -5,6 +5,7 @@ export 'ai_provider_metadata.dart';
 export 'ai_provider_registry.dart';
 export 'ai_provider_profiles.dart';
 export 'ai_request.dart';
+export 'ai_request_failure.dart';
 export 'ai_response.dart';
 export 'ai_router.dart';
 export 'ai_routing_result.dart';

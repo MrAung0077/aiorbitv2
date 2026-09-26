@@ -1,3 +1,4 @@
+import 'ai_request_failure.dart';
 import 'provider_type.dart';
 
 enum AIChunkType { text, status, usage, error, done }
@@ -10,6 +11,7 @@ class AIChunk {
     this.promptTokens,
     this.completionTokens,
     this.error,
+    this.failure,
   });
 
   const AIChunk.text({required ProviderType provider, required String text})
@@ -29,8 +31,16 @@ class AIChunk {
          completionTokens: completionTokens,
        );
 
-  const AIChunk.error({required ProviderType provider, required String error})
-    : this(type: AIChunkType.error, provider: provider, error: error);
+  const AIChunk.error({
+    required ProviderType provider,
+    required String error,
+    AIRequestFailure? failure,
+  }) : this(
+         type: AIChunkType.error,
+         provider: provider,
+         error: error,
+         failure: failure,
+       );
 
   const AIChunk.done({required ProviderType provider})
     : this(type: AIChunkType.done, provider: provider);
@@ -41,4 +51,5 @@ class AIChunk {
   final int? promptTokens;
   final int? completionTokens;
   final String? error;
+  final AIRequestFailure? failure;
 }

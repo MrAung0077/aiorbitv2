@@ -125,7 +125,7 @@ void main() {
     expect(result.failureMessage, contains('empty output'));
   });
 
-  test('AI failure returns failed execution with useful information', () async {
+  test('AI failure returns a sanitized failed execution', () async {
     final mission = _mission();
 
     final provider = _RecordingAIProvider(error: StateError('stub AI failure'));
@@ -146,7 +146,8 @@ void main() {
     expect(result.startedAt, startedAt);
     expect(result.finishedAt, finishedAt);
     expect(result.outputText, isNull);
-    expect(result.failureMessage, contains('stub AI failure'));
+    expect(result.failureMessage, 'Ovexiq AI is temporarily unavailable.');
+    expect(result.failureMessage, isNot(contains('stub AI failure')));
     expect(result.execution.progress, 0);
   });
 
