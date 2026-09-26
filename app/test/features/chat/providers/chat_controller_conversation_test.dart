@@ -728,23 +728,20 @@ void main() {
 
       await controller.sendMessage('Easy home cooking');
 
-      expect(aiChatService.requests, hasLength(1));
+      expect(aiChatService.requests, isEmpty);
       expect(controller.state.pendingClarification, isNull);
       expect(
         controller.state.messages.last.content,
-        startsWith('Response to:'),
+        'This feature isn’t available in the current Ovexiq beta yet.\n\n'
+        'Reel and video creation features are coming soon.\n\n'
+        'For now, Ovexiq can help with the script, caption, shot list, and '
+        'content plan.',
       );
       expect(controller.state.missionSuggestion, isNull);
-      expect(
-        aiChatService.requests.single
-            .firstWhere((message) => message.role == AIMessageRole.system)
-            .content,
-        contains('cannot perform internally'),
-      );
     });
 
     test(
-      'does not claim to create TikTok videos when a topic is provided',
+      'returns neutral information instead of executing TikTok video creation',
       () async {
         final repository = _MemoryConversationRepository();
         final aiChatService = _FakeAIChatService();
@@ -758,23 +755,20 @@ void main() {
           'Make TikTok videos about easy home cooking',
         );
 
-        expect(aiChatService.requests, hasLength(1));
+        expect(aiChatService.requests, isEmpty);
         expect(controller.state.pendingClarification, isNull);
         expect(
           controller.state.messages.last.content,
-          startsWith('Response to:'),
-        );
-        expect(
-          aiChatService.requests.single
-              .firstWhere((message) => message.role == AIMessageRole.system)
-              .content,
-          contains('Never claim that a video or MP4 was created.'),
+          'This feature isn’t available in the current Ovexiq beta yet.\n\n'
+          'Reel and video creation features are coming soon.\n\n'
+          'For now, Ovexiq can help with the script, caption, shot list, and '
+          'content plan.',
         );
       },
     );
 
     test(
-      'sends actual video editing to an honest external-editor handoff',
+      'stores unsupported video execution as neutral information without AI work',
       () async {
         final repository = _MemoryConversationRepository();
         final aiChatService = _FakeAIChatService();
@@ -786,23 +780,44 @@ void main() {
 
         await controller.sendMessage('Edit these 5 videos into one video');
 
-        expect(aiChatService.requests, hasLength(1));
+        expect(aiChatService.requests, isEmpty);
         expect(controller.state.missionSuggestion, isNull);
+        expect(controller.state.error, isNull);
+        expect(controller.state.isSending, isFalse);
         expect(
           controller.state.messages.map((message) => message.content),
           <String>[
             'Edit these 5 videos into one video',
-            'Response to: Edit these 5 videos into one video',
+            'This feature isn’t available in the current Ovexiq beta yet.\n\n'
+                'Reel and video creation features are coming soon.\n\n'
+                'For now, Ovexiq can help with the script, caption, shot list, '
+                'and content plan.',
           ],
         );
-        expect(
-          aiChatService.requests.single
-              .firstWhere((message) => message.role == AIMessageRole.system)
-              .content,
-          contains('ready-to-use external-editor package'),
-        );
+        expect(controller.state.messages.last.isError, isFalse);
       },
     );
+
+    test('stores Burmese unsupported execution as neutral information', () async {
+      final repository = _MemoryConversationRepository();
+      final aiChatService = _FakeAIChatService();
+      final controller = _createController(
+        repository,
+        aiChatService: aiChatService,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.sendMessage('ဒီ Reel ကို video အဖြစ်ဖန်တီးပေးပါ။');
+
+      expect(aiChatService.requests, isEmpty);
+      expect(controller.state.messages.last.isError, isFalse);
+      expect(
+        controller.state.messages.last.content,
+        'ဒီ feature ကို လက်ရှိ Ovexiq beta မှာ မရသေးပါ။\n\n'
+        'Reel / video creation features တွေ မကြာခင် ထည့်သွင်းသွားမယ်။\n\n'
+        'အခုတော့ script, caption, shot list နဲ့ content plan ကို ပြင်ဆင်ပေးနိုင်ပါတယ်။',
+      );
+    });
 
     test('keeps ordinary text chat on the existing completion path', () async {
       final repository = _MemoryConversationRepository();

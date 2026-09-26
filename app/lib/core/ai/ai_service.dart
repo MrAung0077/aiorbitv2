@@ -39,7 +39,9 @@ class AIService {
       }
     }
 
-    throw _typedFailure(lastError, executionStage: 'ai_complete');
+    final failure = _typedFailure(lastError, executionStage: 'ai_complete');
+    _emitTerminalFailure(failure);
+    throw failure;
   }
 
   Stream<AIChunk> stream(AIRequest request) async* {
@@ -107,7 +109,20 @@ class AIService {
           yield chunk;
         }
 
-        if (lastError == null || hasEmittedText) {
+        if (lastError == null) {
+          return;
+        }
+
+        if (hasEmittedText) {
+          final failure = _typedFailure(
+            lastError,
+            executionStage: 'provider_stream',
+          );
+          _emitTerminalFailure(failure);
+          // Preserve the existing partial-response behavior. The request is
+          // still terminally recorded for release diagnostics, but a provider
+          // error chunk after visible text does not replace that text with a
+          // new user-facing failure state.
           return;
         }
       } catch (error, stackTrace) {
@@ -124,6 +139,7 @@ class AIService {
             error,
             executionStage: 'provider_stream',
           );
+          _emitTerminalFailure(failure);
           yield AIChunk.error(
             provider: provider.type,
             error: failure.userMessage,
@@ -137,6 +153,7 @@ class AIService {
 
     final AIProvider lastProvider = candidates.last;
     final failure = _typedFailure(lastError, executionStage: 'ai_stream');
+    _emitTerminalFailure(failure);
 
     yield AIChunk.error(
       provider: lastProvider.type,
@@ -173,6 +190,13 @@ class AIService {
       name: 'ovexiq.ai',
       stackTrace: stackTrace,
     );
+  }
+
+  void _emitTerminalFailure(AIRequestFailure failure) {
+    // `dart:developer` events do not reliably appear in Android release
+    // logcat. This string is fully sanitized by AIRequestFailure.
+    // ignore: avoid_print
+    print(failure.releaseDiagnosticLine);
   }
 
   String _providerFailureMessage(String providerName, Object error) {

@@ -48,15 +48,38 @@ void main() {
     );
   });
 
-  test('prepares an honest handoff for actual Burmese video editing', () {
+  test('returns Burmese neutral information for actual video editing', () {
     final result = resolver.resolve(
       'ဒီ video ကို ဖြတ်ပြီး subtitle ထည့်ကာ MP4 export လုပ်ပေးပါ။',
     );
 
-    expect(result, isA<ChatWorkProceed>());
-    final handoff = result as ChatWorkProceed;
-    expect(handoff.responseGuidance, contains('cannot perform'));
-    expect(handoff.responseGuidance, contains('Never claim'));
+    expect(result, isA<ChatWorkUnsupported>());
+    expect(
+      (result as ChatWorkUnsupported).message,
+      'ဒီ feature ကို လက်ရှိ Ovexiq beta မှာ မရသေးပါ။\n\n'
+      'Reel / video creation features တွေ မကြာခင် ထည့်သွင်းသွားမယ်။\n\n'
+      'အခုတော့ script, caption, shot list နဲ့ content plan ကို ပြင်ဆင်ပေးနိုင်ပါတယ်။',
+    );
+  });
+
+  test('returns English neutral information for video creation', () {
+    final result = resolver.resolve('Create a product Reel for Instagram');
+
+    expect(result, isA<ChatWorkUnsupported>());
+    expect(
+      (result as ChatWorkUnsupported).message,
+      'This feature isn’t available in the current Ovexiq beta yet.\n\n'
+      'Reel and video creation features are coming soon.\n\n'
+      'For now, Ovexiq can help with the script, caption, shot list, and '
+      'content plan.',
+    );
+  });
+
+  test('returns neutral information for publishing execution', () {
+    expect(
+      resolver.resolve('Publish this caption to Facebook'),
+      isA<ChatWorkUnsupported>(),
+    );
   });
 
   test('keeps Burmese Reel hooks as text content, not video execution', () {

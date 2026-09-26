@@ -72,16 +72,45 @@ class AIRequestFailure implements Exception {
   /// Suitable for developer logs. All components are constrained to safe
   /// metadata rather than user content or upstream response text.
   String get diagnosticSummary {
-    final fields = <String>[
+    return _diagnosticFields().join(' ');
+  }
+
+  /// A release-safe line emitted once when an AI request has reached its
+  /// terminal failure boundary. `print` is intentionally used by the shared
+  /// service so Android logcat can observe this in signed builds.
+  String get releaseDiagnosticLine =>
+      'OVEXIQ_AI_FAILURE ${_diagnosticFields().join(' ')}';
+
+  List<String> _diagnosticFields() {
+    return <String>[
       'category=${category.name}',
       'retryable=$retryable',
-      'stage=$executionStage',
-      'reason=$diagnosticReason',
-      if (statusCode != null) 'httpStatus=$statusCode',
-      if (correlationId != null) 'correlationId=$correlationId',
-      if (elapsed != null) 'elapsedMs=${elapsed!.inMilliseconds}',
+      'status=${_safeStatusCode()}',
+      'stage=${_safeIdentifier(executionStage, fallback: 'unknown')}',
+      'correlation=${_safeIdentifier(correlationId, fallback: 'none')}',
+      'elapsedMs=${_safeElapsedMilliseconds()}',
+      'reason=${_safeIdentifier(diagnosticReason, fallback: 'redacted')}',
     ];
-    return fields.join(' ');
+  }
+
+  String _safeStatusCode() {
+    final value = statusCode;
+    if (value == null || value < 100 || value > 599) {
+      return 'none';
+    }
+    return value.toString();
+  }
+
+  int _safeElapsedMilliseconds() {
+    final value = elapsed?.inMilliseconds;
+    return value == null || value < 0 ? 0 : value;
+  }
+
+  String _safeIdentifier(String? value, {required String fallback}) {
+    final normalized = value?.trim() ?? '';
+    return RegExp(r'^[A-Za-z0-9._:-]{1,128}$').hasMatch(normalized)
+        ? normalized
+        : fallback;
   }
 
   @override

@@ -407,6 +407,36 @@ class ChatController extends StateNotifier<ChatState> {
 
       final workIntent = _chatWorkIntentResolver.resolve(resolvedPrompt);
 
+      if (workIntent is ChatWorkUnsupported) {
+        final assistantCreatedAt = _nextActivityTime();
+        final unavailableConversation = conversation.copyWith(
+          messages: <ChatMessage>[
+            ...conversation.messages,
+            ChatMessage(
+              id: assistantCreatedAt.microsecondsSinceEpoch.toString(),
+              role: ChatRole.assistant,
+              content: workIntent.message,
+              createdAt: assistantCreatedAt,
+            ),
+          ],
+          updatedAt: _nextActivityTime(),
+        );
+
+        await _conversationRepository.saveConversation(unavailableConversation);
+
+        if (!mounted) {
+          return;
+        }
+
+        state = state.copyWith(
+          conversation: unavailableConversation,
+          isSending: false,
+          clearMissionSuggestion: true,
+          clearImageActionRequest: true,
+        );
+        return;
+      }
+
       if (workIntent is ChatWorkOrchestrate) {
         state = state.copyWith(
           conversation: conversation,
@@ -1137,14 +1167,15 @@ class ChatController extends StateNotifier<ChatState> {
 
   void _logRequestFailure(Object error, StackTrace stackTrace) {
     if (error is AIRequestFailure) {
-      debugPrint('Ovexiq chat request failure ${error.diagnosticSummary}');
-    } else {
-      debugPrint(
-        'Ovexiq chat request failure '
-        'category=unknown retryable=true stage=chat_stream '
-        'reason=unclassified_chat_failure',
-      );
+      // AIService emitted the one release-safe terminal diagnostic line.
+      return;
     }
+
+    debugPrint(
+      'Ovexiq chat request failure '
+      'category=unknown retryable=true stage=chat_stream '
+      'reason=unclassified_chat_failure',
+    );
     debugPrintStack(stackTrace: stackTrace);
   }
 

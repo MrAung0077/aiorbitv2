@@ -70,6 +70,35 @@ This has **bold text** and a [source](https://example.com).
       markdown,
     );
   });
+
+  testWidgets('neutral assistant information is not styled or controlled as an error', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AppMessageBubble(
+            message: ChatMessage(
+              id: 'unsupported-capability',
+              role: ChatRole.assistant,
+              content: 'This feature is not available in this beta yet.',
+              createdAt: DateTime(2026),
+            ),
+            onCopy: () {},
+            onRetry: () {},
+          ),
+        ),
+      ),
+    );
+
+    final context = tester.element(find.byType(AppMessageBubble));
+    final container = tester.widget<Container>(find.byType(Container));
+    final decoration = container.decoration! as BoxDecoration;
+
+    expect(decoration.color, Theme.of(context).colorScheme.surface);
+    expect(find.byTooltip('Retry'), findsNothing);
+    expect(find.byTooltip('Copy'), findsOneWidget);
+  });
 }
 
 String _plainText(Widget widget) {

@@ -1061,7 +1061,7 @@ void main() {
     },
   );
 
-  testWidgets('TikTok clarification does not claim unsupported video creation', (
+  testWidgets('TikTok clarification resolves unsupported execution neutrally', (
     tester,
   ) async {
     final aiChatService = _SuccessfulAIChatService();
@@ -1100,17 +1100,23 @@ void main() {
 
     await tester.enterText(find.byType(TextField), 'Easy home cooking');
     await tester.tap(find.byTooltip('Send'));
-    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
 
-    expect(find.text('I will take care of that.'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'This feature isn’t available in the current Ovexiq beta yet.',
+        findRichText: true,
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('Reel and video creation features are coming soon.'),
+      findsOneWidget,
+    );
     expect(find.text('Ovexiq is working...'), findsNothing);
     expect(container.read(chatControllerProvider).missionSuggestion, isNull);
-    expect(
-      aiChatService.requests.single
-          .firstWhere((message) => message.role == AIMessageRole.system)
-          .content,
-      contains('ready-to-use external-editor package'),
-    );
+    expect(aiChatService.requests, isEmpty);
+    expect(find.byTooltip('Retry'), findsNothing);
   });
 
   testWidgets('automatic English Mission failure shows a retryable error card', (

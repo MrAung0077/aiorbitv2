@@ -1,3 +1,4 @@
+import '../../../core/text/response_language.dart';
 import '../../mission/models/mission_suggestion.dart';
 import 'mission_suggestion_service.dart';
 
@@ -13,6 +14,19 @@ class ChatWorkProceed extends ChatWorkIntentResult {
   /// Private instruction for a useful text-first fallback. It is never added
   /// to the user's saved message.
   final String? responseGuidance;
+}
+
+/// A request that is clear, but cannot be executed by this text-first beta.
+///
+/// This is deliberately distinct from a request failure: no network work or
+/// provider call is attempted and the Chat UI can present it neutrally.
+class ChatWorkUnsupported extends ChatWorkIntentResult {
+  const ChatWorkUnsupported({
+    required String resolvedPrompt,
+    required this.message,
+  }) : super(resolvedPrompt);
+
+  final String message;
 }
 
 class ChatWorkOrchestrate extends ChatWorkIntentResult {
@@ -50,6 +64,10 @@ class ChatWorkIntentResolver {
     r'\b(?:make|create|produce|generate|render|animate)\b.*\b(?:video|reel|tiktok|mp4)s?\b|\b(?:video|reel|tiktok|mp4)s?\b.*\b(?:make|create|produce|generate|render|animate)\b|(?:ဗီဒီယို|Reel).*(?:generate|render|animate|ဖန်တီး).*(?:ပေး|ပါ)',
     caseSensitive: false,
   );
+  static final RegExp _publishingExecution = RegExp(
+    r'\b(?:publish|upload|schedule)\b.*\b(?:to|on)\b.*\b(?:facebook|instagram|tiktok|youtube)\b|\b(?:facebook|instagram|tiktok|youtube)\b.*\b(?:publish|upload|schedule)\b|(?:Facebook|Instagram|TikTok|YouTube).{0,50}(?:တင်ပေးပါ|upload\s*လုပ်ပေးပါ|publish\s*လုပ်ပေးပါ)',
+    caseSensitive: false,
+  );
   static final RegExp _textFirstMissionWorkflow = RegExp(
     r'\b(?:content\s+calendar|article\s+series|blog\s+series|email\s+sequence|newsletter\s+series|social\s+media\s+plan|social\s+media\s+content|content\s+plan|posting\s+workflow|capcut|scene\s+timing|storyboard|asset\s+list|export\s+settings)\b|အကြောင်းအရာ\s*အစီအစဉ်|အကြောင်းအရာ\s*စီမံချက်|အရောင်းမြှင့်တင်ရေး\s*စီမံချက်|လမ်းပြမြေပုံ|အဆင့်ဆင့်',
     caseSensitive: false,
@@ -63,17 +81,12 @@ class ChatWorkIntentResolver {
       return ChatWorkProceed(resolvedPrompt);
     }
 
-    if (_videoEditing.hasMatch(resolvedPrompt)) {
-      return ChatWorkProceed(
-        resolvedPrompt,
-        responseGuidance: _externalVideoHandoffGuidance,
-      );
-    }
-
-    if (_videoExecution.hasMatch(resolvedPrompt)) {
-      return ChatWorkProceed(
-        resolvedPrompt,
-        responseGuidance: _externalVideoHandoffGuidance,
+    if (_videoEditing.hasMatch(resolvedPrompt) ||
+        _videoExecution.hasMatch(resolvedPrompt) ||
+        _publishingExecution.hasMatch(resolvedPrompt)) {
+      return ChatWorkUnsupported(
+        resolvedPrompt: resolvedPrompt,
+        message: _unsupportedCapabilityMessage(resolvedPrompt),
       );
     }
 
@@ -93,10 +106,20 @@ class ChatWorkIntentResolver {
     return ChatWorkProceed(resolvedPrompt);
   }
 
-  static const String _externalVideoHandoffGuidance =
-      'The user requested actual video execution, which Ovexiq cannot perform '
-      'internally in this beta. Say that limitation briefly and honestly, then '
-      'deliver a ready-to-use external-editor package: scene/order guidance, '
-      'cut or subtitle instructions when relevant, export settings, and the '
-      'next step in a suitable editor. Never claim that a video or MP4 was created.';
+  static String _unsupportedCapabilityMessage(String prompt) {
+    return responseLanguageFor(prompt) == ResponseLanguage.burmese
+        ? _burmeseUnsupportedCapabilityMessage
+        : _englishUnsupportedCapabilityMessage;
+  }
+
+  static const String _burmeseUnsupportedCapabilityMessage =
+      'ဒီ feature ကို လက်ရှိ Ovexiq beta မှာ မရသေးပါ။\n\n'
+      'Reel / video creation features တွေ မကြာခင် ထည့်သွင်းသွားမယ်။\n\n'
+      'အခုတော့ script, caption, shot list နဲ့ content plan ကို ပြင်ဆင်ပေးနိုင်ပါတယ်။';
+
+  static const String _englishUnsupportedCapabilityMessage =
+      'This feature isn’t available in the current Ovexiq beta yet.\n\n'
+      'Reel and video creation features are coming soon.\n\n'
+      'For now, Ovexiq can help with the script, caption, shot list, and '
+      'content plan.';
 }

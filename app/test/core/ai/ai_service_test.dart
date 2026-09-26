@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:aiorbit/core/ai/ai_chunk.dart';
+import 'package:aiorbit/core/ai/ai_request_failure.dart';
 import 'package:aiorbit/core/ai/ai_provider.dart';
 import 'package:aiorbit/core/ai/ai_provider_metadata.dart';
 import 'package:aiorbit/core/ai/ai_request.dart';
@@ -46,6 +49,46 @@ void main() {
 
       expect(gemini.completeCallCount, 1);
       expect(openAI.completeCallCount, 1);
+    },
+  );
+
+  test(
+    'emits one release-safe diagnostic for a terminal request failure',
+    () async {
+      const failure = AIRequestFailure(
+        category: AIRequestFailureCategory.requestTimeout,
+        retryable: true,
+        executionStage: 'chat_request',
+        diagnosticReason: 'request_timeout',
+        correlationId: 'AB12CD',
+        elapsed: Duration(milliseconds: 30012),
+      );
+      final provider = _TestAIProvider(
+        type: ProviderType.openAI,
+        displayName: 'OpenAI',
+        isConfigured: true,
+        completeHandler: (_) async => throw failure,
+      );
+      final service = AIService(
+        router: AIRouter(providers: <AIProvider>[provider]),
+      );
+      final printed = <String>[];
+
+      await runZoned(
+        () async {
+          await expectLater(
+            service.complete(AIRequest.fromPrompt(prompt: 'private prompt')),
+            throwsA(same(failure)),
+          );
+        },
+        zoneSpecification: ZoneSpecification(
+          print: (self, parent, zone, line) => printed.add(line),
+        ),
+      );
+
+      expect(printed, <String>[failure.releaseDiagnosticLine]);
+      expect(printed.single, isNot(contains('private prompt')));
+      expect(printed.single, startsWith('OVEXIQ_AI_FAILURE '));
     },
   );
 
