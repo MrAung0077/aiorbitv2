@@ -27,10 +27,18 @@ void main() {
           'Facebook နဲ့ TikTok အတွက် တစ်ပတ်စာ Content အစီအစဉ် ပြင်ဆင်ပေးပါ။';
 
       expect(responseLanguageFor(prompt), ResponseLanguage.burmese);
+      final policy = responseLanguageInstructionFor(prompt);
+      expect(policy, contains('natural Burmese throughout'));
+      expect(policy, contains('Before finalizing'));
+      expect(policy, contains('malformed\n  Burmese words'));
+      expect(policy, contains('broken Unicode-looking fragments'));
+      expect(policy, contains('nonsensical\n  transliterations'));
+      expect(policy, contains('simple clear Burmese phrase'));
       expect(
-        responseLanguageInstructionFor(prompt),
-        contains('natural Burmese throughout'),
+        policy,
+        contains('Never invent a\n  Burmese word or transliteration'),
       );
+      expect(policy, contains('Facebook, TikTok, YouTube, Content, Hook'));
     });
 
     test('uses the dominant language for mixed-language prompts', () {

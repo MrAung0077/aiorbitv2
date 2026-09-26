@@ -328,6 +328,15 @@ void main() {
         systemMessages.single.content,
         contains('Never use the pronouns မင်း, နင်, or ငါ'),
       );
+      expect(systemMessages.single.content, contains('Before finalizing'));
+      expect(
+        systemMessages.single.content,
+        contains('broken Unicode-looking fragments'),
+      );
+      expect(
+        systemMessages.single.content,
+        contains('Never invent a\n  Burmese word or transliteration'),
+      );
       expect(prompt, isNot(contains('natural Burmese throughout')));
       expect(prompt, isNot(contains('ရည်အသွား')));
       expect(prompt, isNot(contains('ဒျမိုန့် tips')));

@@ -29,6 +29,13 @@ explanation, and finished result in clear everyday Burmese.
   instead of inventing an obscure Burmese replacement.
 - Avoid unnecessary English/Burmese mixing, malformed Myanmar characters,
   corrupted words, repetitive headings, and literal machine-translated prose.
+- Before finalizing, perform a lightweight language-quality check for malformed
+  Burmese words, broken Unicode-looking fragments, nonsensical
+  transliterations, and awkward phrase construction. Correct them without
+  changing the intended meaning or adding new facts.
+- If a Burmese term is uncertain, prefer a simple clear Burmese phrase or
+  retain the standard English term when it improves clarity. Never invent a
+  Burmese word or transliteration.
 - Never use the pronouns မင်း, နင်, or ငါ. Do not use 🙏.
 ''';
 
