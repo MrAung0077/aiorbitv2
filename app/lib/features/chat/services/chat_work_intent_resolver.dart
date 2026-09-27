@@ -56,24 +56,28 @@ class ChatWorkIntentResolver {
     caseSensitive: false,
   );
   static final RegExp _burmeseExplanationRequest = RegExp(r'ရှင်းပြ');
-  static final RegExp _videoEditing = RegExp(
-    r'\b(?:edit|combine|merge|cut|trim|export|render)\b.*\b(?:video|clip|mp4)s?\b|\b(?:video|clip|mp4)s?\b.*\b(?:edit|combine|merge|cut|trim|export|render)\b|(?:ဒီ\s*)?(?:video|ဗီဒီယို).*(?:ဖြတ်|တည်းဖြတ်|ပေါင်း|ထည့်).*(?:export|MP4|mp4)',
+  // A direct media request needs both an artifact and an execution action.
+  // This deliberately leaves text preparation (ideas, scripts, captions,
+  // shot lists, and plans) on the supported path.
+  static final RegExp _mediaArtifact = RegExp(
+    r'\b(?:reel|video|clip|mp4)s?\b|(?:ရီလ်|ဗီဒီယို|ကလစ်)',
     caseSensitive: false,
   );
-  static final RegExp _videoExecution = RegExp(
-    r'\b(?:make|create|produce|generate|render|animate)\b.*\b(?:video|reel|tiktok|mp4)s?\b|\b(?:video|reel|tiktok|mp4)s?\b.*\b(?:make|create|produce|generate|render|animate)\b|(?:ဗီဒီယို|Reel).*(?:generate|render|animate|ဖန်တီး).*(?:ပေး|ပါ)',
+  static final RegExp _englishMediaExecutionAction = RegExp(
+    r'\b(?:make|create|produce|generate|render|animate|edit|combine|merge|cut|trim|export)\b',
     caseSensitive: false,
   );
-  // Keep a compact Burmese direct-action shape separate from text planning.
-  // For example, this catches "Reel တစ်ခု ဖန်တီးပေးပါ" while leaving
-  // "Reel idea ပေးပါ" and "Reel script ရေးပေး" on the supported text path.
-  static final RegExp _burmeseDirectVideoCreation = RegExp(
-    r'(?:reel|video|ဗီဒီယို)\s*(?:တစ်ခု|တခု)?\s*(?:ကို)?\s*'
-    r'(?:ဖန်တီး|လုပ်|ထုတ်လုပ်)\s*(?:ပေး\s*)?ပါ',
-    caseSensitive: false,
+  static final RegExp _burmeseMediaExecutionAction = RegExp(
+    r'(?:ဖန်တီး|ထုတ်လုပ်|ထုတ်|တည်းဖြတ်|ဖြတ်|ပေါင်း|လုပ်)',
+  );
+  static final RegExp _burmeseDirectRequestEnding = RegExp(
+    r'(?:ပေး\s*)?ပါ[။!]*\s*$',
+  );
+  static final RegExp _burmeseFutureIntent = RegExp(
+    r'(?:လုပ်|ဖန်တီး|ထုတ်).{0,12}(?:ချင်|စိတ်ကူး|စီစဉ်)',
   );
   static final RegExp _publishingExecution = RegExp(
-    r'\b(?:publish|upload|schedule)\b.*\b(?:to|on)\b.*\b(?:facebook|instagram|tiktok|youtube)\b|\b(?:facebook|instagram|tiktok|youtube)\b.*\b(?:publish|upload|schedule)\b|(?:Facebook|Instagram|TikTok|YouTube).{0,50}(?:တင်ပေးပါ|upload\s*လုပ်ပေးပါ|publish\s*လုပ်ပေးပါ)',
+    r'\b(?:publish|upload|schedule)\b.*\b(?:to|on)\b.*\b(?:facebook|instagram|tiktok|youtube)\b|\b(?:facebook|instagram|tiktok|youtube)\b.*\b(?:publish|upload|schedule)\b|\bpost\s+(?:this|it|the\s+(?:content|caption|reel|video))\s+(?:to|on)\s+(?:facebook|instagram|tiktok|youtube)\b|(?:Facebook|Instagram|TikTok|YouTube).{0,50}(?:တင်|upload|publish)\s*(?:လုပ်\s*)?(?:ပေး\s*)?ပါ',
     caseSensitive: false,
   );
   static final RegExp _textFirstMissionWorkflow = RegExp(
@@ -89,9 +93,7 @@ class ChatWorkIntentResolver {
       return ChatWorkProceed(resolvedPrompt);
     }
 
-    if (_videoEditing.hasMatch(resolvedPrompt) ||
-        _videoExecution.hasMatch(resolvedPrompt) ||
-        _burmeseDirectVideoCreation.hasMatch(resolvedPrompt) ||
+    if (_isDirectMediaExecution(resolvedPrompt) ||
         _publishingExecution.hasMatch(resolvedPrompt)) {
       return ChatWorkUnsupported(
         resolvedPrompt: resolvedPrompt,
@@ -113,6 +115,29 @@ class ChatWorkIntentResolver {
     }
 
     return ChatWorkProceed(resolvedPrompt);
+  }
+
+  static bool _isDirectMediaExecution(String prompt) {
+    if (!_mediaArtifact.hasMatch(prompt)) {
+      return false;
+    }
+
+    // A future intention can mention technical execution terms such as
+    // \"export settings\" while asking only for a text preparation package.
+    if (_burmeseFutureIntent.hasMatch(prompt)) {
+      return false;
+    }
+
+    // English actions are unambiguous even in a mixed-language request.
+    if (_englishMediaExecutionAction.hasMatch(prompt)) {
+      return true;
+    }
+
+    // Burmese "လုပ်" can describe a future text workflow (for example,
+    // "Reel တစ်ခုလုပ်ချင်တယ်"). Only treat it as direct execution when the
+    // user has made a completed direct request such as "ထုတ်ပေးပါ".
+    return _burmeseMediaExecutionAction.hasMatch(prompt) &&
+        _burmeseDirectRequestEnding.hasMatch(prompt);
   }
 
   static String _unsupportedCapabilityMessage(String prompt) {

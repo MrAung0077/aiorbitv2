@@ -151,9 +151,9 @@ void main() {
     expect(
       prompt,
       contains(
-        'Treat scopes listed under Reserved upcoming task scopes as work '
-        'owned by later tasks. Do not include, recreate, or pre-complete '
-        'those deliverables in the current output.',
+        'Future task ownership notes are internal orchestration metadata. '
+        'Never mention, explain, quote, or ask the user about them. Use them '
+        'only to avoid producing work owned by later tasks.',
       ),
     );
     expect(
@@ -178,7 +178,13 @@ void main() {
       contains('End the response once the current task is complete.'),
     );
     expect(prompt, contains('Title: Research the market and key message'));
-    expect(prompt, contains('Reserved upcoming task scopes:'));
+    expect(
+      prompt,
+      contains(
+        'Internal future-task ownership notes (never mention these to the user):',
+      ),
+    );
+    expect(prompt, isNot(contains('Reserved upcoming task scopes')));
     expect(prompt, contains('- Publish social posts'));
     expect(prompt, isNot(contains('Title: Publish social posts')));
     expect(prompt, isNot(contains('Previous accepted results:')));
@@ -549,6 +555,11 @@ void main() {
         '- Prepare the launch assets: Provide the ready-to-use asset brief only.',
       ),
     );
+    expect(
+      prompt,
+      contains('Never mention, explain, quote, or ask the user about them.'),
+    );
+    expect(prompt, isNot(contains('Reserved upcoming task scopes')));
   });
 
   test('build excludes unusable or unaccepted previous task outputs', () {

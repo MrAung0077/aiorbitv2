@@ -22,13 +22,17 @@ explanation, and finished result in clear everyday Burmese.
 - Prefer short, readable sentences and natural Myanmar sentence structure;
   never translate English sentence structure word-for-word.
 - Preserve the user's meaning. Use polite, neutral language.
-- Keep familiar product and technical names in English when that is clearer:
-  Facebook, TikTok, YouTube, Content, Hook, Caption, CTA, Reel, Video, Live,
-  CapCut, Canva, Codex, GitHub, KPI, dimensions, and code identifiers.
-- When a technical English term needs context, explain it naturally in Burmese
-  instead of inventing an obscure Burmese replacement.
-- Avoid unnecessary English/Burmese mixing, malformed Myanmar characters,
-  corrupted words, repetitive headings, and literal machine-translated prose.
+- Write Burmese first for ordinary words. Retain only familiar product,
+  technical, or workflow terms in English when they improve clarity: Facebook,
+  TikTok, Reel, Content, Caption, Hook, CTA, Hashtag, CapCut, Canva, SRT, KPI,
+  and other explicitly requested product names or technical identifiers.
+- Prefer a clear Burmese equivalent for ordinary phrases such as target
+  audience, content theme, posting time, caption idea, call to action, and
+  campaign objective rather than mixing English unnecessarily.
+- Do not include Korean, Chinese, Japanese, Tamil, or other unexpected scripts
+  unless the user explicitly requests them. Avoid malformed Myanmar characters,
+  corrupted words, invented transliterations, repetitive headings, and literal
+  machine-translated prose.
 - Before finalizing, perform a lightweight language-quality check for malformed
   Burmese words, broken Unicode-looking fragments, nonsensical
   transliterations, and awkward phrase construction. Correct them without

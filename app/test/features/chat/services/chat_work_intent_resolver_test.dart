@@ -85,6 +85,31 @@ void main() {
     );
   });
 
+  test(
+    'routes direct Burmese media creation, editing, and publishing locally',
+    () {
+      const directRequests = <String>[
+        'Facebook အတွက် reel ထုတ်ပေးပါ',
+        'Facebook Reel တစ်ခု ဖန်တီးပေးပါ',
+        'reel လုပ်ပေးပါ',
+        'reel ထုတ်ပေးပါ',
+        'video ဖန်တီးပေးပါ',
+        'video ထုတ်ပေးပါ',
+        'video edit လုပ်ပေးပါ',
+        'Facebook ကို upload လုပ်ပေးပါ',
+        'TikTok ကို publish လုပ်ပေးပါ',
+      ];
+
+      for (final request in directRequests) {
+        expect(
+          resolver.resolve(request),
+          isA<ChatWorkUnsupported>(),
+          reason: request,
+        );
+      }
+    },
+  );
+
   test('returns neutral information for publishing execution', () {
     expect(
       resolver.resolve('Publish this caption to Facebook'),
@@ -102,10 +127,24 @@ void main() {
   });
 
   test('keeps Burmese Reel planning-only work on the supported text path', () {
-    expect(
-      resolver.resolve('Facebook အတွက် Reel idea နဲ့ shot list ပြင်ဆင်ပေးပါ။'),
-      isA<ChatWorkProceed>(),
-    );
+    const planningRequests = <String>[
+      'reel idea ပေးပါ',
+      'reel script ရေးပေး',
+      'caption ရေးပေး',
+      'shot list လုပ်ပေး',
+      'content plan လုပ်ပေး',
+      'video concept ပေးပါ',
+      'hook ရေးပေး',
+      'Facebook အတွက် Reel idea နဲ့ shot list ပြင်ဆင်ပေးပါ။',
+    ];
+
+    for (final request in planningRequests) {
+      expect(
+        resolver.resolve(request),
+        isNot(isA<ChatWorkUnsupported>()),
+        reason: request,
+      );
+    }
   });
 
   test('routes a Burmese CapCut package to a text preparation mission', () {

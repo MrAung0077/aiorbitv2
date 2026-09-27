@@ -819,6 +819,45 @@ void main() {
       );
     });
 
+    test(
+      'keeps a direct Burmese Reel request local without provider work',
+      () async {
+        final repository = _MemoryConversationRepository();
+        final aiChatService = _FakeAIChatService();
+        final controller = _createController(
+          repository,
+          aiChatService: aiChatService,
+        );
+        addTearDown(controller.dispose);
+
+        await controller.sendMessage('Facebook အတွက် reel ထုတ်ပေးပါ');
+
+        expect(aiChatService.requests, isEmpty);
+        expect(controller.state.missionSuggestion, isNull);
+        expect(controller.state.error, isNull);
+        expect(controller.state.messages.last.isError, isFalse);
+        expect(
+          controller.state.messages.last.content,
+          contains('ဒီ feature ကို လက်ရှိ Ovexiq beta မှာ မရသေးပါ။'),
+        );
+      },
+    );
+
+    test('keeps Burmese Reel planning on the normal AI path', () async {
+      final repository = _MemoryConversationRepository();
+      final aiChatService = _FakeAIChatService();
+      final controller = _createController(
+        repository,
+        aiChatService: aiChatService,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.sendMessage('reel idea ပေးပါ');
+
+      expect(aiChatService.requests, hasLength(1));
+      expect(controller.state.messages.last.isError, isFalse);
+    });
+
     test('keeps ordinary text chat on the existing completion path', () async {
       final repository = _MemoryConversationRepository();
       final aiChatService = _FakeAIChatService();

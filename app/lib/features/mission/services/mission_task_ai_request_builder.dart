@@ -16,7 +16,7 @@ class MissionTaskAIRequestBuilder {
     '- Complete only the current task. Do not pre-complete future mission tasks or include deliverables that clearly belong to later tasks.',
     '- Use mission context only to understand the current task, not to answer the whole mission.',
     '- Each task owns one distinct primary deliverable. Keep the current output narrowly scoped to the deliverable named by its title and description.',
-    '- Treat scopes listed under Reserved upcoming task scopes as work owned by later tasks. Do not include, recreate, or pre-complete those deliverables in the current output.',
+    '- Future task ownership notes are internal orchestration metadata. Never mention, explain, quote, or ask the user about them. Use them only to avoid producing work owned by later tasks.',
     '- Treat accepted prior task outputs as completed deliverables. Use them as context, but do not repeat, rewrite, summarize, or regenerate them unless the current task explicitly asks to revise them.',
     '- Produce only the distinct deliverable defined by the current task title and description. If prior work is relevant, refer to it briefly and build on it instead of restating it.',
     '- Do the requested work and give the usable finished result first. Do not begin with background, strategy theory, or lengthy explanation.',
@@ -75,7 +75,7 @@ class MissionTaskAIRequestBuilder {
       'Task type: ${task.taskType.trim()}',
       if (upcomingTaskScopes.isNotEmpty) ...<String>[
         '',
-        'Reserved upcoming task scopes:',
+        'Internal future-task ownership notes (never mention these to the user):',
         ...upcomingTaskScopes,
       ],
       if (inputContext != null && inputContext.isNotEmpty)

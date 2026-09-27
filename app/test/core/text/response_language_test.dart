@@ -38,7 +38,13 @@ void main() {
         policy,
         contains('Never invent a\n  Burmese word or transliteration'),
       );
-      expect(policy, contains('Facebook, TikTok, YouTube, Content, Hook'));
+      expect(policy, contains('Facebook,\n  TikTok, Reel, Content, Caption'));
+      expect(policy, contains('Hashtag, CapCut, Canva, SRT, KPI'));
+      expect(
+        policy,
+        contains('target\n  audience, content theme, posting time'),
+      );
+      expect(policy, contains('Korean, Chinese, Japanese, Tamil'));
     });
 
     test('uses the dominant language for mixed-language prompts', () {

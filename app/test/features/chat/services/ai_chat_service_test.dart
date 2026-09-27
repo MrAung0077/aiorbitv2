@@ -94,7 +94,11 @@ void main() {
         expect(policy, contains('natural Burmese throughout'));
         expect(policy, contains('every heading, bullet'));
         expect(policy, contains('Never use the pronouns မင်း, နင်, or ငါ'));
-        expect(policy, contains('CapCut, Canva, Codex, GitHub'));
+        expect(policy, contains('CapCut, Canva, SRT, KPI'));
+        expect(
+          policy,
+          contains('other explicitly requested product names or technical identifiers'),
+        );
         expect(policy, isNot(contains('ရည်အသွား')));
         expect(policy, isNot(contains('ဒျမိုန့် tips')));
         expect(policy, isNot(contains('စိတ်တိုချင်းဖျော်ဖြေရေး')));
