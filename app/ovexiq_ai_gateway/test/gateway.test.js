@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -75,6 +76,7 @@ function createBetaAccountsNamespace() {
 
 function createEnv({
   rateLimitSuccess = true,
+  rateLimiter = null,
   imageRateLimitSuccess = true,
   includeOpenRouter = true,
 } = {}) {
@@ -85,7 +87,7 @@ function createEnv({
     OVEXIQ_BETA_TOKENS: JSON.stringify({ "tester-one": betaToken }),
     OVEXIQ_BETA_INVITES: JSON.stringify({ "invite-one": betaInviteCode }),
     OVEXIQ_SESSION_SIGNING_KEY: sessionSigningKey,
-    AI_RATE_LIMITER: {
+    AI_RATE_LIMITER: rateLimiter ?? {
       async limit({ key }) {
         assert.equal(key, "beta:tester-one");
         return { success: rateLimitSuccess };
@@ -119,6 +121,19 @@ function createEnv({
   env.quotaCalls = () => quotaCalls;
 
   return env;
+}
+
+function createCountingRateLimiter(limit) {
+  let attempts = 0;
+
+  return {
+    async limit({ key }) {
+      assert.equal(key, "beta:tester-one");
+      attempts += 1;
+      return { success: attempts <= limit };
+    },
+    attempts: () => attempts,
+  };
 }
 
 function createRequest(body, token = betaToken) {
@@ -1021,6 +1036,102 @@ test("returns 429 when the tester rate limit is exhausted", async () => {
 
   assert.equal(response.status, 429);
   assert.equal(response.headers.get("retry-after"), "60");
+});
+
+test("production text limiter reserves a normal Mission burst", async () => {
+  const config = JSON.parse(
+    await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
+  );
+  const textLimiter = config.ratelimits.find(
+    (binding) => binding.name === "AI_RATE_LIMITER",
+  );
+
+  assert.deepEqual(textLimiter?.simple, { limit: 16, period: 60 });
+});
+
+test("allows a five-task Mission, one repair, and ordinary Chat in one burst", async () => {
+  const limiter = createCountingRateLimiter(16);
+  const env = createEnv({ rateLimiter: limiter });
+  const activation = await activateDeviceSession(env);
+  let providerCalls = 0;
+
+  // Five task outputs, one bounded quality repair, and four ordinary Chat
+  // requests are all legitimate work from the same authenticated tester.
+  for (let requestIndex = 0; requestIndex < 10; requestIndex += 1) {
+    const response = await handleRequest(
+      withDeviceSession(createRequest(validBody()), activation.deviceSession),
+      env,
+      async () => {
+        providerCalls += 1;
+        return openAiSuccess();
+      },
+    );
+
+    assert.equal(response.status, 200);
+  }
+
+  assert.equal(providerCalls, 10);
+  assert.equal(env.quotaCalls(), 10);
+  assert.equal(limiter.attempts(), 10);
+});
+
+test("allows a ten-task Mission and one bounded repair before throttling abuse", async () => {
+  const limiter = createCountingRateLimiter(16);
+  const env = createEnv({ rateLimiter: limiter });
+  const activation = await activateDeviceSession(env);
+  let providerCalls = 0;
+
+  for (let taskAttempt = 0; taskAttempt < 11; taskAttempt += 1) {
+    const response = await handleRequest(
+      withDeviceSession(createRequest(validBody()), activation.deviceSession),
+      env,
+      async () => {
+        providerCalls += 1;
+        return openAiSuccess();
+      },
+    );
+
+    assert.equal(response.status, 200);
+  }
+
+  assert.equal(providerCalls, 11);
+  assert.equal(env.quotaCalls(), 11);
+  assert.equal(limiter.attempts(), 11);
+});
+
+test("rapid requests beyond the Mission burst still receive 429 with Retry-After", async () => {
+  const limiter = createCountingRateLimiter(16);
+  const env = createEnv({ rateLimiter: limiter });
+  const activation = await activateDeviceSession(env);
+  let providerCalls = 0;
+
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const response = await handleRequest(
+      withDeviceSession(createRequest(validBody()), activation.deviceSession),
+      env,
+      async () => {
+        providerCalls += 1;
+        return openAiSuccess();
+      },
+    );
+
+    assert.equal(response.status, 200);
+  }
+
+  const throttled = await handleRequest(
+    withDeviceSession(createRequest(validBody()), activation.deviceSession),
+    env,
+    async () => {
+      providerCalls += 1;
+      return openAiSuccess();
+    },
+  );
+
+  assert.equal(throttled.status, 429);
+  assert.equal(throttled.headers.get("retry-after"), "60");
+  assert.equal(providerCalls, 16);
+  assert.equal(env.quotaCalls(), 16);
+  assert.equal(limiter.attempts(), 17);
 });
 
 test("image endpoint rejects invalid beta tokens and non-POST requests", async () => {
