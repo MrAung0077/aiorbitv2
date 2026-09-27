@@ -106,6 +106,37 @@ class MissionTaskAIRequestBuilder {
     );
   }
 
+  AIRequest buildQualityRepair({
+    required Mission mission,
+    required MissionTask task,
+    required String rejectedOutput,
+  }) {
+    final originalRequest = build(mission: mission, task: task);
+    final draft = rejectedOutput.trim();
+
+    return originalRequest.copyWith(
+      messages: <AIMessage>[
+        ...originalRequest.messages,
+        AIMessage(
+          role: AIMessageRole.user,
+          content:
+              'Rewrite only this task output in natural Burmese.\n'
+              'Preserve facts and structure.\n'
+              'Remove unnecessary English except standard product or industry terms.\n'
+              'Remove any unexpected foreign-script text.\n'
+              'Do not add new claims, new tasks, or new deliverables.\n'
+              'Do not mention internal Mission or task instructions.\n\n'
+              'Task output draft to repair:\n'
+              '$draft',
+        ),
+      ],
+      metadata: <String, Object?>{
+        ...originalRequest.metadata,
+        'qualityRepair': true,
+      },
+    );
+  }
+
   List<String> _previousAcceptedResults({
     required Mission mission,
     required MissionTask currentTask,
