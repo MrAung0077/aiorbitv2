@@ -66,7 +66,7 @@ const MAX_BETA_INVITE_CODE_CHARS = 256;
 const MIN_ACTIVATION_ID_CHARS = 22;
 const MAX_ACTIVATION_ID_CHARS = 128;
 const DAILY_QUOTA_LIMITS = Object.freeze({
-  text: Object.freeze({ perTester: 20, global: 30 }),
+  text: Object.freeze({ perTester: 30, global: 90 }),
   image: Object.freeze({ perTester: 2, global: 3 }),
   speech: Object.freeze({ perTester: 2, global: 3 }),
 });

@@ -176,12 +176,12 @@ test("local Workerd Durable Object enforces the real text and image quota bindin
     "runtime-test-token-two",
   );
 
-  for (let index = 0; index < 20; index += 1) {
+  for (let index = 0; index < 30; index += 1) {
     await assertProviderUnavailable(await sendText(worker, "runtime-test-token-one", sessionOne));
   }
   await assertQuotaRejected(await sendText(worker, "runtime-test-token-one", sessionOne));
 
-  for (let index = 0; index < 10; index += 1) {
+  for (let index = 0; index < 30; index += 1) {
     await assertProviderUnavailable(await sendText(worker, "runtime-test-token-two", sessionTwo));
   }
   await assertQuotaRejected(await sendText(worker, "runtime-test-token-two", sessionTwo));
@@ -209,11 +209,11 @@ test("local Workerd serializes concurrent requests through the real Durable Obje
   );
 
   const responses = await Promise.all(
-    Array.from({ length: 25 }, () => sendText(worker, "runtime-test-token-one", session)),
+    Array.from({ length: 35 }, () => sendText(worker, "runtime-test-token-one", session)),
   );
   const statuses = await Promise.all(responses.map((response) => response.status));
 
-  assert.equal(statuses.filter((status) => status === 503).length, 20);
+  assert.equal(statuses.filter((status) => status === 503).length, 30);
   assert.equal(statuses.filter((status) => status === 429).length, 5);
 });
 

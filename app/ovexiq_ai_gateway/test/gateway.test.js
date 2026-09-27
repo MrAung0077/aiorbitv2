@@ -1556,6 +1556,51 @@ test("current quota state retains existing speech usage", () => {
   assert.deepEqual(normalizeDailyQuotaStateForDay(currentState, quotaDay), currentState);
 });
 
+test("text quota permits thirty requests per tester and preserves state on rejection", async () => {
+  const { quota, storedState } = createQuotaWithStoredState(undefined);
+
+  for (let index = 0; index < 30; index += 1) {
+    assert.deepEqual(await quota.consume("tester-one", "text", quotaNow), { allowed: true });
+  }
+
+  assert.deepEqual(await quota.consume("tester-one", "text", quotaNow), { allowed: false });
+  assert.deepEqual(storedState(), {
+    day: quotaDay,
+    totals: { text: 30, image: 0, speech: 0 },
+    testers: [{ id: "tester-one", text: 30, image: 0, speech: 0 }],
+  });
+});
+
+test("text quota permits ninety global requests and rejects the ninety-first", async () => {
+  const { quota, storedState } = createQuotaWithStoredState(undefined);
+
+  for (const testerId of ["tester-one", "tester-two", "tester-three"]) {
+    for (let index = 0; index < 30; index += 1) {
+      assert.deepEqual(await quota.consume(testerId, "text", quotaNow), { allowed: true });
+    }
+  }
+
+  assert.deepEqual(await quota.consume("tester-four", "text", quotaNow), { allowed: false });
+  assert.equal(storedState().totals.text, 90);
+  assert.equal(storedState().testers.length, 3);
+});
+
+test("daily quota resets from the UTC day boundary", async () => {
+  const { quota, storedState } = createQuotaWithStoredState({
+    day: quotaDay,
+    totals: { text: 90, image: 3, speech: 2 },
+    testers: [{ id: "tester-one", text: 30, image: 2, speech: 2 }],
+  });
+  const nextUtcDay = Date.parse("2026-09-09T00:00:00.000Z");
+
+  assert.deepEqual(await quota.consume("tester-one", "text", nextUtcDay), { allowed: true });
+  assert.deepEqual(storedState(), {
+    day: "2026-09-09",
+    totals: { text: 1, image: 0, speech: 0 },
+    testers: [{ id: "tester-one", text: 1, image: 0, speech: 0 }],
+  });
+});
+
 test("malformed quota state still uses the defensive fresh-state fallback", async () => {
   const { quota, storedState } = createQuotaWithStoredState({
     day: quotaDay,
