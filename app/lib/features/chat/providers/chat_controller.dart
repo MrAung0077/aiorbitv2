@@ -233,7 +233,7 @@ class ChatController extends StateNotifier<ChatState> {
       return;
     }
 
-    ++_operationRevision;
+    final revision = ++_operationRevision;
 
     var conversation = state.conversation;
 
@@ -282,7 +282,9 @@ class ChatController extends StateNotifier<ChatState> {
     try {
       await _conversationRepository.saveConversation(conversation);
 
-      if (!mounted || state.conversation?.id != conversationId) {
+      if (!mounted ||
+          revision != _operationRevision ||
+          state.conversation?.id != conversationId) {
         return;
       }
 
@@ -352,7 +354,9 @@ class ChatController extends StateNotifier<ChatState> {
 
         await _conversationRepository.saveConversation(clarifiedConversation);
 
-        if (!mounted || state.conversation?.id != conversationId) {
+        if (!mounted ||
+            revision != _operationRevision ||
+            state.conversation?.id != conversationId) {
           return;
         }
 
@@ -388,7 +392,9 @@ class ChatController extends StateNotifier<ChatState> {
 
         await _conversationRepository.saveConversation(clarifiedConversation);
 
-        if (!mounted || state.conversation?.id != conversationId) {
+        if (!mounted ||
+            revision != _operationRevision ||
+            state.conversation?.id != conversationId) {
           return;
         }
 
@@ -429,7 +435,7 @@ class ChatController extends StateNotifier<ChatState> {
 
         await _conversationRepository.saveConversation(unavailableConversation);
 
-        if (!mounted) {
+        if (!mounted || revision != _operationRevision) {
           return;
         }
 
@@ -491,7 +497,9 @@ class ChatController extends StateNotifier<ChatState> {
       ];
 
       await for (final chunk in _aiChatService.sendMessages(aiMessages)) {
-        if (!mounted || state.conversation?.id != conversationId) {
+        if (!mounted ||
+            revision != _operationRevision ||
+            state.conversation?.id != conversationId) {
           return;
         }
 
@@ -542,7 +550,9 @@ class ChatController extends StateNotifier<ChatState> {
 
       await _conversationRepository.saveConversation(streamingConversation);
 
-      if (!mounted || state.conversation?.id != conversationId) {
+      if (!mounted ||
+          revision != _operationRevision ||
+          state.conversation?.id != conversationId) {
         return;
       }
 
@@ -552,7 +562,7 @@ class ChatController extends StateNotifier<ChatState> {
         clearMissionSuggestion: true,
       );
     } catch (error, stackTrace) {
-      if (!mounted) {
+      if (!mounted || revision != _operationRevision) {
         return;
       }
 
@@ -563,6 +573,42 @@ class ChatController extends StateNotifier<ChatState> {
         error: error,
         stackTrace: stackTrace,
       );
+    }
+  }
+
+  /// Locally stops a streamed Chat response. Transport cancellation is not a
+  /// requirement of the current provider contract, so a late result is
+  /// ignored via the operation revision instead of being persisted.
+  Future<void> cancelActiveResponse() async {
+    if (!state.isSending || state.isImageGenerationInProgress) {
+      return;
+    }
+
+    ++_operationRevision;
+    final conversation = state.conversation;
+    if (conversation == null) {
+      state = state.copyWith(isSending: false);
+      return;
+    }
+
+    final messages = <ChatMessage>[...conversation.messages];
+    if (messages.isNotEmpty && messages.last.role == ChatRole.assistant) {
+      messages.removeLast();
+    }
+    final stoppedConversation = conversation.copyWith(
+      messages: messages,
+      updatedAt: _nextActivityTime(),
+    );
+    state = state.copyWith(
+      conversation: stoppedConversation,
+      isSending: false,
+      clearError: true,
+      clearMissionSuggestion: true,
+    );
+    try {
+      await _conversationRepository.saveConversation(stoppedConversation);
+    } catch (_) {
+      // The visible stopped state is still safe if persistence is unavailable.
     }
   }
 
@@ -996,7 +1042,7 @@ class ChatController extends StateNotifier<ChatState> {
       updatedAt: _nextActivityTime(),
     );
 
-    ++_operationRevision;
+    final revision = ++_operationRevision;
 
     state = state.copyWith(
       conversation: conversation,
@@ -1008,7 +1054,9 @@ class ChatController extends StateNotifier<ChatState> {
     try {
       await _conversationRepository.saveConversation(conversation);
 
-      if (!mounted || state.conversation?.id != conversationId) {
+      if (!mounted ||
+          revision != _operationRevision ||
+          state.conversation?.id != conversationId) {
         return;
       }
 
@@ -1040,7 +1088,9 @@ class ChatController extends StateNotifier<ChatState> {
       await for (final chunk in _aiChatService.sendMessages(
         conversation.messages.map(_toAIMessage).toList(growable: false),
       )) {
-        if (!mounted || state.conversation?.id != conversationId) {
+        if (!mounted ||
+            revision != _operationRevision ||
+            state.conversation?.id != conversationId) {
           return;
         }
 
@@ -1092,7 +1142,9 @@ class ChatController extends StateNotifier<ChatState> {
 
       await _conversationRepository.saveConversation(streamingConversation);
 
-      if (!mounted || state.conversation?.id != conversationId) {
+      if (!mounted ||
+          revision != _operationRevision ||
+          state.conversation?.id != conversationId) {
         return;
       }
 
@@ -1102,7 +1154,7 @@ class ChatController extends StateNotifier<ChatState> {
         clearMissionSuggestion: true,
       );
     } catch (error, stackTrace) {
-      if (!mounted) {
+      if (!mounted || revision != _operationRevision) {
         return;
       }
 

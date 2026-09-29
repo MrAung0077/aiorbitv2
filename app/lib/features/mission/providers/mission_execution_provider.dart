@@ -117,6 +117,25 @@ class MissionExecutionNotifier extends Notifier<MissionExecution?> {
     state = _controller.cancel(execution);
   }
 
+  /// Stops the currently controlled Mission. Completed task outputs stay on
+  /// the Mission; the active task's late transport result cannot be accepted.
+  Future<Mission?> cancelActiveMission() async {
+    final execution = state;
+    final missionId = _activeMissionId;
+    if (execution == null || missionId == null) {
+      return null;
+    }
+
+    cancel();
+    final taskId = execution.currentTaskId;
+    if (taskId != null) {
+      await ref
+          .read(missionTaskExecutionProvider.notifier)
+          .cancelTask(missionId: missionId, taskId: taskId);
+    }
+    return ref.read(missionControllerProvider).cancelMission(missionId: missionId);
+  }
+
   void clear() {
     state = null;
   }
@@ -187,6 +206,10 @@ class MissionExecutionNotifier extends Notifier<MissionExecution?> {
       );
 
       for (final orderedTask in orderedTasks) {
+        if (_wasCancelled(normalizedMissionId)) {
+          return await missionController.getMission(normalizedMissionId) ??
+              mission;
+        }
         final latestMission = await missionController.getMission(
           normalizedMissionId,
         );
@@ -225,6 +248,11 @@ class MissionExecutionNotifier extends Notifier<MissionExecution?> {
           missionId: normalizedMissionId,
           taskId: task.id,
         );
+
+        if (_wasCancelled(normalizedMissionId)) {
+          return await missionController.getMission(normalizedMissionId) ??
+              mission;
+        }
 
         if (result.status != ExecutionStatus.completed ||
             !_hasUsableResult(result)) {
@@ -268,6 +296,11 @@ class MissionExecutionNotifier extends Notifier<MissionExecution?> {
       });
 
     return indexedTasks.map((entry) => entry.$2).toList(growable: false);
+  }
+
+  bool _wasCancelled(String missionId) {
+    return _activeMissionId == missionId &&
+        state?.status == ExecutionStatus.cancelled;
   }
 
   bool _isTaskEligible(MissionTask task) {

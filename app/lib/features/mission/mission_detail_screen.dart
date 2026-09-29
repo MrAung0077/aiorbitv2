@@ -109,6 +109,18 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     }
   }
 
+  Future<void> _cancelMission() async {
+    final cancelled = await ref
+        .read(missionExecutionProvider.notifier)
+        .cancelActiveMission();
+    if (!mounted || cancelled == null) {
+      return;
+    }
+    setState(() {
+      _mission = cancelled;
+    });
+  }
+
   Future<void> _acceptTaskResult(String taskId) async {
     if (_acceptingTaskId != null) {
       return;
@@ -206,7 +218,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               ],
 
               const SizedBox(height: 16),
-              _ExecutionCard(execution: currentExecution),
+              _ExecutionCard(
+                execution: currentExecution,
+                onCancel: isExecuting ? _cancelMission : null,
+              ),
               const SizedBox(height: 28),
               Text(
                 'Mission Timeline',
@@ -310,9 +325,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 }
 
 class _ExecutionCard extends StatelessWidget {
-  const _ExecutionCard({required this.execution});
+  const _ExecutionCard({required this.execution, this.onCancel});
 
   final MissionExecution? execution;
+  final VoidCallback? onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -352,6 +368,10 @@ class _ExecutionCard extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               ),
+              if (onCancel != null) ...[
+                const SizedBox(width: 8),
+                TextButton(onPressed: onCancel, child: const Text('Stop')),
+              ],
             ],
           ),
           const SizedBox(height: 16),

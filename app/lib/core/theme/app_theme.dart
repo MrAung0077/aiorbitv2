@@ -15,6 +15,7 @@ abstract final class AppTheme {
   static final ColorScheme _darkColorScheme = ColorScheme.fromSeed(
     seedColor: AppColors.primary,
     brightness: Brightness.dark,
+    surface: AppColors.darkSurface,
     error: AppColors.error,
   );
 
@@ -28,10 +29,10 @@ abstract final class AppTheme {
 
   static final ThemeData darkTheme = _buildTheme(
     colorScheme: _darkColorScheme,
-    scaffoldBackgroundColor: _darkColorScheme.surface,
+    scaffoldBackgroundColor: AppColors.darkBackground,
     textColor: _darkColorScheme.onSurface,
     secondaryTextColor: _darkColorScheme.onSurfaceVariant,
-    borderColor: _darkColorScheme.outlineVariant,
+    borderColor: AppColors.darkBorder,
   );
 
   static ThemeData _buildTheme({

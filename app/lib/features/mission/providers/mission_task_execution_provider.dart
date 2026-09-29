@@ -46,6 +46,7 @@ class MissionTaskExecutionNotifier
       'Unable to complete this task. Please try again.';
 
   String? _activeTaskKey;
+  final Set<String> _cancelledTaskKeys = <String>{};
   final Set<String> _activeAcceptanceKeys = <String>{};
   final Set<String> _restoringMissionIds = <String>{};
   final Set<String> _restoredMissionIds = <String>{};
@@ -70,6 +71,25 @@ class MissionTaskExecutionNotifier
 
   bool isIdle({required String missionId, required String taskId}) {
     return executionFor(missionId: missionId, taskId: taskId) == null;
+  }
+
+  /// Stops accepting the active task's result. The underlying transport may
+  /// finish later, but its output is deliberately ignored.
+  Future<void> cancelTask({
+    required String missionId,
+    required String taskId,
+  }) async {
+    final taskKey = '${missionId.trim()}::${taskId.trim()}';
+    if (_activeTaskKey != taskKey) {
+      return;
+    }
+
+    _cancelledTaskKeys.add(taskKey);
+    final current = executionFor(missionId: missionId, taskId: taskId);
+    if (current?.status == ExecutionStatus.running ||
+        current?.status == ExecutionStatus.preparing) {
+      await _publishAndPersist(_cancelledExecution(current!));
+    }
   }
 
   Future<void> restoreMissionExecutions(String missionId) async {
@@ -197,6 +217,7 @@ class MissionTaskExecutionNotifier
     }
 
     _activeTaskKey = taskKey;
+    _cancelledTaskKeys.remove(taskKey);
 
     try {
       final mission = await ref
@@ -237,6 +258,10 @@ class MissionTaskExecutionNotifier
             .read(missionTaskExecutorProvider)
             .execute(mission: mission, task: task);
 
+        if (_cancelledTaskKeys.contains(taskKey)) {
+          return _publishCancelled(running.execution);
+        }
+
         if (result.missionId != mission.id || result.taskId != task.id) {
           throw StateError('Task execution returned mismatched identifiers.');
         }
@@ -269,6 +294,7 @@ class MissionTaskExecutionNotifier
       }
     } finally {
       _activeTaskKey = null;
+      _cancelledTaskKeys.remove(taskKey);
     }
   }
 
@@ -306,6 +332,34 @@ class MissionTaskExecutionNotifier
 
     await _publishAndPersist(failed);
     return failed;
+  }
+
+  MissionTaskExecution _cancelledExecution(MissionTaskExecution execution) {
+    return MissionTaskExecution(
+      execution: execution.execution.copyWith(
+        status: ExecutionStatus.cancelled,
+        progress: 0,
+        finishedAt:
+            execution.finishedAt ??
+            ref.read(missionTaskExecutionClockProvider)(),
+      ),
+    );
+  }
+
+  Future<MissionTaskExecution> _publishCancelled(
+    MissionExecution execution,
+  ) async {
+    final cancelled = MissionTaskExecution(
+      execution: execution.copyWith(
+        status: ExecutionStatus.cancelled,
+        progress: 0,
+        finishedAt:
+            execution.finishedAt ??
+            ref.read(missionTaskExecutionClockProvider)(),
+      ),
+    );
+    await _publishAndPersist(cancelled);
+    return cancelled;
   }
 
   Future<void> _publishAndPersist(MissionTaskExecution execution) async {

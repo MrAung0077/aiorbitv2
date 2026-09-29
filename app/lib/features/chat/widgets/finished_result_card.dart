@@ -6,9 +6,10 @@ import '../../../l10n/app_localizations_en.dart';
 import '../../mission/services/chat_mission_result_adapter.dart';
 
 class FinishedResultCard extends StatelessWidget {
-  const FinishedResultCard({super.key, required this.result});
+  const FinishedResultCard({super.key, required this.result, this.isPartial = false});
 
   final ChatMissionResult result;
+  final bool isPartial;
 
   @override
   Widget build(BuildContext context) {
@@ -42,7 +43,10 @@ class FinishedResultCard extends StatelessWidget {
       margin: const EdgeInsets.only(top: 12, bottom: 20),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: colorScheme.tertiaryContainer.withValues(alpha: 0.45),
+        color: (isPartial
+                ? colorScheme.surfaceContainerHighest
+                : colorScheme.tertiaryContainer)
+            .withValues(alpha: 0.62),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: colorScheme.tertiary.withValues(alpha: 0.25)),
       ),
@@ -50,7 +54,7 @@ class FinishedResultCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            l10n.resultPackReady,
+            isPartial ? l10n.completedOutputs : l10n.resultPackReady,
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w700,
               color: colorScheme.onTertiaryContainer,
@@ -58,7 +62,11 @@ class FinishedResultCard extends StatelessWidget {
           ),
           const SizedBox(height: 3),
           Text(
-            deliverables.length == 1
+            isPartial
+                ? deliverables.length == 1
+                      ? l10n.completedOneOutput
+                      : l10n.completedOutputCount(deliverables.length)
+                : deliverables.length == 1
                 ? l10n.resultPackOneOutput
                 : l10n.resultPackOutputCount(deliverables.length),
             style: theme.textTheme.bodySmall?.copyWith(

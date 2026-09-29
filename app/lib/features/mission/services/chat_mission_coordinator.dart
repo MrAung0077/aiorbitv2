@@ -1,8 +1,9 @@
 import '../controllers/mission_controller.dart';
 import '../models/mission.dart';
 import '../models/mission_suggestion.dart';
+import '../models/mission_status.dart';
 
-enum ChatMissionRunOutcome { completed, failed }
+enum ChatMissionRunOutcome { completed, cancelled, failed }
 
 class ChatMissionRunResult {
   const ChatMissionRunResult({
@@ -94,7 +95,9 @@ class ChatMissionCoordinator {
 
       return ChatMissionRunResult(
         mission: completedMission,
-        outcome: completedMission.taskProgress.isComplete
+        outcome: completedMission.status == MissionStatus.cancelled
+            ? ChatMissionRunOutcome.cancelled
+            : completedMission.taskProgress.isComplete
             ? ChatMissionRunOutcome.completed
             : ChatMissionRunOutcome.failed,
         wasCreated: existingMission == null,

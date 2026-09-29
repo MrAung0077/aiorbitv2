@@ -1,5 +1,6 @@
 import '../models/mission.dart';
 import '../models/execution_status.dart';
+import '../models/mission_status.dart';
 import '../models/mission_suggestion.dart';
 import '../models/mission_task.dart';
 import '../models/mission_task_execution.dart';
@@ -184,6 +185,28 @@ class MissionController {
       status: TaskStatus.completed,
       acceptedOutput: acceptedOutput,
     );
+  }
+
+  /// Marks a Mission as stopped without discarding any accepted task outputs.
+  /// Pending work remains persisted but is never resumed automatically.
+  Future<Mission> cancelMission({required String missionId}) async {
+    final mission = await _repository.getMission(missionId);
+
+    if (mission == null) {
+      throw StateError('Mission "$missionId" was not found.');
+    }
+
+    if (mission.status == MissionStatus.completed ||
+        mission.status == MissionStatus.cancelled) {
+      return mission;
+    }
+
+    final cancelled = mission.copyWith(
+      status: MissionStatus.cancelled,
+      updatedAt: DateTime.now(),
+    );
+    await _repository.saveMission(cancelled);
+    return cancelled;
   }
 
   Future<void> deleteMission(String id) {

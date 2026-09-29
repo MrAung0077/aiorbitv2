@@ -112,6 +112,43 @@ void main() {
     expect(container.read(missionExecutionProvider), isNull);
   });
 
+  test('cancelled task ignores a late provider result', () async {
+    final repository = MemoryMissionRepository();
+    final executor = _ControlledMissionTaskExecutor();
+    final container = _container(
+      repository: repository,
+      executor: executor,
+      clock: _clock(runningAt, finishedAt),
+    );
+    addTearDown(container.dispose);
+    await repository.saveMission(_mission(status: TaskStatus.inProgress));
+
+    final future = container
+        .read(missionExecutionProvider.notifier)
+        .executeTask(missionId: 'mission', taskId: 'task');
+    await executor.started.future;
+
+    await container
+        .read(missionTaskExecutionProvider.notifier)
+        .cancelTask(missionId: 'mission', taskId: 'task');
+    executor.complete(
+      _executionResult(
+        status: ExecutionStatus.completed,
+        startedAt: runningAt,
+        finishedAt: finishedAt,
+        outputText: 'Late output must not be accepted',
+      ),
+    );
+
+    final result = await future;
+    expect(result.status, ExecutionStatus.cancelled);
+    expect(_record(container)?.status, ExecutionStatus.cancelled);
+    expect(
+      (await repository.getMission('mission'))?.tasks.single.output,
+      isNull,
+    );
+  });
+
   test('completed and invalid tasks are rejected before execution', () async {
     final repository = MemoryMissionRepository();
     final executor = _ControlledMissionTaskExecutor();

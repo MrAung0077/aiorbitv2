@@ -20,10 +20,10 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  static const String _heroTitle = 'What do you want';
-  static const String _heroSubtitle = 'to get done?';
+  static const String _heroTitle = 'Ovexiq';
+  static const String _heroSubtitle = 'AI tools for getting work done';
   static const String _heroQuestion =
-      'Tell Ovexiq your goal. It will help you move from idea to finished result.';
+      'Start with a goal, a draft, or a task you want to finish.';
   final TextEditingController _promptController = TextEditingController();
   final FocusNode _promptFocusNode = FocusNode();
 
@@ -129,7 +129,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final recentConversations = selectRecentConversations(conversations);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Ovexiq'), centerTitle: false),
+      appBar: AppBar(
+        title: const Text('Ovexiq'),
+        centerTitle: false,
+        actions: const [
+          Padding(
+            padding: EdgeInsets.only(right: 12),
+            child: Icon(Icons.tune_rounded, size: 20),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -137,19 +146,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             child: ListView(
               padding: AppSpacing.screen,
               children: [
-                const SizedBox(height: AppSpacing.lg),
+                const SizedBox(height: AppSpacing.sm),
 
                 Text(
                   _heroTitle,
-                  style: theme.textTheme.displayMedium?.copyWith(
+                  style: theme.textTheme.headlineLarge?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 Text(
-                  (_heroSubtitle),
-                  style: theme.textTheme.displayMedium?.copyWith(
+                  _heroSubtitle,
+                  style: theme.textTheme.titleMedium?.copyWith(
                     color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
 
@@ -162,7 +171,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                 ),
 
-                const SizedBox(height: AppSpacing.xl),
+                const SizedBox(height: AppSpacing.lg),
 
                 AppPromptComposer(
                   controller: _promptController,
@@ -173,33 +182,53 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
                 const SizedBox(height: AppSpacing.xl),
 
-                Text('Quick start', style: theme.textTheme.titleMedium),
+                Text('Creator tools', style: theme.textTheme.titleMedium),
 
                 const SizedBox(height: AppSpacing.md),
 
-                Wrap(
-                  spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.sm,
+                GridView.count(
+                  crossAxisCount: MediaQuery.sizeOf(context).width < 390 ? 2 : 3,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  childAspectRatio: 1.48,
+                  mainAxisSpacing: AppSpacing.sm,
+                  crossAxisSpacing: AppSpacing.sm,
                   children: [
-                    _QuickAction(
-                      icon: Icons.auto_awesome_outlined,
-                      label: 'Create',
-                      onTap: () => _useQuickPrompt('Help me create '),
+                    _ToolCard(
+                      icon: Icons.dashboard_customize_outlined,
+                      title: 'Content Kit',
+                      subtitle: 'Plan a complete content set',
+                      onTap: () => _useQuickPrompt('Create a content kit for '),
                     ),
-                    _QuickAction(
-                      icon: Icons.search_rounded,
-                      label: 'Research',
+                    _ToolCard(
+                      icon: Icons.movie_filter_outlined,
+                      title: 'Reel Script',
+                      subtitle: 'Script, hook and shot list',
+                      onTap: () => _useQuickPrompt('Write a Reel script for '),
+                    ),
+                    _ToolCard(
+                      icon: Icons.image_outlined,
+                      title: 'Image',
+                      subtitle: 'Create or refine an image',
+                      onTap: () => _useQuickPrompt('Create an image of '),
+                    ),
+                    _ToolCard(
+                      icon: Icons.videocam_outlined,
+                      title: 'Video',
+                      subtitle: 'Video tools',
+                      isAvailable: false,
+                    ),
+                    _ToolCard(
+                      icon: Icons.travel_explore_outlined,
+                      title: 'Research',
+                      subtitle: 'Explore a topic clearly',
                       onTap: () => _useQuickPrompt('Research this for me: '),
                     ),
-                    _QuickAction(
-                      icon: Icons.edit_outlined,
-                      label: 'Write',
-                      onTap: () => _useQuickPrompt('Help me write '),
-                    ),
-                    _QuickAction(
-                      icon: Icons.route_outlined,
-                      label: 'Plan',
-                      onTap: () => _useQuickPrompt('Help me plan '),
+                    _ToolCard(
+                      icon: Icons.closed_caption_outlined,
+                      title: 'Caption',
+                      subtitle: 'Captions and translation',
+                      onTap: () => _useQuickPrompt('Write a caption for '),
                     ),
                   ],
                 ),
@@ -326,23 +355,70 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-class _QuickAction extends StatelessWidget {
-  const _QuickAction({
+class _ToolCard extends StatelessWidget {
+  const _ToolCard({
     required this.icon,
-    required this.label,
-    required this.onTap,
+    required this.title,
+    required this.subtitle,
+    this.onTap,
+    this.isAvailable = true,
   });
 
   final IconData icon;
-  final String label;
-  final VoidCallback onTap;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onTap;
+  final bool isAvailable;
 
   @override
   Widget build(BuildContext context) {
-    return ActionChip(
-      avatar: Icon(icon, size: 18),
-      label: Text(label),
-      onPressed: onTap,
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Card(
+      margin: EdgeInsets.zero,
+      child: InkWell(
+        key: ValueKey<String>('tool-card-$title'),
+        borderRadius: AppRadius.cardRadius,
+        onTap: isAvailable ? onTap : null,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    icon,
+                    size: 20,
+                    color: isAvailable
+                        ? colorScheme.primary
+                        : colorScheme.onSurfaceVariant,
+                  ),
+                  const Spacer(),
+                  if (!isAvailable)
+                    Text(
+                      'Coming soon',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                ],
+              ),
+              const Spacer(),
+              Text(title, style: theme.textTheme.titleSmall),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

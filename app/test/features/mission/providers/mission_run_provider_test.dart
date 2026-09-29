@@ -161,6 +161,43 @@ void main() {
     );
   });
 
+  test(
+    'cancelling a Mission preserves accepted work and stops later tasks',
+    () async {
+      final repository = MemoryMissionRepository();
+      final executor = _GatedMissionTaskExecutor();
+      final container = _container(repository: repository, executor: executor);
+      addTearDown(container.dispose);
+      final mission = _mission();
+      await repository.saveMission(mission);
+
+      final notifier = container.read(missionExecutionProvider.notifier);
+      final runFuture = notifier.runMission(missionId: mission.id);
+      await executor.waitForCalls(1);
+      executor.complete(0, outputText: 'Accepted first output');
+      await executor.waitForCalls(2);
+
+      final cancelled = await notifier.cancelActiveMission();
+      expect(cancelled?.status, MissionStatus.cancelled);
+      executor.complete(1, outputText: 'Late output must be ignored');
+      final stopped = await runFuture;
+
+      expect(stopped.status, MissionStatus.cancelled);
+      expect(stopped.tasks[0].status, TaskStatus.completed);
+      expect(stopped.tasks[0].output, 'Accepted first output');
+      expect(stopped.tasks[1].status, TaskStatus.pending);
+      expect(stopped.tasks[1].output, isNull);
+      expect(stopped.tasks[2].status, TaskStatus.pending);
+      expect(executor.calls, hasLength(2));
+      _expectMissionExecution(
+        container,
+        status: ExecutionStatus.cancelled,
+        progress: 1 / 3,
+        currentTaskId: null,
+      );
+    },
+  );
+
   test('duplicate mission and task runs are rejected while running', () async {
     final repository = MemoryMissionRepository();
     final executor = _GatedMissionTaskExecutor();

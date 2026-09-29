@@ -54,7 +54,7 @@ class AppMessageBubble extends StatelessWidget {
     final colorScheme = theme.colorScheme;
 
     final background = message.isError
-        ? colorScheme.errorContainer
+        ? colorScheme.errorContainer.withValues(alpha: 0.58)
         : _isUser
         ? colorScheme.primaryContainer
         : colorScheme.surface;
@@ -87,12 +87,17 @@ class AppMessageBubble extends StatelessWidget {
           Flexible(
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                maxWidth: MediaQuery.sizeOf(context).width * .80,
+                maxWidth: MediaQuery.sizeOf(context).width * .86,
               ),
               child: Container(
                 decoration: BoxDecoration(
                   color: background,
                   borderRadius: AppRadius.cardRadius,
+                  border: Border.all(
+                    color: message.isError
+                        ? colorScheme.error.withValues(alpha: 0.28)
+                        : colorScheme.outlineVariant.withValues(alpha: 0.7),
+                  ),
                   boxShadow: AppShadows.card,
                 ),
                 padding: const EdgeInsets.all(16),
@@ -108,6 +113,7 @@ class AppMessageBubble extends StatelessWidget {
                         messageContent,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: foreground,
+                          height: 1.5,
                         ),
                       )
                     else if (message.isError)
@@ -115,6 +121,7 @@ class AppMessageBubble extends StatelessWidget {
                         messageContent,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: foreground,
+                          height: 1.5,
                         ),
                       )
                     else

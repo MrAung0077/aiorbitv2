@@ -19,6 +19,39 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('Home shows creator tools and keeps unavailable video local', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(800, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(
+          _MemoryConversationRepository(const <Conversation>[]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: HomeScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Content Kit'), findsOneWidget);
+    expect(find.text('Reel Script'), findsOneWidget);
+    expect(find.text('Image'), findsOneWidget);
+    expect(find.text('Video'), findsOneWidget);
+    expect(find.text('Coming soon'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey<String>('tool-card-Video')));
+    await tester.pump();
+    expect(container.read(chatControllerProvider).conversation, isNull);
+  });
+
   testWidgets(
     'Home history failure keeps goal actions and retry restores history',
     (tester) async {
@@ -56,8 +89,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byTooltip('Send'), findsOneWidget);
-      expect(find.text('Quick start'), findsOneWidget);
-      expect(find.text('Create'), findsOneWidget);
+      expect(find.text('Creator tools'), findsOneWidget);
+      expect(find.text('Content Kit'), findsOneWidget);
 
       await tester.scrollUntilVisible(
         find.text('Could not load conversations'),
@@ -114,7 +147,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byTooltip('Send'), findsOneWidget);
-    expect(find.text('Quick start'), findsOneWidget);
+    expect(find.text('Creator tools'), findsOneWidget);
     expect(find.text('Continue'), findsNothing);
     expect(find.text('Could not load conversations'), findsNothing);
     expect(find.text('Try again'), findsNothing);
@@ -157,17 +190,15 @@ void main() {
 
       expect(find.byTooltip('Account'), findsNothing);
       expect(
-        find.text(
-          'Tell Ovexiq your goal. It will help you move from idea to finished result.',
-        ),
+        find.text('Start with a goal, a draft, or a task you want to finish.'),
         findsOneWidget,
       );
       expect(find.byTooltip('Send'), findsOneWidget);
-      expect(find.text('Quick start'), findsOneWidget);
-      expect(find.text('Create'), findsOneWidget);
+      expect(find.text('Creator tools'), findsOneWidget);
+      expect(find.text('Content Kit'), findsOneWidget);
       expect(find.text('Research'), findsOneWidget);
-      expect(find.text('Write'), findsOneWidget);
-      expect(find.text('Plan'), findsOneWidget);
+      expect(find.text('Reel Script'), findsOneWidget);
+      expect(find.text('Video'), findsOneWidget);
 
       await tester.scrollUntilVisible(
         find.text('Continue beta mission'),

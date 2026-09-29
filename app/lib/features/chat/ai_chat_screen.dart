@@ -28,6 +28,7 @@ import 'widgets/finished_result_card.dart';
 import 'widgets/generated_image_card.dart';
 import 'widgets/video_attachment_card.dart';
 import '../mission/providers/chat_mission_coordinator_provider.dart';
+import '../mission/providers/mission_execution_provider.dart';
 import '../mission/providers/mission_provider.dart';
 import '../mission/services/chat_mission_coordinator.dart';
 import '../mission/services/chat_mission_result_adapter.dart';
@@ -54,7 +55,11 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
   _MissionWorkState _missionWorkState = _MissionWorkState.idle;
   MissionSuggestion? _failedMissionSuggestion;
   ResponseLanguage _failedMissionResponseLanguage = ResponseLanguage.auto;
+  ResponseLanguage _missionResponseLanguage = ResponseLanguage.auto;
   ChatMissionResult? _finishedMissionResult;
+  var _missionResultIsPartial = false;
+  var _chatWasStopped = false;
+  ResponseLanguage _stoppedChatResponseLanguage = ResponseLanguage.auto;
   _ImageWorkState _imageWorkState = _ImageWorkState.idle;
   final Map<String, Uint8List> _imagePreviewBytes = <String, Uint8List>{};
   final Set<String> _startedImageRequestKeys = <String>{};
@@ -116,7 +121,10 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
       _missionWorkState = _MissionWorkState.idle;
       _failedMissionSuggestion = null;
       _failedMissionResponseLanguage = ResponseLanguage.auto;
+      _missionResponseLanguage = ResponseLanguage.auto;
       _finishedMissionResult = null;
+      _missionResultIsPartial = false;
+      _chatWasStopped = false;
       _imageWorkState = _ImageWorkState.idle;
       _imagePreviewBytes.clear();
     });
@@ -303,6 +311,8 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
       _missionWorkState = _MissionWorkState.working;
       _failedMissionSuggestion = null;
       _failedMissionResponseLanguage = ResponseLanguage.auto;
+      _missionResponseLanguage = responseLanguageFor(suggestion.goal);
+      _missionResultIsPartial = false;
     });
 
     try {
@@ -317,17 +327,22 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
         return;
       }
 
-      final packagedResult = result.outcome == ChatMissionRunOutcome.completed
+      final packagedResult =
+          result.outcome == ChatMissionRunOutcome.completed ||
+              result.outcome == ChatMissionRunOutcome.cancelled
           ? const ChatMissionResultAdapter().fromMission(result.mission)
           : null;
 
       setState(() {
         _finishedMissionResult = packagedResult;
-        _missionWorkState =
-            result.outcome == ChatMissionRunOutcome.failed ||
-                packagedResult == null
+        _missionWorkState = result.outcome == ChatMissionRunOutcome.cancelled
+            ? _MissionWorkState.cancelled
+            : result.outcome == ChatMissionRunOutcome.failed ||
+                  packagedResult == null
             ? _MissionWorkState.failed
             : _MissionWorkState.idle;
+        _missionResultIsPartial =
+            result.outcome == ChatMissionRunOutcome.cancelled;
         _failedMissionSuggestion = _missionWorkState == _MissionWorkState.failed
             ? suggestion
             : null;
@@ -345,6 +360,44 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
         });
       }
     }
+  }
+
+  Future<void> _cancelMissionWork() async {
+    if (_missionWorkState != _MissionWorkState.working) {
+      return;
+    }
+
+    final mission = await ref
+        .read(missionExecutionProvider.notifier)
+        .cancelActiveMission();
+    if (!mounted || mission == null) {
+      return;
+    }
+
+    setState(() {
+      _missionWorkState = _MissionWorkState.cancelled;
+      _missionResultIsPartial = true;
+      _finishedMissionResult = const ChatMissionResultAdapter().fromMission(
+        mission,
+      );
+    });
+  }
+
+  Future<void> _cancelChatResponse() async {
+    final chatState = ref.read(chatControllerProvider);
+    if (!chatState.isSending ||
+        _missionWorkState == _MissionWorkState.working) {
+      return;
+    }
+    final language = _latestUserResponseLanguage(chatState.messages);
+    await ref.read(chatControllerProvider.notifier).cancelActiveResponse();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _chatWasStopped = true;
+      _stoppedChatResponseLanguage = language;
+    });
   }
 
   Future<void> _startImageGenerationIfNeeded(ChatState chatState) async {
@@ -573,6 +626,15 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
         );
         return;
       }
+      if (mission.status == MissionStatus.cancelled) {
+        _missionWorkState = _MissionWorkState.cancelled;
+        _missionResultIsPartial = true;
+        _missionResponseLanguage = responseLanguageFor(mission.goal);
+        _finishedMissionResult = const ChatMissionResultAdapter().fromMission(
+          mission,
+        );
+        return;
+      }
       if (mission.status == MissionStatus.active &&
           mission.tasks.any((task) => task.status == TaskStatus.inProgress)) {
         _missionWorkState = _MissionWorkState.working;
@@ -619,6 +681,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
         chatState.error?.canRetryLastResponse == true && !chatState.isSending;
     final isMissionWorking = _missionWorkState == _MissionWorkState.working;
     final hasMissionFailure = _missionWorkState == _MissionWorkState.failed;
+    final isMissionCancelled = _missionWorkState == _MissionWorkState.cancelled;
     final finishedMissionResult = _finishedMissionResult;
     final isImageWorking = _imageWorkState == _ImageWorkState.working;
     final hasImageFailure = _imageWorkState == _ImageWorkState.failed;
@@ -627,7 +690,13 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
         hasImageStatus ||
         isMissionWorking ||
         hasMissionFailure ||
+        isMissionCancelled ||
         finishedMissionResult != null;
+    final showChatWorking =
+        chatState.isSending &&
+        !hasWorkStatus &&
+        !chatState.isImageGenerationInProgress;
+    final activeChatLanguage = _latestUserResponseLanguage(messages);
     final hasLegacyUnansweredRequest =
         !chatState.isSending &&
         !hasWorkStatus &&
@@ -653,9 +722,8 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                           itemCount:
                               messages.length +
                               (hasWorkStatus ? 1 : 0) +
-                              (chatState.isSending && messages.isEmpty
-                                  ? 1
-                                  : 0) +
+                              (showChatWorking ? 1 : 0) +
+                              (_chatWasStopped ? 1 : 0) +
                               (hasLegacyUnansweredRequest ? 1 : 0) +
                               (hasError ? 1 : 0),
                           itemBuilder: (context, index) {
@@ -757,18 +825,34 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
 
                             if ((isMissionWorking ||
                                     hasMissionFailure ||
+                                    isMissionCancelled ||
                                     finishedMissionResult != null) &&
                                 index == messages.length) {
                               if (finishedMissionResult != null) {
-                                return FinishedResultCard(
-                                  result: finishedMissionResult,
+                                return Column(
+                                  children: [
+                                    FinishedResultCard(
+                                      result: finishedMissionResult,
+                                      isPartial: _missionResultIsPartial,
+                                    ),
+                                    if (isMissionCancelled)
+                                      _MissionWorkStatus(
+                                        state: _MissionWorkState.cancelled,
+                                        responseLanguage:
+                                            _missionResponseLanguage,
+                                      ),
+                                  ],
                                 );
                               }
 
                               return _MissionWorkStatus(
-                                isWorking: isMissionWorking,
-                                responseLanguage:
-                                    _failedMissionResponseLanguage,
+                                state: _missionWorkState,
+                                responseLanguage: isMissionWorking
+                                    ? _missionResponseLanguage
+                                    : _failedMissionResponseLanguage,
+                                onCancel: isMissionWorking
+                                    ? _cancelMissionWork
+                                    : null,
                                 onCopy: hasMissionFailure
                                     ? () => _copyMessage(
                                         _missionFailureMessage(
@@ -789,11 +873,23 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                               );
                             }
 
-                            if (chatState.isSending &&
-                                messages.isEmpty &&
-                                index == messages.length) {
-                              return const AppTypingIndicator(
-                                label: 'Ovexiq is preparing...',
+                            if (showChatWorking && index == messages.length) {
+                              return _ChatWorkStatus(
+                                isBurmese:
+                                    activeChatLanguage ==
+                                    ResponseLanguage.burmese,
+                                onCancel: _cancelChatResponse,
+                              );
+                            }
+
+                            if (_chatWasStopped &&
+                                index ==
+                                    messages.length +
+                                        (showChatWorking ? 1 : 0)) {
+                              return _StoppedChatStatus(
+                                isBurmese:
+                                    _stoppedChatResponseLanguage ==
+                                    ResponseLanguage.burmese,
                               );
                             }
 
@@ -893,27 +989,132 @@ String _legacyRecoveryMessage(ResponseLanguage responseLanguage) {
       : 'This question does not have a saved answer. Please try again.';
 }
 
-enum _MissionWorkState { idle, working, failed }
+ResponseLanguage _latestUserResponseLanguage(List<ChatMessage> messages) {
+  for (final message in messages.reversed) {
+    if (message.role == ChatRole.user) {
+      return responseLanguageFor(message.content);
+    }
+  }
+  return ResponseLanguage.auto;
+}
+
+enum _MissionWorkState { idle, working, cancelled, failed }
 
 enum _ImageWorkState { idle, working, failed }
 
-class _MissionWorkStatus extends StatelessWidget {
-  const _MissionWorkStatus({
-    required this.isWorking,
-    required this.responseLanguage,
-    this.onCopy,
-    this.onRetry,
-  });
+class _ChatWorkStatus extends StatelessWidget {
+  const _ChatWorkStatus({required this.isBurmese, required this.onCancel});
 
-  final bool isWorking;
-  final ResponseLanguage responseLanguage;
-  final VoidCallback? onCopy;
-  final VoidCallback? onRetry;
+  final bool isBurmese;
+  final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) {
-    if (isWorking) {
-      return const AppTypingIndicator(label: 'Ovexiq is working...');
+    return _WorkingSurface(
+      label: isBurmese ? 'Ovexiq လုပ်ဆောင်နေပါတယ်…' : 'Ovexiq is working...',
+      cancelLabel: isBurmese ? 'ရပ်ရန်' : 'Stop',
+      onCancel: onCancel,
+      cardKey: const ValueKey<String>('chat-working-card'),
+    );
+  }
+}
+
+class _StoppedChatStatus extends StatelessWidget {
+  const _StoppedChatStatus({required this.isBurmese});
+
+  final bool isBurmese;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey<String>('chat-cancelled-card'),
+      margin: const EdgeInsets.only(top: 6, bottom: 20),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Text(isBurmese ? 'လုပ်ဆောင်မှုကို ရပ်လိုက်ပါပြီ။' : 'Stopped.'),
+    );
+  }
+}
+
+class _WorkingSurface extends StatelessWidget {
+  const _WorkingSurface({
+    required this.label,
+    required this.cancelLabel,
+    required this.onCancel,
+    required this.cardKey,
+  });
+
+  final String label;
+  final String cancelLabel;
+  final VoidCallback onCancel;
+  final Key cardKey;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: cardKey,
+      margin: const EdgeInsets.only(top: 8, bottom: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Expanded(child: AppTypingIndicator(label: label)),
+          TextButton(onPressed: onCancel, child: Text(cancelLabel)),
+        ],
+      ),
+    );
+  }
+}
+
+class _MissionWorkStatus extends StatelessWidget {
+  const _MissionWorkStatus({
+    required this.state,
+    required this.responseLanguage,
+    this.onCopy,
+    this.onRetry,
+    this.onCancel,
+  });
+
+  final _MissionWorkState state;
+  final ResponseLanguage responseLanguage;
+  final VoidCallback? onCopy;
+  final VoidCallback? onRetry;
+  final VoidCallback? onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    if (state == _MissionWorkState.working) {
+      final isBurmese = responseLanguage == ResponseLanguage.burmese;
+      return _WorkingSurface(
+        cardKey: const ValueKey<String>('mission-working-card'),
+        label: isBurmese ? 'Ovexiq လုပ်ဆောင်နေပါတယ်…' : 'Ovexiq is working...',
+        cancelLabel: isBurmese ? 'ရပ်ရန်' : 'Stop',
+        onCancel: onCancel ?? () {},
+      );
+    }
+
+    if (state == _MissionWorkState.cancelled) {
+      final isBurmese = responseLanguage == ResponseLanguage.burmese;
+      return Container(
+        key: const ValueKey<String>('mission-cancelled-card'),
+        margin: const EdgeInsets.only(top: 6, bottom: 20),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Text(
+          isBurmese ? 'လုပ်ဆောင်မှုကို ရပ်လိုက်ပါပြီ။' : 'Stopped.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+      );
     }
 
     final message = _missionFailureMessage(responseLanguage);
