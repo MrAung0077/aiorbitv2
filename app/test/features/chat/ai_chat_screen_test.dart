@@ -110,6 +110,49 @@ void main() {
     expect(find.byTooltip('Retry'), findsNothing);
   });
 
+  testWidgets('stopping chat ignores a late failure without a Retry card', (
+    tester,
+  ) async {
+    final repository = _MemoryConversationRepository();
+    final aiChatService = _LateFailureAIChatService();
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(repository),
+        aiChatServiceProvider.overrideWithValue(aiChatService),
+        missionRepositoryProvider.overrideWithValue(MemoryMissionRepository()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AIChatScreen()),
+      ),
+    );
+    await tester.enterText(
+      find.byType(TextField),
+      'What is one useful writing habit?',
+    );
+    await tester.tap(find.byTooltip('Send'));
+    await aiChatService.started.future;
+    await tester.pump();
+
+    await tester.tap(find.text('Stop'));
+    await tester.pump();
+    expect(find.text('Stopped.'), findsOneWidget);
+
+    aiChatService.failLate();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Stopped.'), findsOneWidget);
+    expect(find.byTooltip('Retry'), findsNothing);
+    expect(
+      find.text("Ovexiq couldn't finish that request. Please try again."),
+      findsNothing,
+    );
+  });
+
   testWidgets('rate-limited Burmese chat waits without an immediate Retry', (
     tester,
   ) async {
@@ -1429,6 +1472,25 @@ class _FailOnceAIChatService extends AIChatService {
       text: 'Replacement response',
     );
     yield const AIChunk.done(provider: ProviderType.openAI);
+  }
+}
+
+class _LateFailureAIChatService extends AIChatService {
+  final started = Completer<void>();
+  StreamController<AIChunk>? _response;
+
+  @override
+  Stream<AIChunk> sendMessages(List<AIMessage> messages) {
+    final response = StreamController<AIChunk>();
+    _response = response;
+    started.complete();
+    return response.stream;
+  }
+
+  void failLate() {
+    _response!
+      ..addError(StateError('late provider error'))
+      ..close();
   }
 }
 

@@ -39,7 +39,7 @@ const MAX_MESSAGE_CHARS = 12_000;
 const MAX_TOTAL_MESSAGE_CHARS = 40_000;
 const MAX_METADATA_CHARS = 4_096;
 const MAX_OUTPUT_TOKENS = 4_096;
-const MAX_BURMESE_OUTPUT_TOKENS = 1_800;
+const MAX_BURMESE_OUTPUT_TOKENS = 4_096;
 const OPENAI_TIMEOUT_MS = 30_000;
 const OPENROUTER_TIMEOUT_MS = 20_000;
 // Cloudflare permits an HTTP Worker to wait on a subrequest while the client

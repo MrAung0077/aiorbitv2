@@ -642,7 +642,7 @@ test("routes Burmese requests to the approved strong model", async () => {
   assert.equal("reasoning" in upstreamBody, false);
 });
 
-test("caps Burmese output tokens at the server-side maximum", async () => {
+test("allows Burmese output tokens up to the shared server-side maximum", async () => {
   let upstreamBody;
   const providerFetch = async (url, options) => {
     assert.equal(url, "https://openrouter.ai/api/v1/chat/completions");
@@ -657,7 +657,7 @@ test("caps Burmese output tokens at the server-side maximum", async () => {
   );
 
   assert.equal(response.status, 200);
-  assert.equal(upstreamBody.max_tokens, 1800);
+  assert.equal(upstreamBody.max_tokens, 4096);
 });
 
 test("does not downgrade Burmese requests when the strong model fails", async () => {
@@ -679,6 +679,7 @@ test("does not downgrade Burmese requests when the strong model fails", async ()
 test("English response language retains standard model routing", async () => {
   const requestBody = validBody();
   requestBody.response_language = "en";
+  requestBody.maxTokens = 4096;
   let calls = 0;
   let upstreamBody;
   const response = await handleAuthorizedRequest(
@@ -695,6 +696,7 @@ test("English response language retains standard model routing", async () => {
   assert.equal(response.status, 200);
   assert.equal(calls, 1);
   assert.equal(upstreamBody.model, "openai-test-model");
+  assert.equal(upstreamBody.max_output_tokens, 4096);
 });
 
 test("rejects invalid response language before provider invocation", async () => {

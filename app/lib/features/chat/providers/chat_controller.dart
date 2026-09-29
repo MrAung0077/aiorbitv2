@@ -572,6 +572,7 @@ class ChatController extends StateNotifier<ChatState> {
         conversation: state.conversation ?? conversation,
         error: error,
         stackTrace: stackTrace,
+        operationRevision: revision,
       );
     }
   }
@@ -1164,6 +1165,7 @@ class ChatController extends StateNotifier<ChatState> {
         conversation: state.conversation ?? conversation,
         error: error,
         stackTrace: stackTrace,
+        operationRevision: revision,
       );
     }
   }
@@ -1172,7 +1174,12 @@ class ChatController extends StateNotifier<ChatState> {
     required Conversation conversation,
     required Object error,
     required StackTrace stackTrace,
+    required int operationRevision,
   }) async {
+    if (!mounted || operationRevision != _operationRevision) {
+      return;
+    }
+
     final lastUserIndex = conversation.messages.lastIndexWhere(
       (message) => message.role == ChatRole.user,
     );
@@ -1221,7 +1228,10 @@ class ChatController extends StateNotifier<ChatState> {
     } catch (_) {
       // The visible state remains retryable when persistence is unavailable.
     }
-    if (!mounted) {
+    if (!mounted || operationRevision != _operationRevision) {
+      await _restoreCurrentConversationAfterStaleFailure(
+        conversationId: conversation.id,
+      );
       return;
     }
     state = state.copyWith(
@@ -1239,6 +1249,22 @@ class ChatController extends StateNotifier<ChatState> {
       ),
     );
     _scheduleRetryCooldown(retryAvailableAt);
+  }
+
+  Future<void> _restoreCurrentConversationAfterStaleFailure({
+    required String conversationId,
+  }) async {
+    final currentConversation = state.conversation;
+    if (!mounted || currentConversation?.id != conversationId) {
+      return;
+    }
+
+    try {
+      await _conversationRepository.saveConversation(currentConversation!);
+    } catch (_) {
+      // Cancellation remains visible even when the corrective write cannot
+      // be persisted immediately.
+    }
   }
 
   String _failureMessage({

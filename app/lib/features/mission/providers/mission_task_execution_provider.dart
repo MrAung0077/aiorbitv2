@@ -290,6 +290,9 @@ class MissionTaskExecutionNotifier
 
         throw StateError('Task execution did not reach a final state.');
       } catch (_) {
+        if (_cancelledTaskKeys.contains(taskKey)) {
+          return _publishCancelled(running.execution);
+        }
         return _publishSafeFailure(running.execution);
       }
     } finally {

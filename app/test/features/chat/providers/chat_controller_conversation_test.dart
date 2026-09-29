@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:aiorbit/core/ai/ai.dart';
 import 'package:aiorbit/features/chat/models/artifact.dart';
 import 'package:aiorbit/features/chat/models/chat_message.dart';
@@ -1105,12 +1107,96 @@ void main() {
         "Ovexiq couldn't finish that request. Please try again.",
       );
     });
+
+    test('cancellation ignores a late success and a later request works', () async {
+      final repository = _MemoryConversationRepository();
+      final aiChatService = _ControlledAIChatService();
+      final controller = _createController(
+        repository,
+        aiChatService: aiChatService,
+      );
+      addTearDown(controller.dispose);
+
+      final firstRequest = controller.sendMessage('What is a good writing habit?');
+      await aiChatService.firstRequestStarted.future;
+
+      await controller.cancelActiveResponse();
+      aiChatService.completeFirstWithText('Late answer must be ignored.');
+      await firstRequest;
+
+      expect(controller.state.isSending, isFalse);
+      expect(controller.state.error, isNull);
+      expect(controller.state.messages.where((message) => message.isError),
+          isEmpty);
+      expect(
+        controller.state.messages.map((message) => message.content),
+        <String>['What is a good writing habit?'],
+      );
+
+      await controller.sendMessage('What is a useful next step?');
+
+      expect(aiChatService.requests, hasLength(2));
+      expect(controller.state.error, isNull);
+      expect(controller.state.messages.last.content, 'Fresh response');
+    });
+
+    test('cancellation wins when a late provider failure is persisting', () async {
+      final repository = _DelayedErrorConversationRepository();
+      final aiChatService = _ControlledAIChatService();
+      final controller = _createController(
+        repository,
+        aiChatService: aiChatService,
+      );
+      addTearDown(controller.dispose);
+
+      final request = controller.sendMessage('Explain a practical writing tip.');
+      await aiChatService.firstRequestStarted.future;
+      repository.holdNextErrorSave();
+
+      aiChatService.failFirst(StateError('late provider failure'));
+      await repository.errorSaveStarted.future;
+      await controller.cancelActiveResponse();
+      repository.releaseErrorSave();
+      await request;
+
+      expect(controller.state.error, isNull);
+      expect(controller.state.messages.where((message) => message.isError),
+          isEmpty);
+      expect(
+        (await repository.getConversation(controller.state.conversation!.id))!
+            .messages
+            .where((message) => message.isError),
+        isEmpty,
+      );
+    });
+
+    test('cancellation ignores a late timeout', () async {
+      final repository = _MemoryConversationRepository();
+      final aiChatService = _ControlledAIChatService();
+      final controller = _createController(
+        repository,
+        aiChatService: aiChatService,
+      );
+      addTearDown(controller.dispose);
+
+      final request = controller.sendMessage('Share one helpful writing idea.');
+      await aiChatService.firstRequestStarted.future;
+
+      await controller.cancelActiveResponse();
+      aiChatService.failFirst(TimeoutException('late timeout'));
+      await request;
+
+      expect(controller.state.isSending, isFalse);
+      expect(controller.state.error, isNull);
+      expect(controller.state.messages.where((message) => message.isError),
+          isEmpty);
+    });
   });
 }
 
 ChatController _createController(
   _MemoryConversationRepository repository, {
-  _FakeAIChatService? aiChatService,
+  AIChatService? aiChatService,
 }) {
   return ChatController(
     aiChatService: aiChatService ?? _FakeAIChatService(),
@@ -1180,5 +1266,68 @@ class _MemoryConversationRepository extends ConversationRepository {
   @override
   Future<void> saveConversation(Conversation conversation) async {
     _items[conversation.id] = conversation;
+  }
+}
+
+class _DelayedErrorConversationRepository extends _MemoryConversationRepository {
+  final errorSaveStarted = Completer<void>();
+  final _releaseErrorSave = Completer<void>();
+  var _holdErrorSave = false;
+
+  void holdNextErrorSave() {
+    _holdErrorSave = true;
+  }
+
+  void releaseErrorSave() {
+    if (!_releaseErrorSave.isCompleted) {
+      _releaseErrorSave.complete();
+    }
+  }
+
+  @override
+  Future<void> saveConversation(Conversation conversation) async {
+    if (_holdErrorSave && conversation.messages.lastOrNull?.isError == true) {
+      _holdErrorSave = false;
+      if (!errorSaveStarted.isCompleted) {
+        errorSaveStarted.complete();
+      }
+      await _releaseErrorSave.future;
+    }
+    await super.saveConversation(conversation);
+  }
+}
+
+class _ControlledAIChatService extends AIChatService {
+  final List<List<AIMessage>> requests = <List<AIMessage>>[];
+  final firstRequestStarted = Completer<void>();
+  StreamController<AIChunk>? _firstResponse;
+
+  @override
+  Stream<AIChunk> sendMessages(List<AIMessage> messages) {
+    requests.add(List<AIMessage>.of(messages));
+    if (requests.length > 1) {
+      return Stream<AIChunk>.fromIterable(const <AIChunk>[
+        AIChunk.text(provider: ProviderType.openAI, text: 'Fresh response'),
+        AIChunk.done(provider: ProviderType.openAI),
+      ]);
+    }
+
+    final response = StreamController<AIChunk>();
+    _firstResponse = response;
+    firstRequestStarted.complete();
+    return response.stream;
+  }
+
+  void completeFirstWithText(String text) {
+    _firstResponse!
+      ..add(AIChunk.text(provider: ProviderType.openAI, text: text))
+      ..add(const AIChunk.done(provider: ProviderType.openAI))
+      ..close();
+  }
+
+  void failFirst(Object error) {
+    _firstResponse!
+      ..addError(error)
+      ..close();
   }
 }

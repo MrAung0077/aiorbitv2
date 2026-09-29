@@ -149,6 +149,60 @@ void main() {
     );
   });
 
+  test('cancelled task ignores a late provider error', () async {
+    final repository = MemoryMissionRepository();
+    final executor = _ControlledMissionTaskExecutor();
+    final container = _container(
+      repository: repository,
+      executor: executor,
+      clock: _clock(runningAt, finishedAt),
+    );
+    addTearDown(container.dispose);
+    await repository.saveMission(_mission(status: TaskStatus.inProgress));
+
+    final future = container
+        .read(missionExecutionProvider.notifier)
+        .executeTask(missionId: 'mission', taskId: 'task');
+    await executor.started.future;
+
+    await container
+        .read(missionTaskExecutionProvider.notifier)
+        .cancelTask(missionId: 'mission', taskId: 'task');
+    executor.fail(StateError('late provider failure'));
+
+    final result = await future;
+    expect(result.status, ExecutionStatus.cancelled);
+    expect(_record(container)?.status, ExecutionStatus.cancelled);
+    expect(_record(container)?.failureMessage, isNull);
+  });
+
+  test('cancelled task ignores a late timeout', () async {
+    final repository = MemoryMissionRepository();
+    final executor = _ControlledMissionTaskExecutor();
+    final container = _container(
+      repository: repository,
+      executor: executor,
+      clock: _clock(runningAt, finishedAt),
+    );
+    addTearDown(container.dispose);
+    await repository.saveMission(_mission(status: TaskStatus.inProgress));
+
+    final future = container
+        .read(missionExecutionProvider.notifier)
+        .executeTask(missionId: 'mission', taskId: 'task');
+    await executor.started.future;
+
+    await container
+        .read(missionTaskExecutionProvider.notifier)
+        .cancelTask(missionId: 'mission', taskId: 'task');
+    executor.fail(TimeoutException('late timeout'));
+
+    final result = await future;
+    expect(result.status, ExecutionStatus.cancelled);
+    expect(_record(container)?.status, ExecutionStatus.cancelled);
+    expect(_record(container)?.failureMessage, isNull);
+  });
+
   test('completed and invalid tasks are rejected before execution', () async {
     final repository = MemoryMissionRepository();
     final executor = _ControlledMissionTaskExecutor();

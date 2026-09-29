@@ -132,12 +132,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       appBar: AppBar(
         title: const Text('Ovexiq'),
         centerTitle: false,
-        actions: const [
-          Padding(
-            padding: EdgeInsets.only(right: 12),
-            child: Icon(Icons.tune_rounded, size: 20),
-          ),
-        ],
       ),
       body: SafeArea(
         child: Center(

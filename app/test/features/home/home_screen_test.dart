@@ -189,6 +189,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byTooltip('Account'), findsNothing);
+      expect(find.byIcon(Icons.tune_rounded), findsNothing);
       expect(
         find.text('Start with a goal, a draft, or a task you want to finish.'),
         findsOneWidget,
