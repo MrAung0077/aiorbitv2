@@ -153,6 +153,124 @@ void main() {
     );
   });
 
+  testWidgets(
+    'short follow-up after stopping Chat reuses the original request without a duplicate bubble',
+    (tester) async {
+      for (final followUp in <String>['ပြန်ရေး', 'ပြန်လုပ်', 'retry', 'continue']) {
+        final repository = _MemoryConversationRepository();
+        final aiChatService = _StoppedChatRetryAIChatService();
+        final container = ProviderContainer(
+          overrides: <Override>[
+            conversationRepositoryProvider.overrideWithValue(repository),
+            aiChatServiceProvider.overrideWithValue(aiChatService),
+            missionRepositoryProvider.overrideWithValue(
+              MemoryMissionRepository(),
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const MaterialApp(home: AIChatScreen()),
+          ),
+        );
+        await tester.enterText(
+          find.byType(TextField),
+          'Write a short welcome message.',
+        );
+        await tester.tap(find.byTooltip('Send'));
+        await aiChatService.firstRequestStarted.future;
+        await tester.pump();
+
+        await tester.tap(find.text('Stop'));
+        await tester.pump();
+        aiChatService.finishStoppedRequest();
+        await tester.pump();
+
+        await tester.enterText(find.byType(TextField), followUp);
+        await tester.tap(find.byTooltip('Send'));
+        await tester.pumpAndSettle();
+
+        expect(aiChatService.requests, hasLength(2));
+        expect(
+          aiChatService.requests.last.map((message) => message.content),
+          orderedEquals(<String>['Write a short welcome message.']),
+        );
+        expect(
+          container
+              .read(chatControllerProvider)
+              .messages
+              .where((message) => message.role == ChatRole.user),
+          hasLength(1),
+        );
+        expect(
+          container
+              .read(chatControllerProvider)
+              .messages
+              .where((message) => message.content == followUp),
+          isEmpty,
+        );
+        expect(find.text('Retried answer'), findsOneWidget);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+        container.dispose();
+      }
+    },
+  );
+
+  testWidgets('detailed follow-up after stopping Chat remains a new request', (
+    tester,
+  ) async {
+    final repository = _MemoryConversationRepository();
+    final aiChatService = _StoppedChatRetryAIChatService();
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(repository),
+        aiChatServiceProvider.overrideWithValue(aiChatService),
+        missionRepositoryProvider.overrideWithValue(MemoryMissionRepository()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AIChatScreen()),
+      ),
+    );
+    await tester.enterText(find.byType(TextField), 'Write a short welcome message.');
+    await tester.tap(find.byTooltip('Send'));
+    await aiChatService.firstRequestStarted.future;
+    await tester.pump();
+    await tester.tap(find.text('Stop'));
+    await tester.pump();
+    aiChatService.finishStoppedRequest();
+    await tester.pump();
+
+    const detailedFollowUp =
+        'Continue, but write a different message for a new audience.';
+    await tester.enterText(find.byType(TextField), detailedFollowUp);
+    await tester.tap(find.byTooltip('Send'));
+    await tester.pumpAndSettle();
+
+    expect(aiChatService.requests, hasLength(2));
+    expect(
+      aiChatService.requests.last.map((message) => message.content),
+      orderedEquals(<String>[
+        'Write a short welcome message.',
+        detailedFollowUp,
+      ]),
+    );
+    expect(
+      container
+          .read(chatControllerProvider)
+          .messages
+          .where((message) => message.role == ChatRole.user),
+      hasLength(2),
+    );
+  });
+
   testWidgets('rate-limited Burmese chat waits without an immediate Retry', (
     tester,
   ) async {
@@ -400,6 +518,189 @@ void main() {
     expect(preservedMission.tasks.first.status, TaskStatus.completed);
     expect(preservedMission.tasks.first.output, 'Saved audience output');
   });
+
+  testWidgets('reopening a cancelled Mission never resumes it automatically', (
+    tester,
+  ) async {
+    final conversationRepository = _MemoryConversationRepository();
+    final missionRepository = MemoryMissionRepository();
+    final missionController = MissionController(repository: missionRepository);
+    const conversationId = 'cancelled-mission-history';
+    final mission = await missionController.startMission(
+      const MissionSuggestion(
+        title: 'Coffee shop plan',
+        goal: 'Create a plan for a coffee shop',
+        category: MissionCategory.marketing,
+        reason: 'Saved Mission',
+        plannedSteps: <String>['Audience', 'Posts'],
+      ),
+      conversationId: conversationId,
+    );
+    final cancelledMission = mission.copyWith(
+      status: MissionStatus.cancelled,
+      tasks: <MissionTask>[
+        mission.tasks.first.copyWith(
+          status: TaskStatus.completed,
+          output: 'Saved audience output',
+          completedAt: DateTime(2026, 9, 24, 9),
+        ),
+        mission.tasks.last,
+      ],
+    );
+    await missionRepository.saveMission(cancelledMission);
+    await conversationRepository.saveConversation(
+      _conversationWithFinalUserMessage(conversationId),
+    );
+    var runCount = 0;
+    final coordinator = ChatMissionCoordinator(
+      missionController: missionController,
+      restoreExecutions: (_) async {},
+      runMission: (missionId) async {
+        runCount++;
+        return (await missionRepository.getMission(missionId))!;
+      },
+    );
+    final container = ProviderContainer(
+      overrides: <Override>[
+        conversationRepositoryProvider.overrideWithValue(
+          conversationRepository,
+        ),
+        aiChatServiceProvider.overrideWithValue(_SuccessfulAIChatService()),
+        missionRepositoryProvider.overrideWithValue(missionRepository),
+        chatMissionCoordinatorProvider.overrideWithValue(coordinator),
+        isarInitializedProvider.overrideWithValue(true),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container
+        .read(chatControllerProvider.notifier)
+        .loadConversation(conversationId);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: AIChatScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(runCount, 0);
+    expect(
+      find.byKey(const ValueKey<String>('mission-cancelled-card')),
+      findsOneWidget,
+    );
+    expect(
+      (await missionRepository.getMission(mission.id))!.status,
+      MissionStatus.cancelled,
+    );
+  });
+
+  testWidgets(
+    'short follow-up explicitly resumes the same cancelled Mission and preserves accepted output',
+    (tester) async {
+      final conversationRepository = _MemoryConversationRepository();
+      final missionRepository = MemoryMissionRepository();
+      final missionController = MissionController(
+        repository: missionRepository,
+      );
+      const conversationId = 'cancelled-mission-follow-up';
+      final mission = await missionController.startMission(
+        const MissionSuggestion(
+          title: 'Coffee shop plan',
+          goal: 'Create a plan for a coffee shop',
+          category: MissionCategory.marketing,
+          reason: 'Saved Mission',
+          plannedSteps: <String>['Audience', 'Posts'],
+        ),
+        conversationId: conversationId,
+      );
+      final cancelledMission = mission.copyWith(
+        status: MissionStatus.cancelled,
+        tasks: <MissionTask>[
+          mission.tasks.first.copyWith(
+            status: TaskStatus.completed,
+            output: 'Saved audience output',
+            completedAt: DateTime(2026, 9, 24, 9),
+          ),
+          mission.tasks.last,
+        ],
+      );
+      await missionRepository.saveMission(cancelledMission);
+      await conversationRepository.saveConversation(
+        _conversationWithFinalUserMessage(conversationId),
+      );
+      Mission? missionGivenToRun;
+      final coordinator = ChatMissionCoordinator(
+        missionController: missionController,
+        restoreExecutions: (_) async {},
+        runMission: (missionId) async {
+          missionGivenToRun = await missionRepository.getMission(missionId);
+          return missionGivenToRun!.copyWith(
+            tasks: missionGivenToRun!.tasks
+                .map(
+                  (task) => task.status == TaskStatus.completed
+                      ? task
+                      : task.copyWith(
+                          status: TaskStatus.completed,
+                          output: 'Saved posts output',
+                          completedAt: DateTime(2026, 9, 24, 10),
+                        ),
+                )
+                .toList(growable: false),
+          );
+        },
+      );
+      final service = _SuccessfulAIChatService();
+      final container = ProviderContainer(
+        overrides: <Override>[
+          conversationRepositoryProvider.overrideWithValue(
+            conversationRepository,
+          ),
+          aiChatServiceProvider.overrideWithValue(service),
+          missionRepositoryProvider.overrideWithValue(missionRepository),
+          chatMissionCoordinatorProvider.overrideWithValue(coordinator),
+          isarInitializedProvider.overrideWithValue(true),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(chatControllerProvider.notifier)
+          .loadConversation(conversationId);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: AIChatScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'continue');
+      await tester.tap(find.byTooltip('Send'));
+      await tester.pumpAndSettle();
+
+      expect(service.requests, isEmpty);
+      expect(missionGivenToRun?.id, mission.id);
+      expect(missionGivenToRun?.status, MissionStatus.active);
+      expect(missionGivenToRun?.tasks.first.output, 'Saved audience output');
+      expect(await missionRepository.getAllMissions(), hasLength(1));
+      expect(
+        container
+            .read(chatControllerProvider)
+            .messages
+            .where((message) => message.role == ChatRole.user),
+        hasLength(1),
+      );
+      expect(
+        container
+            .read(chatControllerProvider)
+            .messages
+            .where((message) => message.content == 'continue'),
+        isEmpty,
+      );
+      expect(find.text('Saved audience output'), findsWidgets);
+    },
+  );
 
   testWidgets(
     'reopening active Mission history only displays its stored progress',
@@ -1491,6 +1792,33 @@ class _LateFailureAIChatService extends AIChatService {
     _response!
       ..addError(StateError('late provider error'))
       ..close();
+  }
+}
+
+class _StoppedChatRetryAIChatService extends AIChatService {
+  final List<List<AIMessage>> requests = <List<AIMessage>>[];
+  final firstRequestStarted = Completer<void>();
+  StreamController<AIChunk>? _firstResponse;
+
+  @override
+  Stream<AIChunk> sendMessages(List<AIMessage> messages) {
+    requests.add(List<AIMessage>.of(messages));
+
+    if (requests.length > 1) {
+      return Stream<AIChunk>.fromIterable(const <AIChunk>[
+        AIChunk.text(provider: ProviderType.openAI, text: 'Retried answer'),
+        AIChunk.done(provider: ProviderType.openAI),
+      ]);
+    }
+
+    final response = StreamController<AIChunk>();
+    _firstResponse = response;
+    firstRequestStarted.complete();
+    return response.stream;
+  }
+
+  void finishStoppedRequest() {
+    _firstResponse?.close();
   }
 }
 

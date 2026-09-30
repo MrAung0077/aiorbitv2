@@ -77,6 +77,58 @@ void main() {
     expect(await repository.getAllMissions(), hasLength(1));
   });
 
+  test('explicitly resumes a cancelled linked Mission without losing outputs', () async {
+    final repository = MemoryMissionRepository();
+    final controller = MissionController(repository: repository);
+    final baseMission = _mission(
+      id: 'cancelled-mission',
+      conversationId: 'conversation-cancelled',
+    );
+    final existingMission = baseMission.copyWith(
+      status: MissionStatus.cancelled,
+      tasks: <MissionTask>[
+        baseMission.tasks.single.copyWith(
+          status: TaskStatus.completed,
+          output: 'Accepted prior output',
+          completedAt: DateTime(2026, 1, 2),
+        ),
+        MissionTask(
+          id: 'cancelled-mission-task-2',
+          missionId: 'cancelled-mission',
+          title: 'Deliver',
+          description: 'Deliver the plan.',
+          taskType: 'deliver',
+          order: 1,
+          status: TaskStatus.pending,
+          createdAt: DateTime(2026, 1, 1),
+        ),
+      ],
+    );
+    await repository.saveMission(existingMission);
+    Mission? missionGivenToRun;
+    final coordinator = ChatMissionCoordinator(
+      missionController: controller,
+      restoreExecutions: (_) async {},
+      runMission: (missionId) async {
+        missionGivenToRun = await repository.getMission(missionId);
+        return _completed(missionGivenToRun!);
+      },
+    );
+
+    final result = await coordinator.startOrResume(
+      suggestion: _suggestion(),
+      conversationId: existingMission.conversationId,
+    );
+
+    expect(result.wasCreated, isFalse);
+    expect(missionGivenToRun?.id, existingMission.id);
+    expect(missionGivenToRun?.status, MissionStatus.active);
+    expect(missionGivenToRun?.tasks.first.status, TaskStatus.completed);
+    expect(missionGivenToRun?.tasks.first.output, 'Accepted prior output');
+    expect(result.outcome, ChatMissionRunOutcome.completed);
+    expect(await repository.getAllMissions(), hasLength(1));
+  });
+
   test('restores persisted execution state before rerunning', () async {
     final repository = MemoryMissionRepository();
     final controller = MissionController(repository: repository);

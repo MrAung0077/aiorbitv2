@@ -209,6 +209,28 @@ class MissionController {
     return cancelled;
   }
 
+  /// Restarts explicitly requested unfinished work without changing accepted
+  /// task outputs. This is intentionally never called while history loads.
+  Future<Mission> resumeMission({required String missionId}) async {
+    final mission = await _repository.getMission(missionId);
+
+    if (mission == null) {
+      throw StateError('Mission "$missionId" was not found.');
+    }
+
+    if (mission.status != MissionStatus.cancelled ||
+        mission.taskProgress.isComplete) {
+      return mission;
+    }
+
+    final resumed = mission.copyWith(
+      status: MissionStatus.active,
+      updatedAt: DateTime.now(),
+    );
+    await _repository.saveMission(resumed);
+    return resumed;
+  }
+
   Future<void> deleteMission(String id) {
     return _repository.deleteMission(id);
   }

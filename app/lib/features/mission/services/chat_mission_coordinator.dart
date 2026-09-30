@@ -72,12 +72,15 @@ class ChatMissionCoordinator {
       existingMission = conversationId == null || conversationId.isEmpty
           ? null
           : await _missionController.getMissionForConversation(conversationId);
-      final mission =
+      final initialMission =
           existingMission ??
           await _missionController.startMission(
             suggestion,
             conversationId: conversationId,
           );
+      final mission = existingMission?.status == MissionStatus.cancelled
+          ? await _missionController.resumeMission(missionId: initialMission.id)
+          : initialMission;
 
       // Recovery must happen before a decision to run, so interrupted task
       // state is preserved and normalized by the existing execution layer.

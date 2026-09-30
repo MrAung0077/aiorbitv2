@@ -22,6 +22,7 @@ import 'providers/chat_video_ingest_provider.dart';
 import 'providers/device_image_save_provider.dart';
 import 'services/router_preview_service.dart';
 import 'services/chat_image_generation_service.dart';
+import 'services/cancelled_request_follow_up.dart';
 import 'services/local_video_ingest_service.dart';
 import 'widgets/brain_overlay.dart';
 import 'widgets/finished_result_card.dart';
@@ -111,6 +112,13 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
         chatState.isSending ||
         _missionWorkState == _MissionWorkState.working ||
         _imageWorkState == _ImageWorkState.working) {
+      return;
+    }
+
+    if (await _resumeCancelledRequestIfRecognized(text, chatState)) {
+      _controller.clear();
+      _focusNode.unfocus();
+      _scrollToBottom();
       return;
     }
 
@@ -312,7 +320,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
       _failedMissionSuggestion = null;
       _failedMissionResponseLanguage = ResponseLanguage.auto;
       _missionResponseLanguage = responseLanguageFor(suggestion.goal);
-      _missionResultIsPartial = false;
+      _missionResultIsPartial = _finishedMissionResult != null;
     });
 
     try {
@@ -398,6 +406,52 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
       _chatWasStopped = true;
       _stoppedChatResponseLanguage = language;
     });
+  }
+
+  Future<bool> _resumeCancelledRequestIfRecognized(
+    String followUp,
+    ChatState chatState,
+  ) async {
+    if (!isCancelledRequestRetryFollowUp(followUp)) {
+      return false;
+    }
+
+    if (_missionWorkState == _MissionWorkState.cancelled) {
+      final conversationId = chatState.conversation?.id;
+      if (conversationId == null) {
+        return false;
+      }
+      final mission = await ref
+          .read(missionControllerProvider)
+          .getMissionForConversation(conversationId);
+      if (!mounted || mission?.status != MissionStatus.cancelled) {
+        return false;
+      }
+
+      await _startSuggestedMissionIfNeeded(
+        chatState,
+        suggestionOverride: MissionSuggestion(
+          title: mission!.title,
+          goal: mission.goal,
+          category: mission.category,
+          reason: '',
+          plannedSteps: mission.tasks
+              .map((task) => task.title)
+              .toList(growable: false),
+        ),
+      );
+      return true;
+    }
+
+    if (!_chatWasStopped || !_hasRecoverableUserRequest(chatState.messages)) {
+      return false;
+    }
+
+    setState(() {
+      _chatWasStopped = false;
+    });
+    await ref.read(chatControllerProvider.notifier).regenerateLastResponse();
+    return true;
   }
 
   Future<void> _startImageGenerationIfNeeded(ChatState chatState) async {
@@ -996,6 +1050,13 @@ ResponseLanguage _latestUserResponseLanguage(List<ChatMessage> messages) {
     }
   }
   return ResponseLanguage.auto;
+}
+
+bool _hasRecoverableUserRequest(List<ChatMessage> messages) {
+  return messages.any(
+    (message) =>
+        message.role == ChatRole.user && message.content.trim().isNotEmpty,
+  );
 }
 
 enum _MissionWorkState { idle, working, cancelled, failed }
