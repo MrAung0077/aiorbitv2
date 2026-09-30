@@ -59,8 +59,6 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
   ResponseLanguage _missionResponseLanguage = ResponseLanguage.auto;
   ChatMissionResult? _finishedMissionResult;
   var _missionResultIsPartial = false;
-  var _chatWasStopped = false;
-  ResponseLanguage _stoppedChatResponseLanguage = ResponseLanguage.auto;
   _ImageWorkState _imageWorkState = _ImageWorkState.idle;
   final Map<String, Uint8List> _imagePreviewBytes = <String, Uint8List>{};
   final Set<String> _startedImageRequestKeys = <String>{};
@@ -132,7 +130,6 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
       _missionResponseLanguage = ResponseLanguage.auto;
       _finishedMissionResult = null;
       _missionResultIsPartial = false;
-      _chatWasStopped = false;
       _imageWorkState = _ImageWorkState.idle;
       _imagePreviewBytes.clear();
     });
@@ -397,15 +394,7 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
         _missionWorkState == _MissionWorkState.working) {
       return;
     }
-    final language = _latestUserResponseLanguage(chatState.messages);
     await ref.read(chatControllerProvider.notifier).cancelActiveResponse();
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _chatWasStopped = true;
-      _stoppedChatResponseLanguage = language;
-    });
   }
 
   Future<bool> _resumeCancelledRequestIfRecognized(
@@ -443,21 +432,12 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
       return true;
     }
 
-    if (!_chatWasStopped || !_hasRecoverableUserRequest(chatState.messages)) {
+    if (chatState.messages.lastOrNull?.isStopped != true ||
+        !_hasRecoverableUserRequest(chatState.messages)) {
       return false;
     }
 
-    final resumed = await ref
-        .read(chatControllerProvider.notifier)
-        .resumeCancelledResponse();
-    if (!mounted || !resumed) {
-      return false;
-    }
-
-    setState(() {
-      _chatWasStopped = false;
-    });
-    return true;
+    return ref.read(chatControllerProvider.notifier).resumeCancelledResponse();
   }
 
   Future<void> _startImageGenerationIfNeeded(ChatState chatState) async {
@@ -783,12 +763,19 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                               messages.length +
                               (hasWorkStatus ? 1 : 0) +
                               (showChatWorking ? 1 : 0) +
-                              (_chatWasStopped ? 1 : 0) +
                               (hasLegacyUnansweredRequest ? 1 : 0) +
                               (hasError ? 1 : 0),
                           itemBuilder: (context, index) {
                             if (index < messages.length) {
                               final message = messages[index];
+
+                              if (message.isStopped) {
+                                return _StoppedChatStatus(
+                                  isBurmese:
+                                      responseLanguageFor(message.content) ==
+                                      ResponseLanguage.burmese,
+                                );
+                              }
 
                               if (message.attachment != null) {
                                 if (message.attachment!.artifact?.type ==
@@ -939,17 +926,6 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
                                     activeChatLanguage ==
                                     ResponseLanguage.burmese,
                                 onCancel: _cancelChatResponse,
-                              );
-                            }
-
-                            if (_chatWasStopped &&
-                                index ==
-                                    messages.length +
-                                        (showChatWorking ? 1 : 0)) {
-                              return _StoppedChatStatus(
-                                isBurmese:
-                                    _stoppedChatResponseLanguage ==
-                                    ResponseLanguage.burmese,
                               );
                             }
 

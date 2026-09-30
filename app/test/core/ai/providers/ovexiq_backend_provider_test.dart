@@ -322,6 +322,70 @@ void main() {
     );
   });
 
+  testWidgets('text generation can finish after 60 seconds', (tester) async {
+    final response = Completer<http.Response>();
+    final client = _client((_) => response.future);
+    expect(client.timeout, const Duration(seconds: 180));
+    OvexiqBackendApiResult? result;
+    Object? error;
+    client
+        .complete(const AIRequest(messages: messages))
+        .then<void>(
+          (value) {
+            result = value;
+          },
+          onError: (Object value) {
+            error = value;
+          },
+        );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 61));
+    expect(result, isNull);
+    expect(error, isNull);
+    response.complete(_successResponse());
+    await tester.pump();
+    expect(result?.content, 'Gateway result');
+    expect(error, isNull);
+  });
+
+  testWidgets(
+    'text generation times out at 180 seconds with safe classification',
+    (tester) async {
+      final response = Completer<http.Response>();
+      final client = _client((_) => response.future);
+      Object? error;
+      client
+          .complete(const AIRequest(messages: messages))
+          .then<void>(
+            (_) => fail('The pending response must time out'),
+            onError: (Object value) {
+              error = value;
+            },
+          );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 179));
+      expect(error, isNull);
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        error,
+        isA<AIRequestFailure>()
+            .having(
+              (failure) => failure.category,
+              'category',
+              AIRequestFailureCategory.requestTimeout,
+            )
+            .having(
+              (failure) => failure.executionStage,
+              'stage',
+              'gateway_request',
+            )
+            .having((failure) => failure.retryable, 'retryable', isTrue),
+      );
+      response.complete(_successResponse());
+      await tester.pump();
+    },
+  );
+
   test(
     'maps authentication, rate, invalid request, and server statuses',
     () async {
@@ -503,8 +567,17 @@ OvexiqBackendApiClient _client(
   Future<http.Response> Function(http.Request request) handler, {
   String? deviceSession,
   Future<void> Function()? onAuthorizationRejected,
-  Duration timeout = const Duration(seconds: 60),
+  Duration? timeout,
 }) {
+  if (timeout == null) {
+    return OvexiqBackendApiClient(
+      baseUrl: 'https://gateway.example.test',
+      betaAccessToken: 'tester-token',
+      deviceSession: deviceSession,
+      onAuthorizationRejected: onAuthorizationRejected,
+      httpClient: MockClient(handler),
+    );
+  }
   return OvexiqBackendApiClient(
     baseUrl: 'https://gateway.example.test',
     betaAccessToken: 'tester-token',

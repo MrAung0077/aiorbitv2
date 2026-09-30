@@ -56,6 +56,10 @@ class ChatMessage {
 
   bool get isUser => role == ChatRole.user;
 
+  // Local status marker stored in existing message fields, never AI context.
+  bool get isStopped =>
+      role == ChatRole.assistant && id.startsWith('chat-stopped-');
+
   ChatMessage copyWith({
     String? content,
     String? providerName,

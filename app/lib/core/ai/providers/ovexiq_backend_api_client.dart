@@ -15,7 +15,7 @@ class OvexiqBackendApiClient {
     String? deviceSession,
     Future<void> Function()? onAuthorizationRejected,
     http.Client? httpClient,
-    this.timeout = const Duration(seconds: 60),
+    this.timeout = const Duration(seconds: 180),
   }) : _baseUri = Uri.tryParse(baseUrl.trim()),
        _betaAccessToken = betaAccessToken.trim(),
        _deviceSession = deviceSession?.trim(),

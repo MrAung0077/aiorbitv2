@@ -490,6 +490,7 @@ class ChatController extends StateNotifier<ChatState> {
           ? workIntent.responseGuidance
           : null;
       final conversationAiMessages = conversation.messages
+          .where((message) => !message.isStopped)
           .map(_toAIMessage)
           .toList(growable: false);
       final aiMessages = <AIMessage>[
@@ -551,11 +552,15 @@ class ChatController extends StateNotifier<ChatState> {
         }
       }
 
+      if (!mounted || revision != _operationRevision) return;
       await _conversationRepository.saveConversation(streamingConversation);
 
       if (!mounted ||
           revision != _operationRevision ||
           state.conversation?.id != conversationId) {
+        await _restoreCurrentConversationAfterStaleFailure(
+          conversationId: conversationId,
+        );
         return;
       }
 
@@ -588,7 +593,7 @@ class ChatController extends StateNotifier<ChatState> {
       return;
     }
 
-    ++_operationRevision;
+    final revision = ++_operationRevision;
     final conversation = state.conversation;
     if (conversation == null) {
       _cancelledResponseConversation = null;
@@ -600,11 +605,25 @@ class ChatController extends StateNotifier<ChatState> {
     if (messages.isNotEmpty && messages.last.role == ChatRole.assistant) {
       messages.removeLast();
     }
-    final stoppedConversation = conversation.copyWith(
+    final cancelledInput = conversation.copyWith(
       messages: messages,
       updatedAt: _nextActivityTime(),
     );
-    _cancelledResponseConversation = stoppedConversation;
+    _cancelledResponseConversation = cancelledInput;
+    final language = responseLanguageFor(messages.last.content);
+    final stoppedConversation = cancelledInput.copyWith(
+      messages: <ChatMessage>[
+        ...messages,
+        ChatMessage(
+          id: 'chat-stopped-${cancelledInput.updatedAt.microsecondsSinceEpoch}',
+          role: ChatRole.assistant,
+          content: language == ResponseLanguage.burmese
+              ? 'လုပ်ဆောင်မှုကို ရပ်လိုက်ပါပြီ။'
+              : 'Stopped.',
+          createdAt: cancelledInput.updatedAt,
+        ),
+      ],
+    );
     state = state.copyWith(
       conversation: stoppedConversation,
       isSending: false,
@@ -613,6 +632,11 @@ class ChatController extends StateNotifier<ChatState> {
     );
     try {
       await _conversationRepository.saveConversation(stoppedConversation);
+      if (mounted && revision != _operationRevision) {
+        await _restoreCurrentConversationAfterStaleFailure(
+          conversationId: stoppedConversation.id,
+        );
+      }
     } catch (_) {
       // The visible stopped state is still safe if persistence is unavailable.
     }
@@ -992,8 +1016,12 @@ class ChatController extends StateNotifier<ChatState> {
   /// pre-cancel conversation ensures the retry phrase never becomes a new
   /// user message, and the fresh revision isolates any late cancelled event.
   Future<bool> resumeCancelledResponse() async {
-    final cancelledConversation = _cancelledResponseConversation;
     final currentConversation = state.conversation;
+    final cancelledConversation =
+        _cancelledResponseConversation ??
+        (currentConversation?.messages.lastOrNull?.isStopped == true
+            ? currentConversation
+            : null);
 
     if (state.isSending ||
         cancelledConversation == null ||
@@ -1126,7 +1154,10 @@ class ChatController extends StateNotifier<ChatState> {
       );
 
       await for (final chunk in _aiChatService.sendMessages(
-        conversation.messages.map(_toAIMessage).toList(growable: false),
+        conversation.messages
+            .where((message) => !message.isStopped)
+            .map(_toAIMessage)
+            .toList(growable: false),
       )) {
         if (!mounted ||
             revision != _operationRevision ||
@@ -1180,11 +1211,15 @@ class ChatController extends StateNotifier<ChatState> {
         }
       }
 
+      if (!mounted || revision != _operationRevision) return;
       await _conversationRepository.saveConversation(streamingConversation);
 
       if (!mounted ||
           revision != _operationRevision ||
           state.conversation?.id != conversationId) {
+        await _restoreCurrentConversationAfterStaleFailure(
+          conversationId: conversationId,
+        );
         return;
       }
 
@@ -1293,8 +1328,9 @@ class ChatController extends StateNotifier<ChatState> {
   Future<void> _restoreCurrentConversationAfterStaleFailure({
     required String conversationId,
   }) async {
+    if (!mounted) return;
     final currentConversation = state.conversation;
-    if (!mounted || currentConversation?.id != conversationId) {
+    if (currentConversation?.id != conversationId) {
       return;
     }
 

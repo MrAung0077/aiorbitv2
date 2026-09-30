@@ -1108,37 +1108,44 @@ void main() {
       );
     });
 
-    test('cancellation ignores a late success and a later request works', () async {
-      final repository = _MemoryConversationRepository();
-      final aiChatService = _ControlledAIChatService();
-      final controller = _createController(
-        repository,
-        aiChatService: aiChatService,
-      );
-      addTearDown(controller.dispose);
+    test(
+      'cancellation ignores a late success and a later request works',
+      () async {
+        final repository = _MemoryConversationRepository();
+        final aiChatService = _ControlledAIChatService();
+        final controller = _createController(
+          repository,
+          aiChatService: aiChatService,
+        );
+        addTearDown(controller.dispose);
 
-      final firstRequest = controller.sendMessage('What is a good writing habit?');
-      await aiChatService.firstRequestStarted.future;
+        final firstRequest = controller.sendMessage(
+          'What is a good writing habit?',
+        );
+        await aiChatService.firstRequestStarted.future;
 
-      await controller.cancelActiveResponse();
-      aiChatService.completeFirstWithText('Late answer must be ignored.');
-      await firstRequest;
+        await controller.cancelActiveResponse();
+        aiChatService.completeFirstWithText('Late answer must be ignored.');
+        await firstRequest;
 
-      expect(controller.state.isSending, isFalse);
-      expect(controller.state.error, isNull);
-      expect(controller.state.messages.where((message) => message.isError),
-          isEmpty);
-      expect(
-        controller.state.messages.map((message) => message.content),
-        <String>['What is a good writing habit?'],
-      );
+        expect(controller.state.isSending, isFalse);
+        expect(controller.state.error, isNull);
+        expect(
+          controller.state.messages.where((message) => message.isError),
+          isEmpty,
+        );
+        expect(
+          controller.state.messages.map((message) => message.content),
+          <String>['What is a good writing habit?', 'Stopped.'],
+        );
 
-      await controller.sendMessage('What is a useful next step?');
+        await controller.sendMessage('What is a useful next step?');
 
-      expect(aiChatService.requests, hasLength(2));
-      expect(controller.state.error, isNull);
-      expect(controller.state.messages.last.content, 'Fresh response');
-    });
+        expect(aiChatService.requests, hasLength(2));
+        expect(controller.state.error, isNull);
+        expect(controller.state.messages.last.content, 'Fresh response');
+      },
+    );
 
     test(
       'explicit cancellation resume uses the original request and ignores a late failure',
@@ -1176,43 +1183,125 @@ void main() {
           <String>['What is a good writing habit?', 'Fresh resumed response'],
         );
         expect(
-          (await repository.getConversation(controller.state.conversation!.id))!
-              .messages
-              .where((message) => message.isError),
+          (await repository.getConversation(
+            controller.state.conversation!.id,
+          ))!.messages.where((message) => message.isError),
           isEmpty,
         );
       },
     );
 
-    test('cancellation wins when a late provider failure is persisting', () async {
-      final repository = _DelayedErrorConversationRepository();
-      final aiChatService = _ControlledAIChatService();
-      final controller = _createController(
-        repository,
-        aiChatService: aiChatService,
-      );
-      addTearDown(controller.dispose);
+    test(
+      'cancellation wins when a late provider failure is persisting',
+      () async {
+        final repository = _DelayedErrorConversationRepository();
+        final aiChatService = _ControlledAIChatService();
+        final controller = _createController(
+          repository,
+          aiChatService: aiChatService,
+        );
+        addTearDown(controller.dispose);
 
-      final request = controller.sendMessage('Explain a practical writing tip.');
-      await aiChatService.firstRequestStarted.future;
-      repository.holdNextErrorSave();
+        final request = controller.sendMessage(
+          'Explain a practical writing tip.',
+        );
+        await aiChatService.firstRequestStarted.future;
+        repository.holdNextErrorSave();
 
-      aiChatService.failFirst(StateError('late provider failure'));
-      await repository.errorSaveStarted.future;
-      await controller.cancelActiveResponse();
-      repository.releaseErrorSave();
-      await request;
+        aiChatService.failFirst(
+          const AIRequestFailure(
+            category: AIRequestFailureCategory.providerUnavailable,
+            retryable: true,
+            executionStage: 'gateway_response',
+            diagnosticReason: 'http_502',
+          ),
+        );
+        await repository.errorSaveStarted.future;
+        await controller.cancelActiveResponse();
+        repository.releaseErrorSave();
+        await request;
 
-      expect(controller.state.error, isNull);
-      expect(controller.state.messages.where((message) => message.isError),
-          isEmpty);
-      expect(
-        (await repository.getConversation(controller.state.conversation!.id))!
-            .messages
-            .where((message) => message.isError),
-        isEmpty,
-      );
-    });
+        expect(controller.state.error, isNull);
+        expect(
+          controller.state.messages.where((message) => message.isError),
+          isEmpty,
+        );
+        expect(
+          (await repository.getConversation(
+            controller.state.conversation!.id,
+          ))!.messages.where((message) => message.isError),
+          isEmpty,
+        );
+      },
+    );
+
+    test(
+      'cancelled stream closing without another event cannot overwrite stopped history',
+      () async {
+        final repository = _MemoryConversationRepository();
+        final service = _ControlledAIChatService();
+        final controller = _createController(
+          repository,
+          aiChatService: service,
+        );
+        addTearDown(controller.dispose);
+
+        final request = controller.sendMessage(
+          'Share one helpful writing idea.',
+        );
+        await service.firstRequestStarted.future;
+        await controller.cancelActiveResponse();
+        expect(controller.state.isSending, isFalse);
+        expect(controller.state.messages.last.isStopped, isTrue);
+        await service._firstResponse!.close();
+        await request;
+
+        final saved = await repository.getConversation(
+          controller.state.conversation!.id,
+        );
+        expect(saved!.messages.last.isStopped, isTrue);
+        expect(saved.messages.where((message) => message.isError), isEmpty);
+      },
+    );
+
+    test(
+      'late stopped-state save cannot overwrite an explicit retry result',
+      () async {
+        final repository = _DelayedStoppedConversationRepository();
+        final service = _ControlledAIChatService();
+        final controller = _createController(
+          repository,
+          aiChatService: service,
+        );
+        addTearDown(controller.dispose);
+        final request = controller.sendMessage(
+          'Share one helpful writing idea.',
+        );
+        await service.firstRequestStarted.future;
+
+        final stop = controller.cancelActiveResponse();
+        await repository.stoppedSaveStarted.future;
+        expect(controller.state.isSending, isFalse);
+        expect(controller.state.messages.last.isStopped, isTrue);
+        expect(await controller.resumeCancelledResponse(), isTrue);
+        repository.releaseStoppedSave.complete();
+        await stop;
+        await service._firstResponse!.close();
+        await request;
+
+        final saved = await repository.getConversation(
+          controller.state.conversation!.id,
+        );
+        expect(saved!.messages.last.content, 'Fresh response');
+        expect(
+          saved.messages.where(
+            (message) => message.isStopped || message.isError,
+          ),
+          isEmpty,
+        );
+        expect(service.requests, hasLength(2));
+      },
+    );
 
     test('cancellation ignores a late timeout', () async {
       final repository = _MemoryConversationRepository();
@@ -1232,8 +1321,10 @@ void main() {
 
       expect(controller.state.isSending, isFalse);
       expect(controller.state.error, isNull);
-      expect(controller.state.messages.where((message) => message.isError),
-          isEmpty);
+      expect(
+        controller.state.messages.where((message) => message.isError),
+        isEmpty,
+      );
     });
   });
 }
@@ -1313,7 +1404,8 @@ class _MemoryConversationRepository extends ConversationRepository {
   }
 }
 
-class _DelayedErrorConversationRepository extends _MemoryConversationRepository {
+class _DelayedErrorConversationRepository
+    extends _MemoryConversationRepository {
   final errorSaveStarted = Completer<void>();
   final _releaseErrorSave = Completer<void>();
   var _holdErrorSave = false;
@@ -1336,6 +1428,21 @@ class _DelayedErrorConversationRepository extends _MemoryConversationRepository 
         errorSaveStarted.complete();
       }
       await _releaseErrorSave.future;
+    }
+    await super.saveConversation(conversation);
+  }
+}
+
+class _DelayedStoppedConversationRepository
+    extends _MemoryConversationRepository {
+  final stoppedSaveStarted = Completer<void>();
+  final releaseStoppedSave = Completer<void>();
+
+  @override
+  Future<void> saveConversation(Conversation conversation) async {
+    if (conversation.messages.lastOrNull?.isStopped == true) {
+      stoppedSaveStarted.complete();
+      await releaseStoppedSave.future;
     }
     await super.saveConversation(conversation);
   }

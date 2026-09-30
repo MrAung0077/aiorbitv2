@@ -124,18 +124,16 @@ void main() {
     );
     addTearDown(container.dispose);
 
+    final initialRequest = container
+        .read(chatControllerProvider.notifier)
+        .sendMessage('What is one useful writing habit?');
+    await aiChatService.started.future;
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
         child: const MaterialApp(home: AIChatScreen()),
       ),
     );
-    await tester.enterText(
-      find.byType(TextField),
-      'What is one useful writing habit?',
-    );
-    await tester.tap(find.byTooltip('Send'));
-    await aiChatService.started.future;
     await tester.pump();
 
     await tester.tap(find.text('Stop'));
@@ -144,6 +142,7 @@ void main() {
 
     aiChatService.failLate();
     await tester.pumpAndSettle();
+    unawaited(initialRequest);
 
     expect(find.text('Stopped.'), findsOneWidget);
     expect(find.byTooltip('Retry'), findsNothing);
@@ -156,7 +155,12 @@ void main() {
   testWidgets(
     'short follow-up after stopping Chat reuses the original request without a duplicate bubble',
     (tester) async {
-      for (final followUp in <String>['ပြန်ရေး', 'ပြန်လုပ်', 'retry', 'continue']) {
+      for (final followUp in <String>[
+        'ပြန်ရေး',
+        'ပြန်လုပ်',
+        'retry',
+        'continue',
+      ]) {
         final repository = _MemoryConversationRepository();
         final aiChatService = _StoppedChatRetryAIChatService();
         final container = ProviderContainer(
@@ -169,33 +173,52 @@ void main() {
           ],
         );
 
+        const original = 'ကျောက်စိမ်းအကြောင်း သိလား';
+        final initialRequest = container
+            .read(chatControllerProvider.notifier)
+            .sendMessage(original);
+        await tester.pump();
+        expect(aiChatService.requests, hasLength(1));
+        await aiChatService.firstRequestStarted.future;
         await tester.pumpWidget(
           UncontrolledProviderScope(
             container: container,
             child: const MaterialApp(home: AIChatScreen()),
           ),
         );
-        await tester.enterText(
-          find.byType(TextField),
-          'Write a short welcome message.',
-        );
-        await tester.tap(find.byTooltip('Send'));
-        await aiChatService.firstRequestStarted.future;
         await tester.pump();
 
-        await tester.tap(find.text('Stop'));
+        await tester.tap(find.text('ရပ်ရန်'));
         await tester.pump();
+        expect(find.text('လုပ်ဆောင်မှုကို ရပ်လိုက်ပါပြီ။'), findsOneWidget);
         await tester.enterText(find.byType(TextField), followUp);
         await tester.tap(find.byTooltip('Send'));
+        await tester.pump();
+        expect(aiChatService.requests, hasLength(2));
         await aiChatService.retryRequestStarted.future;
-        aiChatService.failCancelledRequestLate();
+        await tester.pump();
+        expect(
+          find.byKey(const ValueKey<String>('chat-cancelled-card')),
+          findsNothing,
+        );
+        expect(find.text('ရပ်ရန်'), findsOneWidget);
+        expect(find.text('လုပ်ဆောင်မှုကို ရပ်လိုက်ပါပြီ။'), findsNothing);
+        if (followUp == 'ပြန်ရေး') {
+          aiChatService.succeedCancelledRequestLate();
+        } else {
+          aiChatService.failCancelledRequestLate();
+        }
+        await tester.pump();
+        expect(container.read(chatControllerProvider).isSending, isTrue);
+        expect(container.read(chatControllerProvider).error, isNull);
         aiChatService.succeedRetry();
         await tester.pumpAndSettle();
+        unawaited(initialRequest);
 
         expect(aiChatService.requests, hasLength(2));
         expect(
           aiChatService.requests.last.map((message) => message.content),
-          orderedEquals(<String>['Write a short welcome message.']),
+          orderedEquals(<String>[original]),
         );
         expect(
           container
@@ -212,6 +235,20 @@ void main() {
           isEmpty,
         );
         expect(find.text('Retried answer'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey<String>('chat-cancelled-card')),
+          findsNothing,
+        );
+        expect(find.text('Late cancelled answer'), findsNothing);
+        final saved = repository
+            ._items[container.read(chatControllerProvider).conversation!.id];
+        expect(saved!.messages.last.content, 'Retried answer');
+        expect(
+          saved.messages.where(
+            (message) => message.isStopped || message.isError,
+          ),
+          isEmpty,
+        );
 
         await tester.pumpWidget(const SizedBox.shrink());
         container.dispose();
@@ -233,15 +270,16 @@ void main() {
     );
     addTearDown(container.dispose);
 
+    final initialRequest = container
+        .read(chatControllerProvider.notifier)
+        .sendMessage('Write a short welcome message.');
+    await aiChatService.firstRequestStarted.future;
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
         child: const MaterialApp(home: AIChatScreen()),
       ),
     );
-    await tester.enterText(find.byType(TextField), 'Write a short welcome message.');
-    await tester.tap(find.byTooltip('Send'));
-    await aiChatService.firstRequestStarted.future;
     await tester.pump();
     await tester.tap(find.text('Stop'));
     await tester.pump();
@@ -253,6 +291,7 @@ void main() {
     aiChatService.failCancelledRequestLate();
     aiChatService.succeedRetry();
     await tester.pumpAndSettle();
+    unawaited(initialRequest);
 
     expect(aiChatService.requests, hasLength(2));
     expect(
@@ -269,7 +308,85 @@ void main() {
           .where((message) => message.role == ChatRole.user),
       hasLength(2),
     );
+    expect(
+      container
+          .read(chatControllerProvider)
+          .messages
+          .where((message) => message.isStopped),
+      hasLength(1),
+    );
   });
+
+  testWidgets(
+    'stopped Chat reopens passively and retry shows only its fresh failure',
+    (tester) async {
+      final repository = _MemoryConversationRepository();
+      final service = _StoppedChatRetryAIChatService();
+      ProviderContainer createContainer() => ProviderContainer(
+        overrides: <Override>[
+          conversationRepositoryProvider.overrideWithValue(repository),
+          aiChatServiceProvider.overrideWithValue(service),
+          missionRepositoryProvider.overrideWithValue(
+            MemoryMissionRepository(),
+          ),
+        ],
+      );
+      final firstContainer = createContainer();
+      final controller = firstContainer.read(chatControllerProvider.notifier);
+      final originalRun = controller.sendMessage('ကျောက်စိမ်းအကြောင်း သိလား');
+      await tester.pump();
+      expect(service.requests, hasLength(1));
+      await service.firstRequestStarted.future;
+      await controller.cancelActiveResponse();
+      final conversationId = controller.state.conversation!.id;
+      expect(controller.state.isSending, isFalse);
+      firstContainer.dispose();
+
+      final restoredContainer = createContainer();
+      addTearDown(restoredContainer.dispose);
+      await restoredContainer
+          .read(chatControllerProvider.notifier)
+          .loadConversation(conversationId);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: restoredContainer,
+          child: const MaterialApp(home: AIChatScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(service.requests, hasLength(1));
+      expect(find.text('လုပ်ဆောင်မှုကို ရပ်လိုက်ပါပြီ။'), findsOneWidget);
+      expect(find.byTooltip('Retry'), findsNothing);
+      expect(restoredContainer.read(chatControllerProvider).isSending, isFalse);
+
+      await tester.enterText(find.byType(TextField), 'ပြန်ရေး');
+      await tester.tap(find.byTooltip('Send'));
+      await service.retryRequestStarted.future;
+      await tester.pump();
+      expect(
+        find.byKey(const ValueKey<String>('chat-cancelled-card')),
+        findsNothing,
+      );
+      service.failCancelledRequestLate();
+      await tester.pump();
+      expect(restoredContainer.read(chatControllerProvider).error, isNull);
+      service.failRetry();
+      await tester.pumpAndSettle();
+      unawaited(originalRun);
+      final messages = restoredContainer.read(chatControllerProvider).messages;
+      expect(messages.where((message) => message.isError), hasLength(1));
+      expect(
+        messages.where((message) => message.role == ChatRole.user),
+        hasLength(1),
+      );
+      expect(
+        find.byKey(const ValueKey<String>('chat-cancelled-card')),
+        findsNothing,
+      );
+      expect(find.byTooltip('Retry'), findsOneWidget);
+      expect(repository._items[conversationId]!.messages.last.isError, isTrue);
+    },
+  );
 
   testWidgets('rate-limited Burmese chat waits without an immediate Retry', (
     tester,
@@ -1818,6 +1935,30 @@ class _StoppedChatRetryAIChatService extends AIChatService {
   void failCancelledRequestLate() {
     _responses.first
       ..addError(StateError('late provider error'))
+      ..close();
+  }
+
+  void succeedCancelledRequestLate() {
+    _responses.first
+      ..add(
+        const AIChunk.text(
+          provider: ProviderType.openAI,
+          text: 'Late cancelled answer',
+        ),
+      )
+      ..close();
+  }
+
+  void failRetry() {
+    _responses[1]
+      ..addError(
+        const AIRequestFailure(
+          category: AIRequestFailureCategory.requestTimeout,
+          retryable: true,
+          executionStage: 'gateway_request',
+          diagnosticReason: 'request_timeout',
+        ),
+      )
       ..close();
   }
 
