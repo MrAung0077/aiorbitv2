@@ -185,11 +185,11 @@ void main() {
 
         await tester.tap(find.text('Stop'));
         await tester.pump();
-        aiChatService.finishStoppedRequest();
-        await tester.pump();
-
         await tester.enterText(find.byType(TextField), followUp);
         await tester.tap(find.byTooltip('Send'));
+        await aiChatService.retryRequestStarted.future;
+        aiChatService.failCancelledRequestLate();
+        aiChatService.succeedRetry();
         await tester.pumpAndSettle();
 
         expect(aiChatService.requests, hasLength(2));
@@ -245,13 +245,13 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('Stop'));
     await tester.pump();
-    aiChatService.finishStoppedRequest();
-    await tester.pump();
-
     const detailedFollowUp =
         'Continue, but write a different message for a new audience.';
     await tester.enterText(find.byType(TextField), detailedFollowUp);
     await tester.tap(find.byTooltip('Send'));
+    await aiChatService.retryRequestStarted.future;
+    aiChatService.failCancelledRequestLate();
+    aiChatService.succeedRetry();
     await tester.pumpAndSettle();
 
     expect(aiChatService.requests, hasLength(2));
@@ -1798,27 +1798,39 @@ class _LateFailureAIChatService extends AIChatService {
 class _StoppedChatRetryAIChatService extends AIChatService {
   final List<List<AIMessage>> requests = <List<AIMessage>>[];
   final firstRequestStarted = Completer<void>();
-  StreamController<AIChunk>? _firstResponse;
+  final retryRequestStarted = Completer<void>();
+  final List<StreamController<AIChunk>> _responses =
+      <StreamController<AIChunk>>[];
 
   @override
   Stream<AIChunk> sendMessages(List<AIMessage> messages) {
     requests.add(List<AIMessage>.of(messages));
-
-    if (requests.length > 1) {
-      return Stream<AIChunk>.fromIterable(const <AIChunk>[
-        AIChunk.text(provider: ProviderType.openAI, text: 'Retried answer'),
-        AIChunk.done(provider: ProviderType.openAI),
-      ]);
-    }
-
     final response = StreamController<AIChunk>();
-    _firstResponse = response;
-    firstRequestStarted.complete();
+    _responses.add(response);
+    if (requests.length == 1) {
+      firstRequestStarted.complete();
+    } else {
+      retryRequestStarted.complete();
+    }
     return response.stream;
   }
 
-  void finishStoppedRequest() {
-    _firstResponse?.close();
+  void failCancelledRequestLate() {
+    _responses.first
+      ..addError(StateError('late provider error'))
+      ..close();
+  }
+
+  void succeedRetry() {
+    _responses[1]
+      ..add(
+        const AIChunk.text(
+          provider: ProviderType.openAI,
+          text: 'Retried answer',
+        ),
+      )
+      ..add(const AIChunk.done(provider: ProviderType.openAI))
+      ..close();
   }
 }
 

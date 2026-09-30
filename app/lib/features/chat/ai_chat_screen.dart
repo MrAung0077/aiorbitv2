@@ -447,10 +447,16 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
       return false;
     }
 
+    final resumed = await ref
+        .read(chatControllerProvider.notifier)
+        .resumeCancelledResponse();
+    if (!mounted || !resumed) {
+      return false;
+    }
+
     setState(() {
       _chatWasStopped = false;
     });
-    await ref.read(chatControllerProvider.notifier).regenerateLastResponse();
     return true;
   }
 

@@ -1140,6 +1140,50 @@ void main() {
       expect(controller.state.messages.last.content, 'Fresh response');
     });
 
+    test(
+      'explicit cancellation resume uses the original request and ignores a late failure',
+      () async {
+        final repository = _MemoryConversationRepository();
+        final aiChatService = _CancelledResumeAIChatService();
+        final controller = _createController(
+          repository,
+          aiChatService: aiChatService,
+        );
+        addTearDown(controller.dispose);
+
+        final firstRequest = controller.sendMessage(
+          'What is a good writing habit?',
+        );
+        await aiChatService.firstRequestStarted.future;
+        await controller.cancelActiveResponse();
+
+        final resumedRequest = controller.resumeCancelledResponse();
+        await aiChatService.retryRequestStarted.future;
+        aiChatService.failCancelledRequestLate();
+        aiChatService.succeedRetry();
+        await firstRequest;
+        expect(await resumedRequest, isTrue);
+
+        expect(aiChatService.requests, hasLength(2));
+        expect(
+          aiChatService.requests.last.map((message) => message.content),
+          orderedEquals(<String>['What is a good writing habit?']),
+        );
+        expect(controller.state.error, isNull);
+        expect(controller.state.isSending, isFalse);
+        expect(
+          controller.state.messages.map((message) => message.content),
+          <String>['What is a good writing habit?', 'Fresh resumed response'],
+        );
+        expect(
+          (await repository.getConversation(controller.state.conversation!.id))!
+              .messages
+              .where((message) => message.isError),
+          isEmpty,
+        );
+      },
+    );
+
     test('cancellation wins when a late provider failure is persisting', () async {
       final repository = _DelayedErrorConversationRepository();
       final aiChatService = _ControlledAIChatService();
@@ -1328,6 +1372,45 @@ class _ControlledAIChatService extends AIChatService {
   void failFirst(Object error) {
     _firstResponse!
       ..addError(error)
+      ..close();
+  }
+}
+
+class _CancelledResumeAIChatService extends AIChatService {
+  final List<List<AIMessage>> requests = <List<AIMessage>>[];
+  final firstRequestStarted = Completer<void>();
+  final retryRequestStarted = Completer<void>();
+  final List<StreamController<AIChunk>> _responses =
+      <StreamController<AIChunk>>[];
+
+  @override
+  Stream<AIChunk> sendMessages(List<AIMessage> messages) {
+    requests.add(List<AIMessage>.of(messages));
+    final response = StreamController<AIChunk>();
+    _responses.add(response);
+    if (requests.length == 1) {
+      firstRequestStarted.complete();
+    } else {
+      retryRequestStarted.complete();
+    }
+    return response.stream;
+  }
+
+  void failCancelledRequestLate() {
+    _responses.first
+      ..addError(StateError('late cancelled provider error'))
+      ..close();
+  }
+
+  void succeedRetry() {
+    _responses[1]
+      ..add(
+        const AIChunk.text(
+          provider: ProviderType.openAI,
+          text: 'Fresh resumed response',
+        ),
+      )
+      ..add(const AIChunk.done(provider: ProviderType.openAI))
       ..close();
   }
 }

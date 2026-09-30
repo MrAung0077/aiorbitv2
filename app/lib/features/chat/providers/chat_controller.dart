@@ -87,6 +87,7 @@ class ChatController extends StateNotifier<ChatState> {
   int _lastConversationIdMicros = 0;
   int _lastActivityMicros = 0;
   Timer? _retryCooldownTimer;
+  Conversation? _cancelledResponseConversation;
 
   static const Duration _fallbackRateLimitCooldown = Duration(seconds: 30);
 
@@ -232,6 +233,8 @@ class ChatController extends StateNotifier<ChatState> {
     if (text.isEmpty || state.isSending || state.isImageGenerationInProgress) {
       return;
     }
+
+    _cancelledResponseConversation = null;
 
     final revision = ++_operationRevision;
 
@@ -588,6 +591,7 @@ class ChatController extends StateNotifier<ChatState> {
     ++_operationRevision;
     final conversation = state.conversation;
     if (conversation == null) {
+      _cancelledResponseConversation = null;
       state = state.copyWith(isSending: false);
       return;
     }
@@ -600,6 +604,7 @@ class ChatController extends StateNotifier<ChatState> {
       messages: messages,
       updatedAt: _nextActivityTime(),
     );
+    _cancelledResponseConversation = stoppedConversation;
     state = state.copyWith(
       conversation: stoppedConversation,
       isSending: false,
@@ -976,17 +981,51 @@ class ChatController extends StateNotifier<ChatState> {
   }
 
   Future<void> regenerateLastResponse() async {
+    _cancelledResponseConversation = null;
+    await _regenerateResponse(
+      sourceConversation: state.conversation,
+      respectRetryCooldown: true,
+    );
+  }
+
+  /// Restarts the exact request that was explicitly stopped. The saved
+  /// pre-cancel conversation ensures the retry phrase never becomes a new
+  /// user message, and the fresh revision isolates any late cancelled event.
+  Future<bool> resumeCancelledResponse() async {
+    final cancelledConversation = _cancelledResponseConversation;
+    final currentConversation = state.conversation;
+
+    if (state.isSending ||
+        cancelledConversation == null ||
+        currentConversation?.id != cancelledConversation.id) {
+      return false;
+    }
+
+    _cancelledResponseConversation = null;
+    await _regenerateResponse(
+      sourceConversation: cancelledConversation,
+      respectRetryCooldown: false,
+    );
+    return true;
+  }
+
+  Future<void> _regenerateResponse({
+    required Conversation? sourceConversation,
+    required bool respectRetryCooldown,
+  }) async {
     if (state.isSending) {
       return;
     }
 
     // A rate-limited request is retryable, but not immediately. This also
     // protects against stale or programmatic Retry taps during the cooldown.
-    if (state.error != null && !state.error!.canRetryLastResponse) {
+    if (respectRetryCooldown &&
+        state.error != null &&
+        !state.error!.canRetryLastResponse) {
       return;
     }
 
-    final currentConversation = state.conversation;
+    final currentConversation = sourceConversation;
 
     if (currentConversation == null || currentConversation.messages.isEmpty) {
       state = state.copyWith(
