@@ -1,0 +1,65 @@
+name: Media render smoke (synthetic only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+        working-directory: app/media_backend
+    steps:
+      - name: Check out the selected branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          sparse-checkout: app/media_backend
+
+      - name: Build the existing server image
+        run: docker build --tag ovexiq-media:smoke .
+
+      - name: Run real rendering without external network or provider keys
+        run: |
+          mkdir -p "$RUNNER_TEMP/media-render-evidence"
+          docker run --rm --network none --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" --cpus 2 --memory 2g \
+            --mount "type=bind,source=$PWD/test,target=/app/test,readonly" \
+            --mount "type=bind,source=$RUNNER_TEMP/media-render-evidence,target=/out" \
+            -e MEDIA_RENDER_SMOKE=1 -e MEDIA_SMOKE_OUTPUT_DIR=/out \
+            ovexiq-media:smoke node --test test/render_smoke.test.js
+
+      - name: Retain raw FFprobe reports for the validated MP4 files
+        run: |
+          docker run --rm --network none --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$RUNNER_TEMP/media-render-evidence,target=/out" \
+            ovexiq-media:smoke sh -eu -c '
+              for name in youtube teaser; do
+                set -- /out/ovexiq-render-smoke-*/*/"$name.mp4"
+                test "$#" -eq 1 && test -s "$1"
+                ffprobe -v error -show_format -show_streams -of json "$1" > "$1.ffprobe.json"
+              done
+            '
+
+      # Allowlist only synthetic videos/reports. Never upload the SQLite DB,
+      # service preload, credentials, source tree, or arbitrary output directory.
+      - name: Upload synthetic render evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: media-render-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/media-render-evidence/ovexiq-render-smoke-*/*/youtube.mp4
+            ${{ runner.temp }}/media-render-evidence/ovexiq-render-smoke-*/*/teaser.mp4
+            ${{ runner.temp }}/media-render-evidence/ovexiq-render-smoke-*/*/*.mp4.ffprobe.json
+            ${{ runner.temp }}/media-render-evidence/ovexiq-render-smoke-*/smoke-report.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
