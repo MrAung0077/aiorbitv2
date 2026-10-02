@@ -692,7 +692,7 @@ async function authenticateBudgetedAiSession(request, env) {
   );
 }
 
-async function findTesterId(configuredTokens, presentedToken) {
+export async function findTesterId(configuredTokens, presentedToken) {
   if (typeof configuredTokens !== "string" || presentedToken.length === 0) {
     return null;
   }

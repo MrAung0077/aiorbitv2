@@ -6,6 +6,7 @@ import 'ai_chat_screen.dart';
 import 'providers/chat_controller.dart';
 import 'providers/conversation_list_provider.dart';
 import 'widgets/conversation_tile.dart';
+import '../song/song_studio_screen.dart';
 
 class ConversationHistoryScreen extends ConsumerWidget {
   const ConversationHistoryScreen({super.key});
@@ -15,7 +16,10 @@ class ConversationHistoryScreen extends ConsumerWidget {
     final conversations = ref.watch(conversationListProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Library')),
+      appBar: AppBar(title: const Text('Library'), actions: [
+        IconButton(tooltip: 'Songs / သီချင်းများ', icon: const Icon(Icons.library_music_outlined),
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SongStudioScreen()))),
+      ]),
       body: conversations.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, _) => _HistoryMessage(

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "npm run test:unit && npm run test:runtime",
-    "test:unit": "node --experimental-loader ./test/cloudflare-workers-loader.mjs --test ./test/gateway.test.js",
+    "test:unit": "node --experimental-loader ./test/cloudflare-workers-loader.mjs --test ./test/gateway.test.js ./test/media_proxy.test.js",
     "test:runtime": "node --test ./test/durable_object_runtime.test.js",
     "dev": "wrangler dev",
     "check": "wrangler deploy --dry-run",

@@ -1,0 +1,110 @@
+# Original song workflow — Android first, shared backend
+
+Implementation foundation, not a completed production/device acceptance run. No paid generation is part of automated tests.
+
+## Execution target
+
+Android (and a future Web client) -> existing Ovexiq Worker/session boundary -> dedicated Linux media service -> text song specification -> Gemini music generation -> server FFmpeg -> persistent server artifact storage -> authenticated download to client.
+
+There is no Windows-local production executor, browser FFmpeg, or Android FFmpeg dependency. A Web UI is not included: it must use this same job/artifact API. The Cloudflare skill review informed the fail-closed proxy, server-derived ownership and unchanged existing Durable Object bindings/migrations.
+
+The media service needs **one replica, one process, an exclusive durable volume, and restart-not-overlap deployments**. Do not autoscale this SQLite worker or share its volume between live replicas. Hosting is not provisioned by this patch. Use a Linux container host supporting persistent volumes and HTTPS ingress. Container-local ephemeral storage alone is not acceptable. Back up the SQLite database and artifact volume consistently; restrict access to the service and storage.
+
+## Contracts and separation
+
+- `MusicGenerationProvider`: `generateSong(spec, artist)`, `supportsLanguage(language)`, `capabilities`, `providerId`.
+- First adapter: official Gemini `lyria-3.5:generateContent`, custom lyrics/style/language as documented text input, MP3 inline data. No unofficial API or scraping. Reference: https://ai.google.dev/gemini-api/docs/generate-content/music-generation
+- Song specification: one existing-model OpenRouter `openai/gpt-6-astra` request, JSON, maximum 4096 output tokens; separate English/Burmese lyric instructions. This new capability does not modify existing Chat model routing.
+- Stable fictional artist: name, ID, male vocal register/timbre/delivery/range, genre family, four owner-scoped visual IDs, supported request languages. Each project snapshots the profile. Voice direction is **not** a guaranteed cloned voice; actual consistency and Burmese singing require listening review. The provider interface permits a later audio transformation stage without changing client artifacts; voice conversion is not implemented.
+- Durable `SongProject`: id, original goal/language, title/theme/genre/mood/tempo, lyrics/music prompt, artist snapshot, audio/video artifacts, status, fixed typed failure, internal provider metadata. Project data is server-side SQLite, separate from unchanged Flutter conversation/Mission schemas.
+- Capability/preflight, provider adapter, execution, rendering and artifact validation are separate modules. Provider output is not treated as a finished MP4.
+
+### Shared API
+
+All client requests use the existing beta token and opaque device-session headers. Ownership is derived at the Worker; any client owner/account header is discarded. Provider/service keys never enter Flutter. Production media is disabled unless explicitly provisioned and the authenticated account is allowlisted.
+
+| Method/path | Meaning |
+|---|---|
+| `GET /v1/media/artist` | Saved reusable profile |
+| `POST /v1/media/visuals` | JSON `{mimeType,data}`; base64 JPEG/PNG, maximum 8 MiB; server validates/normalizes image |
+| `PUT /v1/media/artist` | `{artistName,visualReferenceIds}`; exactly four distinct owned images |
+| `POST /v1/media/projects` | `{requestId,goal,language}`; UUID idempotency key; `language` is `en` or `my`; returns persisted job, not a long-held generation request |
+| `GET /v1/media/projects` | Newest 100 owned projects; never executes/retries |
+| `GET /v1/media/projects/{id}` | Status and artifacts |
+| `GET /v1/media/projects/{id}/artifacts/{artifactId}` | Private authenticated bytes; MIME, length, SHA-256; no external URL handoff |
+
+Same request ID and payload return the existing project. A changed payload with that ID fails. One active project per account; maximum two new projects/account/UTC day; one globally executing job in this service. Existing text/image/speech quotas and limits are unchanged. This is a separately operator-enabled personal capability, **not** access to paid media for every beta token holder.
+
+States: `queued -> specifying -> generating -> rendering -> completed`, or `failed`/`interrupted`. Persist the stage before a paid request. A restart marks in-flight jobs interrupted and does not replay a paid stage. Pending jobs can start; history reads cannot start new jobs. There are no automatic provider retries/fallbacks. An uncertain request outcome requires operator review before any new paid job; do not press Create again with a new id to try to recover it. Server failures preserve already validated outputs.
+
+## Server rendering and artifacts
+
+Four supplied artist stills, slow zoom/crop and short crossfades. Full-song MP4 is 16:9, 1920x1080 when every image's smaller dimension is at least 1080, otherwise 1280x720. Portrait teaser is 1080x1920 or 720x1280, 30 seconds. H.264/yuv420p + AAC stereo 44.1 kHz, faststart, fade out. FFprobe plus full decode validates duration/codecs/dimensions; missing FFmpeg fails preflight before paid work.
+
+**Hook-selection limitation:** teaser starts at the song specification's suggested chorus time, clamped to the actual audio duration. It is not verified audio alignment or strongest-hook detection. Metadata explicitly marks listening review required. No claim that a text-estimated timestamp is the sung chorus.
+
+Server volume layout:
+
+```
+MEDIA_DATA_DIR/media.sqlite
+MEDIA_DATA_DIR/visuals/{image-id}.jpg
+MEDIA_DATA_DIR/{project-id}/lyrics.txt
+MEDIA_DATA_DIR/{project-id}/song.mp3
+MEDIA_DATA_DIR/{project-id}/youtube.mp4
+MEDIA_DATA_DIR/{project-id}/teaser.mp4
+```
+
+Client metadata is adapted to the existing `ArtifactVersion` type. Android caches private files in its application documents `song_artifacts/{project-id}/` directory. Native SHA-256 validation happens before use. Open/save/share use Android content URIs and `Downloads/Ovexiq`, never a credential-bearing browser URL. Deleted public downloads can be recreated from the private cache. Corrupt private cache entries are redownloaded.
+
+The native MediaStore path currently targets **Android 10/API 29+**; older Android fails safely and is not accepted for this workflow yet. The existing app minSdk is unchanged. Opening requires an installed compatible audio/video viewer; Share uses the system chooser. No physical-device acceptance is claimed by widget/channel mocks.
+
+## Required configuration (names only, never commit values)
+
+Media container runtime, injected by host secret management:
+
+- `GEMINI_API_KEY`: paid Gemini project with access to `lyria-3.5`.
+- `OPENROUTER_API_KEY`: authorized access to the existing song-spec model.
+- `OVEXIQ_MEDIA_SERVICE_KEY`: high-entropy shared service credential, at least 32 characters, identical at Worker and media service.
+- `MEDIA_DATA_DIR=/data`: durable, private volume writable by container uid 1000.
+- `PORT=8080` (default).
+
+Worker runtime configuration (new, absent means disabled):
+
+- `OVEXIQ_MEDIA_ENABLED=true`
+- `OVEXIQ_MEDIA_ORIGIN`: HTTPS origin of the container's ingress, no path/query/credentials.
+- `OVEXIQ_MEDIA_ALLOWED_ACCOUNTS`: JSON array of operator-approved `acct_<UUID>` values, initially the owner's account only.
+- `OVEXIQ_MEDIA_SERVICE_KEY`: secret above, never in `wrangler.jsonc`.
+- `OVEXIQ_MEDIA_WEB_ORIGIN`: optional exact HTTPS origin for the future Web client, no wildcard.
+
+Existing beta-token/session/invite/signing/provider configuration and Durable Object migrations must be preserved. No secret rotation is needed. Existing beta-AI emergency-disable configuration also disables the media proxy. Disable the container scheduler as well to stop already queued work; this is not provider in-flight cancellation.
+
+Android uses its existing production base URL, beta token and secure device-session storage. No new paid-provider key is supplied in Dart defines. HTTPS network only. Do not put service/provider secrets in build arguments, logs, APKs or source.
+
+## Validation and container commands
+
+From `app/media_backend`:
+
+```powershell
+npm test
+docker build -t ovexiq-media:local .
+docker run --rm --network none -e MEDIA_RENDER_SMOKE=1 --mount "type=bind,source=$($PWD.Path)\test,target=/app/test,readonly" ovexiq-media:local node --test test/render_smoke.test.js
+```
+
+The render smoke uses four synthetic color cards and a sine wave. It requires no secret or provider/network access. Do not treat it as music quality acceptance. Docker must already be available on the validation host. The production Docker image installs FFmpeg inside Linux; Windows FFmpeg is not a runtime requirement.
+
+From `app`: `flutter test --no-pub`, `flutter analyze --no-pub`, `git diff --check`.
+From `app/ovexiq_ai_gateway`: `npm run test:unit`, `npm run test:runtime` (isolated local tests).
+Android native compilation: `android/gradlew.bat :app:compileDebugKotlin` with the established JDK. This does not install an APK.
+
+## One controlled live English-song run — only after operator provisioning
+
+1. Provision durable server hosting and HTTPS ingress; validate the container with synthetic render smoke. Securely inject only the variables above. Back up the volume and restrict the media allowlist to the owner. Confirm Lyria account access/pricing/budget with the operator; this patch does not invent a dollar cost.
+2. Deploy the updated Worker entry point using the existing approved deployment procedure, preserving secrets/bindings/migrations. Build/install the Android client through the established secure release process. Neither action is performed by implementation tests.
+3. On Android 10+, open Songs from Library (or request “Create an original soft-rock song in English” in Home/Chat). Enter the reusable fictional artist name, confirm image rights, select exactly four authorized JPG/PNG artist images. Choose English.
+4. Submit one original English-song goal and accept the one-spec-call + one-music-call confirmation **once**. This is the only step authorizing generation. Refresh/reopen only if submission becomes uncertain; unchanged in-screen resubmission uses the same idempotency ID.
+5. Wait for server status. If it fails/interrupted, inspect the fixed failure stage and internal provider metadata, keep valid outputs, and STOP. No automatic regeneration.
+6. Retrieve MP3, full MP4 and teaser **inside Android**; open/play each, Save to device, Share using a chosen target. Reopen Library/Songs after app restart; retrieve the same project/artifacts without generating another song.
+7. Human-review English lyrics, singing, full-song ending, visual pacing, MP4 sync and actual teaser chorus. Verify hashes and full audio/video duration. A server `completed` status alone is not Android end-to-end acceptance.
+8. Only after separate authorization, repeat with one Burmese goal and native-language listening review. No live call is included in tests.
+
+Remaining acceptance gates: deployed/provisioned backend, installed client, actual Android retrieve/open/save/share/reopen, model access/budget, English/Burmese song quality, vocal consistency, teaser alignment. Web UI, voice cloning/conversion, generated video, silent comedy, publishing, payments and multi-provider fallback are out of scope.

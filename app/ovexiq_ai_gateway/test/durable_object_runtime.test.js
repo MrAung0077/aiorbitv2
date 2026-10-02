@@ -16,6 +16,15 @@ const activationUrl = "http://runtime-test.invalid/v1/beta/activate";
 const videoEditPlanUrl = "http://runtime-test.invalid/v1/ai/video/edit-plan";
 const videoTranscriptionUrl = "http://runtime-test.invalid/v1/ai/video/transcribe";
 
+test('media routes stay disabled without explicit server provisioning', async () => {
+  const worker = await startRuntimeWorker();
+  try {
+    const response = await worker.fetch('http://runtime-test.invalid/v1/media/projects');
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).error.code, 'media_not_configured');
+  } finally { await worker.dispose(); }
+});
+
 async function startRuntimeWorker() {
   const worker = await unstable_startWorker({
     config: runtimeConfigPath,

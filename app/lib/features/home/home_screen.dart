@@ -11,6 +11,8 @@ import '../chat/models/conversation.dart';
 import '../chat/providers/chat_controller.dart';
 import '../chat/providers/conversation_list_provider.dart';
 import '../chat/widgets/conversation_tile.dart';
+import '../song/song_models.dart';
+import '../song/song_studio_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -58,6 +60,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final chatState = ref.read(chatControllerProvider);
 
     if (prompt.isEmpty || chatState.isBusy) {
+      return;
+    }
+
+    if (isOriginalSongRequest(prompt)) {
+      await Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => SongStudioScreen(initialGoal: prompt),
+      ));
       return;
     }
 

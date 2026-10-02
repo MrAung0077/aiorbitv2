@@ -1,0 +1,7 @@
+{
+  "name": "ovexiq-personal-media",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.16" },
+  "scripts": { "test": "node --test test/*.test.js", "start": "node src/server.js" }
+}

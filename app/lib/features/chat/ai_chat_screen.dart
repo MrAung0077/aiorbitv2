@@ -36,6 +36,8 @@ import '../mission/services/chat_mission_result_adapter.dart';
 import '../mission/models/mission_suggestion.dart';
 import '../mission/models/mission_status.dart';
 import '../mission/models/task_status.dart';
+import '../song/song_models.dart';
+import '../song/song_studio_screen.dart';
 
 class AIChatScreen extends ConsumerStatefulWidget {
   const AIChatScreen({super.key});
@@ -117,6 +119,14 @@ class _AIChatScreenState extends ConsumerState<AIChatScreen> {
       _controller.clear();
       _focusNode.unfocus();
       _scrollToBottom();
+      return;
+    }
+
+    if (isOriginalSongRequest(text)) {
+      if (!mounted) return;
+      await Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => SongStudioScreen(initialGoal: text),
+      ));
       return;
     }
 
