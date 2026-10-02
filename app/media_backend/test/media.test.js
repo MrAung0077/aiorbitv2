@@ -59,6 +59,7 @@ for (const language of ['en', 'my']) test(`${language}: persisted complete proje
   assert.ok(saved.artifacts.every(a => /^[a-f0-9]{64}$/.test(a.sha256) && a.byteSize > 0));
   assert.equal(store.get(`acct_${randomUUID()}`, project.projectId), null);
   assert.equal(publicProject(saved).owner, undefined); assert.equal(publicProject(saved).providerMetadata, undefined);
+  assert.doesNotMatch(JSON.stringify(publicProject(saved)), /"path":|file:\/\/|[A-Z]:\\/);
   assert.doesNotMatch(JSON.stringify(publicProject(saved)), /continue this in|open Kits|https:\/\//i);
   const again = store.create(owner, input(language));
   assert.deepEqual(again.artist, project.artist);
@@ -141,6 +142,18 @@ test('song spec has separate lyric quality rules and no arbitrary response field
     return Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ...spec(), unexpected: 'omit' }) } }] });
   } });
   assert.equal((await provider.create('synthetic goal', 'en', defaultArtist)).unexpected, undefined);
+});
+
+test('missing provider keys fail at their stage before any network call', async () => {
+  let calls = 0;
+  const fetcher = async () => { calls++; assert.fail('provider must not be called'); };
+  const text = new SongSpecProvider({ fetcher });
+  const music = new LyriaMusicProvider({ fetcher });
+  await assert.rejects(text.create('synthetic goal', 'en', defaultArtist), error =>
+    error instanceof MediaFailure && error.code === 'provider_not_configured' && error.stage === 'song_spec');
+  await assert.rejects(music.generateSong(spec(), defaultArtist), error =>
+    error instanceof MediaFailure && error.code === 'provider_not_configured' && error.stage === 'music');
+  assert.equal(calls, 0);
 });
 
 test('FFmpeg full audio and teaser trims, codecs, fixed images and fades', async () => {

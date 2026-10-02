@@ -86,7 +86,9 @@ export function mediaServer({ store, renderer, serviceKey }) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const env = process.env;
-  if (!env.MEDIA_DATA_DIR || !env.GEMINI_API_KEY || !env.OPENROUTER_API_KEY) throw new Error('Media server configuration incomplete');
+  // Each provider adapter checks its key only when its paid stage is invoked.
+  // Boot, artifact reads and synthetic rendering require no paid-provider keys.
+  if (!env.MEDIA_DATA_DIR) throw new Error('Media server configuration incomplete');
   const store = new MediaStore(env.MEDIA_DATA_DIR);
   const renderer = new FfmpegRenderer();
   await renderer.preflight();

@@ -60,10 +60,10 @@ The native MediaStore path currently targets **Android 10/API 29+**; older Andro
 
 ## Required configuration (names only, never commit values)
 
-Media container runtime, injected by host secret management:
+Media container runtime, injected by host secret management. Only the storage directory and service credential are mandatory at boot; each paid adapter checks its own key at invocation:
 
-- `GEMINI_API_KEY`: paid Gemini project with access to `lyria-3.5`.
-- `OPENROUTER_API_KEY`: authorized access to the existing song-spec model.
+- `GEMINI_API_KEY`: needed only for the music-generation stage; paid Gemini project with access to `lyria-3.5`. Not needed for boot, artifact reads or synthetic rendering.
+- `OPENROUTER_API_KEY`: needed only for the planning/lyrics stage; authorized access to the existing song-spec model. Not needed for boot, artifact reads or synthetic rendering.
 - `OVEXIQ_MEDIA_SERVICE_KEY`: high-entropy shared service credential, at least 32 characters, identical at Worker and media service.
 - `MEDIA_DATA_DIR=/data`: durable, private volume writable by container uid 1000.
 - `PORT=8080` (default).
@@ -91,6 +91,42 @@ docker run --rm --network none -e MEDIA_RENDER_SMOKE=1 --mount "type=bind,source
 ```
 
 The render smoke uses four synthetic color cards and a sine wave. It requires no secret or provider/network access. Do not treat it as music quality acceptance. Docker must already be available on the validation host. The production Docker image installs FFmpeg inside Linux; Windows FFmpeg is not a runtime requirement.
+
+### Reproducible Linux validation alternative (no deployment)
+
+No existing repository CI runner/workflow was found during this review. Use an operator-approved Linux host with Docker; do not provision a new paid host or upload source without authorization. From this directory:
+
+```sh
+docker build -t ovexiq-media:smoke .
+smoke_output="$(mktemp -d)"
+docker run --rm --network none --user "$(id -u):$(id -g)" \
+  --cpus 2 --memory 2g \
+  --mount "type=bind,source=$PWD/test,target=/app/test,readonly" \
+  --mount "type=bind,source=$smoke_output,target=/out" \
+  -e MEDIA_RENDER_SMOKE=1 -e MEDIA_SMOKE_OUTPUT_DIR=/out \
+  ovexiq-media:smoke node --test test/render_smoke.test.js
+```
+
+The image build downloads public base-image/OS packages, not AI services. The actual smoke container has networking disabled and receives no provider key. It runs the existing SongWorkflow with synthetic text/audio adapters and real FFmpeg, validates MP3/full MP4/teaser MP4, checks SHA-256, closes/reopens SQLite, boots the actual service entry point without paid keys, and tests authenticated history/download over container-local loopback. Outputs and `smoke-report.json` remain beneath the printed synthetic-output directory for review. The temporary service key is random, in-memory only, and never included in the report.
+
+The two-CPU/2-GiB settings above are an initial **test envelope, not a measured production sizing guarantee**. CPU/RAM and 1080p/long-song performance remain unbenchmarked. Production currently has one render at a time and no built-in process resource ceiling; the host must impose resource/disk limits and monitor capacity.
+
+### Local readiness evidence — 2026-10-02
+
+- Docker client 27.5.1 exists, but `desktop-linux` cannot connect: `dockerDesktopLinuxEngine` named pipe is absent. A real `docker build` attempt stopped at daemon connection, before building an image.
+- WSL 2.4.12 exists, default version 2, but no distributions are installed. Windows reports `VirtualizationFirmwareEnabled=False`. No firmware, Windows features, WSL distributions, Docker settings or remote infrastructure were changed during this review.
+- The explicitly enabled render test fails at preflight with `ffmpeg_unavailable`; FFmpeg did not execute and no real MP4 was produced. Installing FFmpeg on the developer PC is not the proposed production solution.
+- Focused tests: 15 pass, real renderer test skipped by default. Existing SQLite reopen, metadata hash and authenticated-read tests pass with synthetic/fake media; this is not real MP4 validation.
+- **Deployment gate remains blocked** until the Linux/container command above succeeds and its retained artifacts/report are reviewed. No deployment or paid-provider request occurred.
+
+### Deployment readiness facts
+
+- Runtime: Linux Node.js 22.16+ (Dockerfile uses Node 22 Debian Bookworm), FFmpeg/FFprobe with libx264, AAC and libmp3lame; no extra npm dependencies. Container is the reproducible packaging path, but an equivalent Linux installation can run the same service.
+- One process/replica, one exclusive persistent filesystem volume, writable by uid 1000 for the default image. Preserve SQLite/WAL, visuals and all project artifacts together across restart/deployment. Do not use ephemeral-only disk or overlapping replicas.
+- Internal bind: `0.0.0.0:8080` by default, configurable `PORT`; public ingress must terminate HTTPS (normally port 443). Worker requires an HTTPS origin without a path, query or embedded credentials.
+- No dedicated `/health` endpoint is implemented. Use a TCP readiness probe, plus an operator-controlled authenticated `GET /v1/media/artist` or `/v1/media/projects` probe. Do not create a generation job as a health check.
+- Gateway-to-service authentication: constant-time-checked shared bearer `OVEXIQ_MEDIA_SERVICE_KEY`, plus server-derived `X-Ovexiq-Account`. Never accept that ownership header from an unauthenticated client. Existing gateway beta-token/session validation and allowlist remain unchanged.
+- Storage is private server filesystem storage, with portable project/artifact IDs and authenticated byte-download routes. Client metadata does not contain server filesystem paths. Retention/backups, disk size, monitoring and measured CPU/RAM must be configured by the operator before deployment.
 
 From `app`: `flutter test --no-pub`, `flutter analyze --no-pub`, `git diff --check`.
 From `app/ovexiq_ai_gateway`: `npm run test:unit`, `npm run test:runtime` (isolated local tests).
