@@ -1,0 +1,119 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, statSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { createHash, randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { request } from 'node:http';
+import { fileURLToPath } from 'node:url';
+import { FfmpegRenderer, runProcess } from '../src/render.js';
+import { MediaStore, publicProject } from '../src/store.js';
+import { SongWorkflow } from '../src/workflow.js';
+
+function getLocal(port, path, headers) {
+  return new Promise((resolve, reject) => {
+    const req = request({ host: '127.0.0.1', port, path, headers }, res => {
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, bytes: Buffer.concat(chunks) }));
+    });
+    req.on('error', reject); req.setTimeout(3000, () => req.destroy(new Error('local_probe_timeout'))); req.end();
+  });
+}
+
+// Synthetic-only; run inside the server image with --network none and no keys.
+test('real render, durable artifacts and keyless service boot', { skip: process.env.MEDIA_RENDER_SMOKE !== '1', timeout: 900000 }, async t => {
+  const renderer = new FfmpegRenderer(); await renderer.preflight();
+  const parent = process.env.MEDIA_SMOKE_OUTPUT_DIR ?? tmpdir();
+  mkdirSync(parent, { recursive: true });
+  const root = mkdtempSync(join(parent, 'ovexiq-render-smoke-'));
+  let openStore, child;
+  t.after(async () => {
+    if (child?.pid && child.exitCode === null && child.signalCode === null) {
+      const stopped = once(child, 'exit'); child.kill(); await stopped;
+    }
+    openStore?.close();
+    if (!process.env.MEDIA_SMOKE_OUTPUT_DIR) rmSync(root, { recursive: true, force: true });
+  });
+  const originalFetch = globalThis.fetch;
+  let providerCalls = 0;
+  globalThis.fetch = async () => { providerCalls++; throw new Error('external_fetch_forbidden'); };
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const store = new MediaStore(root); openStore = store;
+  const owner = `acct_${randomUUID()}`, ids = [];
+  for (const [index, color] of ['red', 'green', 'blue', 'gray'].entries()) {
+    const file = join(root, `${index}.jpg`), id = randomUUID(); ids.push(id);
+    await runProcess('ffmpeg', ['-nostdin', '-v', 'error', '-f', 'lavfi', '-i', `color=c=${color}:s=1280x720`, '-frames:v', '1', '-threads', '1', file]);
+    store.addVisual(owner, id, file, { width: 1280, height: 720 });
+  }
+  store.saveArtist(owner, { artistName: 'Synthetic Test', visualReferenceIds: ids });
+  const source = join(root, 'synthetic.mp3');
+  await runProcess('ffmpeg', ['-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=220:sample_rate=44100', '-t', '48', '-c:a', 'libmp3lame', source]);
+  let textCalls = 0, musicCalls = 0;
+  const project = store.create(owner, { requestId: randomUUID(), goal: 'Synthetic render validation only', language: 'en' });
+  const workflow = new SongWorkflow({ store, renderer,
+    textProvider: { async create() { textCalls++; return { title: 'Synthetic test', language: 'en', theme: 'test', genre: 'test',
+      mood: 'test', tempoDirection: 'test', instrumentation: 'sine', vocalCharacteristics: 'none', structure: 'test',
+      lyrics: '[Verse 1]\nSynthetic fixture\n[Chorus]\nNo singing or provider call', chorusStartSeconds: 12 }; } },
+    musicProvider: { supportsLanguage: () => true, async generateSong() {
+      musicCalls++; return { bytes: readFileSync(source), metadata: { provider: 'synthetic-local-fixture' } };
+    } },
+  });
+  const started = Date.now(); await workflow.run(project);
+  assert.equal(project.status, 'completed', JSON.stringify(project.failure));
+  assert.equal(project.artifacts.length, 4);
+  const checks = [];
+  for (const artifact of project.artifacts) {
+    const file = join(root, project.projectId, artifact.fileName);
+    assert.ok(statSync(file).size > 0); assert.equal(statSync(file).size, artifact.byteSize);
+    assert.equal(createHash('sha256').update(readFileSync(file)).digest('hex'), artifact.sha256);
+    if (artifact.mimeType === 'video/mp4') {
+      const info = await renderer.probe(file);
+      assert.ok(info.format.format_name.split(',').includes('mp4'));
+      const video = info.streams.find(s => s.codec_type === 'video'), audio = info.streams.find(s => s.codec_type === 'audio');
+      assert.equal(video.codec_name, 'h264'); assert.equal(audio.codec_name, 'aac');
+      const full = artifact.fileName === 'youtube.mp4';
+      assert.equal(video.width, full ? 1280 : 720); assert.equal(video.height, full ? 720 : 1280);
+      assert.ok(Math.abs(Number(info.format.duration) - (full ? project.audioArtifact.durationSeconds : 30)) < 0.5);
+      await runProcess('ffmpeg', ['-nostdin', '-v', 'error', '-xerror', '-i', file, '-f', 'null', '-']);
+      checks.push({ ...artifact, container: info.format.format_name, decode: 'PASS' });
+    }
+  }
+  const portable = JSON.stringify(publicProject(project));
+  assert.ok(!portable.includes(root)); assert.doesNotMatch(portable, /[A-Z]:\\|file:\/\//);
+  store.close(); openStore = null;
+  const reopened = new MediaStore(root); openStore = reopened;
+  assert.deepEqual(reopened.get(owner, project.projectId), project);
+  assert.equal(reopened.next(), undefined); reopened.close(); openStore = null;
+
+  // Boot the real entry point with both provider keys absent. An IPC-only test
+  // preload discovers its ephemeral listening port without production changes.
+  const serviceKey = randomUUID() + randomUUID();
+  const childEnv = { ...process.env, MEDIA_DATA_DIR: root, OVEXIQ_MEDIA_SERVICE_KEY: serviceKey, PORT: '0' };
+  delete childEnv.GEMINI_API_KEY; delete childEnv.OPENROUTER_API_KEY;
+  const preload = join(root, 'listen-probe.cjs');
+  writeFileSync(preload, "const http=require('node:http');const listen=http.Server.prototype.listen;http.Server.prototype.listen=function(...a){this.once('listening',()=>process.send({port:this.address().port}));return listen.apply(this,a)};", { mode: 0o600 });
+  child = spawn(process.execPath, ['--require', preload, fileURLToPath(new URL('../src/server.js', import.meta.url))], {
+    env: childEnv, windowsHide: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+  });
+  const [{ port }] = await once(child, 'message', { signal: AbortSignal.timeout(15000) });
+  assert.ok(port > 0);
+  assert.equal((await getLocal(port, '/v1/media/projects', {})).status, 401);
+  const headers = { Authorization: `Bearer ${serviceKey}`, 'X-Ovexiq-Account': owner };
+  const history = await getLocal(port, '/v1/media/projects', headers);
+  assert.equal(history.status, 200); assert.equal(JSON.parse(history.bytes).projects[0].status, 'completed');
+  const artifact = project.audioArtifact;
+  const download = await getLocal(port, `/v1/media/projects/${project.projectId}/artifacts/${artifact.id}`, headers);
+  assert.equal(download.status, 200);
+  assert.equal(createHash('sha256').update(download.bytes).digest('hex'), artifact.sha256);
+  assert.equal(download.headers['x-artifact-sha256'], artifact.sha256);
+  assert.equal(providerCalls, 0); assert.equal(textCalls, 1); assert.equal(musicCalls, 1);
+  const report = { platform: process.platform, node: process.version,
+    ffmpeg: (await runProcess('ffmpeg', ['-version'])).split('\n')[0], elapsedMs: Date.now() - started,
+    keylessBoot: 'PASS', persistenceReopen: 'PASS', authenticatedDownload: 'PASS', providerCalls,
+    projectId: project.projectId, artifacts: checks };
+  writeFileSync(join(root, 'smoke-report.json'), JSON.stringify(report, null, 2));
+  console.log(JSON.stringify({ smokeOutputDirectory: root, ...report }));
+});
