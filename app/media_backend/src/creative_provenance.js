@@ -22,29 +22,31 @@ export function recordContribution(project, { type, source, description = '', re
 // response's proposed license. No plan or commercial permission is inferred.
 export function assetRights({ providerId = null, generationMode, commercialUseStatus = 'unknown',
   termsReference = null, accountPlanClass = null, sourceAssetIds = [],
-  userSupplied = false, permissionsDeclared = false, generatedAt = now(), verification = null }) {
+  userSupplied = false, permissionsDeclared = false, generatedAt = now(), verification = null, voiceAuthorization = null }) {
   requireValue(statuses.has(commercialUseStatus), 'invalid_rights_status');
   requireValue(Array.isArray(sourceAssetIds) && sourceAssetIds.every(id => typeof id === 'string'), 'invalid_source_assets');
   const hasTerms = typeof termsReference === 'string' && termsReference.trim().length > 0;
   return { providerId, generationMode,
     commercialUseStatus: commercialUseStatus === 'allowed' && !hasTerms ? 'unknown' : commercialUseStatus,
     termsReference, generatedAt, accountPlanClass, sourceAssetIds: [...sourceAssetIds], userSupplied, permissionsDeclared,
-    matchingRuleId: verification?.matchingRuleId ?? null, verification: structuredClone(verification) };
+    matchingRuleId: verification?.matchingRuleId ?? null, verification: structuredClone(verification),
+    voiceAuthorization: structuredClone(voiceAuthorization) };
 }
 
 // Only trusted adapter/operator context enters this boundary. Do not copy
 // commercialRights declarations or license assertions from generated responses.
 export function providerAssetRights(provider, { generationMode, generatedAt = now(), voiceMode = null,
-  sourceAssetIds = [], userSupplied = false, permissionsDeclared = false }, reviewOptions = {}) {
+  sourceAssetIds = [], userSupplied = false, permissionsDeclared = false, voiceAuthorization = null }, reviewOptions = {}) {
   const context = provider.rightsContext ?? {};
   const verification = resolveCommercialRights({ providerId: provider.providerId ?? null,
-    product: context.product, plan: context.plan, generationMode: context.generationMode ?? generationMode,
+    product: context.product, plan: context.plan,
+    generationMode: generationMode === 'voice_model' ? generationMode : context.generationMode ?? generationMode,
     generatedAt, subscribedAtGeneration: context.subscribedAtGeneration,
     downloadedThroughApprovedChannel: context.downloadedThroughApprovedChannel, voiceMode }, reviewOptions);
   const primary = verification.evidence.rules.find(s => s.rule.id === verification.matchingRuleId)?.rule;
   return assetRights({ providerId: provider.providerId ?? null, generationMode: verification.evidence.facts.generationMode,
     generatedAt, sourceAssetIds, userSupplied, permissionsDeclared, accountPlanClass: verification.evidence.facts.plan,
-    commercialUseStatus: verification.status, termsReference: primary?.sourceUrl ?? null, verification });
+    commercialUseStatus: verification.status, termsReference: primary?.sourceUrl ?? null, verification, voiceAuthorization });
 }
 
 export function recordAsset(project, asset, rights) {
@@ -135,6 +137,12 @@ export function commercialReadiness(project, reviewOptions = {}) {
   const assets = project.provenance?.assets ?? [];
   const required = requiredAssetIds(project);
   for (const a of assets.filter(a => required.has(a.id))) {
+    const authorization = a.rights.voiceAuthorization;
+    if (authorization && (authorization.declared !== true ||
+        (authorization.subject !== 'own' && (authorization.verified !== true ||
+          typeof authorization.evidenceRef !== 'string' || !authorization.evidenceRef.trim())))) {
+      reasons.push({ assetId: a.id, kind: a.kind, code: 'voice_permission_required' });
+    }
     if (a.rights.commercialUseStatus !== 'allowed') reasons.push({ assetId: a.id, kind: a.kind,
       code: a.rights.commercialUseStatus === 'unknown' ? 'rights_unconfirmed' : a.rights.commercialUseStatus });
     if (a.rights.providerId && a.rights.commercialUseStatus === 'allowed' &&
@@ -173,6 +181,7 @@ export function buildManifest(project, reviewOptions = {}) {
     contributions: structuredClone(p.contributions), assets: p.assets.map(a => ({ ...structuredClone(a), required: required.has(a.id) })),
     finalSelectedVersions: structuredClone(p.selectedVersions),
     voiceIntent: project.preferences?.voiceIntent ?? 'generated', subtitles: project.preferences?.subtitles ?? 'off',
+    voiceRoute: structuredClone(p.voiceRoute ?? null),
     finalApproval: structuredClone(p.finalApproval), commercialReadiness: commercialReadiness(project, reviewOptions) };
 }
 

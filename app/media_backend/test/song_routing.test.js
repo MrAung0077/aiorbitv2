@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MediaFailure } from '../src/contracts.js';
 import { VoiceIntent, songPreferences, routingRequirement, planSongRoute,
-  assertSongRouteReady, SingingVoiceProvider, subtitleWork, songRecoveryDecision } from '../src/song_routing.js';
+  assertSongRouteReady, SingingVoiceProvider, subtitleWork, songRecoveryDecision,
+  VoiceCapability, voiceCapabilityMetadata } from '../src/song_routing.js';
 
 const provider = (id, caps = {}) => ({ providerId: id,
   capabilities: { customLyrics: true, ...caps }, supportsLanguage: l => ['my', 'en'].includes(l) });
@@ -23,16 +24,19 @@ test('reusable singer requires supported identity, never just vocal direction', 
   const r = requirement({ voiceIntent: VoiceIntent.reusableIdentity, context: 'album' });
   const unavailable = planSongRoute(r, [candidate('direction-only', { vocalDirection: true })]);
   assert.throws(() => assertSongRouteReady(unavailable), /reusable_voice_unavailable/);
-  const plan = planSongRoute(r, [candidate('reusable', { reusableSingerIdentity: true })]);
+  const plan = planSongRoute(r, [candidate('reusable', { reusableSingerIdentity: true, referenceVoiceUsesRealPerson: false })]);
   assert.deepEqual(plan.missing, []);
   assert.equal(plan.requirement.voiceIntent, 'reusable_identity');
   assert.equal(plan.requirement.context, 'album');
   assert.equal(plan.voice, undefined);
+  assert.deepEqual(plan.voiceCapabilities, [VoiceCapability.conditioned]);
+  assert.equal(plan.voiceMetadata.operations.includes(VoiceCapability.clone), false);
 });
 
 class MockVoice extends SingingVoiceProvider {
   get providerId() { return 'mock-voice'; }
-  get capabilities() { return { voiceModes: ['own_voice_clone', 'custom_locked_voice'], languages: ['en', 'my'] }; }
+  get capabilities() { return { voiceModes: ['own_voice_clone', 'custom_locked_voice'], languages: ['en', 'my'],
+    voiceCapabilities: [VoiceCapability.clone, VoiceCapability.conversion], conversionInput: 'complete_song', returnsFinalMix: true }; }
 }
 for (const voiceIntent of ['own_voice_clone', 'custom_locked_voice']) {
   test(`${voiceIntent} requires permission and optional capable voice stage`, () => {
@@ -43,10 +47,52 @@ for (const voiceIntent of ['own_voice_clone', 'custom_locked_voice']) {
     assert.throws(() => assertSongRouteReady(planSongRoute(r, music)), /singing_voice_unavailable/);
     const plan = planSongRoute(r, music, [{ provider: new MockVoice() }]);
     assert.deepEqual(plan.missing, []);
-    assert.equal(plan.stages.filter(s => s === 'singing_voice').length, 1);
+    assert.equal(plan.stages.filter(s => s === 'voice_profile').length, 1);
+    assert.equal(plan.stages.filter(s => s === 'voice_conversion').length, 1);
     assert.equal(plan.voice.providerId, 'mock-voice');
   });
 }
+
+test('high likeness requires separate clone/conversion operations, never legacy or conditioned capability', () => {
+  const r = requirement({ voiceIntent: 'own_voice_clone', voicePermissionConfirmed: true });
+  for (const voiceCapabilities of [[], [VoiceCapability.conditioned], [VoiceCapability.clone], [VoiceCapability.conversion]]) {
+    const voice = { providerId: 'incomplete', supportsVoiceMode: () => true,
+      capabilities: { ...new MockVoice().capabilities, voiceCapabilities },
+      async createVoiceProfile() {}, async convertVoice() {} };
+    assert.ok(planSongRoute(r, [candidate('music')], [{ provider: voice }]).missing.includes('singing_voice_unavailable'));
+  }
+});
+
+test('fidelity ranks before cost; quota metadata describes but never grants export entitlement', () => {
+  const voice = (id, fidelity) => ({ providerId: id, supportsVoiceMode: () => true,
+    capabilities: { ...new MockVoice().capabilities, identityFidelityClass: fidelity,
+      billingUnit: 'export_minute', estimatedCostClass: 'higher', exportQuotaLimited: true },
+    async createVoiceProfile() {}, async convertVoice() {} });
+  const high = voice('high', 'high_fidelity_identity'), approx = voice('approx', 'approximate_identity');
+  const plan = planSongRoute(requirement({ voiceIntent: 'own_voice_clone', voicePermissionConfirmed: true }),
+    [candidate('music')], [{ provider: approx, qualityRank: 100, costRank: 1 }, { provider: high, costRank: 10 }]);
+  assert.equal(plan.voice, high);
+  assert.deepEqual(plan.voiceMetadata, { operations: [VoiceCapability.clone, VoiceCapability.conversion],
+    billingUnit: 'export_minute', estimatedCostClass: 'higher', exportQuotaLimited: true,
+    conversionRequired: true, identityFidelityClass: 'high_fidelity_identity' });
+  assert.equal(voiceCapabilityMetadata(provider('unknown')).identityFidelityClass, 'unspecified');
+  assert.equal(planSongRoute(requirement(), [candidate('music')], [{ provider: high }]).voice, undefined);
+});
+
+test('real-person conditioning needs permission; fictional consistency does not', () => {
+  const music = [candidate('reference', { voiceCapabilities: [VoiceCapability.conditioned], referenceVoiceUsesRealPerson: true })];
+  const p = { voiceIntent: 'reusable_identity' };
+  assert.ok(planSongRoute(requirement(p), music).missing.includes('voice_permission_required'));
+  assert.deepEqual(planSongRoute(requirement({ ...p, voicePermissionConfirmed: true }), music).missing, []);
+});
+
+test('stem-only conversion fails preflight without matching vocal source; no renderer redesign', () => {
+  const voice = { supportsVoiceMode: () => true, capabilities: { ...new MockVoice().capabilities, conversionInput: 'vocal_stem' },
+    async createVoiceProfile() {}, async convertVoice() {} };
+  const r = requirement({ voiceIntent: 'own_voice_clone', voicePermissionConfirmed: true });
+  assert.ok(planSongRoute(r, [candidate('mix-only')], [{ provider: voice }]).missing.includes('singing_voice_unavailable'));
+  assert.deepEqual(planSongRoute(r, [candidate('stem-output', { vocalStemOutput: true })], [{ provider: voice }]).missing, []);
+});
 
 test('capability, language, availability and limits gate quality-first ordering', () => {
   const highQuality = { ...candidate('quality'), qualityRank: 3, costRank: 10 };

@@ -130,6 +130,38 @@ class _NoChatGeneration extends AIChatService {
 }
 
 void main() {
+  test(
+    'voice choices describe outcomes, not providers or cloning guarantees',
+    () {
+      expect(VoiceIntent.reusableIdentity.needsPermission, false);
+      expect(VoiceIntent.ownVoiceClone.needsPermission, true);
+      expect(VoiceIntent.customLockedVoice.needsPermission, true);
+      expect(VoiceIntent.ownVoiceClone.wireValue, 'own_voice_clone');
+      expect(
+        VoiceIntent.ownVoiceClone.label(false),
+        'Make the singing sound like my own voice',
+      );
+      expect(
+        VoiceIntent.ownVoiceClone.label(true),
+        'ကိုယ့်အသံနဲ့ တကယ်တူအောင် ဖန်တီးမည်',
+      );
+      for (final intent in VoiceIntent.values) {
+        for (final burmese in [false, true]) {
+          expect(
+            intent.label(burmese),
+            isNot(
+              matches(
+                RegExp(
+                  r'Suno|Kits|Eleven|TRUE_VOICE_CLONE|VOICE_CONVERSION|voice-conditioned|clone',
+                  caseSensitive: false,
+                ),
+              ),
+            ),
+          );
+        }
+      }
+    },
+  );
   TestWidgetsFlutterBinding.ensureInitialized();
   test(
     'commercial intent and final selection travel without client-granted rights',

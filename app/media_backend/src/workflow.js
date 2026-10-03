@@ -19,10 +19,29 @@ export class SongWorkflow {
       const plan = planSongRoute(requirement, this.musicCandidates, this.voiceCandidates);
       assertSongRouteReady(plan); // All missing capabilities fail before any paid stage.
       if (!project.provenance) initializeProvenance(project, {}); // Older queued jobs; do not infer historical rights.
+      const authorizationContext = (plan.voice ?? plan.music).rightsContext ?? {};
+      const voiceAuthorization = plan.permissionRequired ? {
+        subject: requirement.voiceIntent === 'own_voice_clone' ? 'own' : 'other',
+        declared: requirement.voicePermissionConfirmed,
+        // Server/operator evidence only; a client checkbox is not verified authorization.
+        verified: authorizationContext.voiceAuthorizationVerified === true &&
+          typeof authorizationContext.voiceAuthorizationEvidenceId === 'string' && authorizationContext.voiceAuthorizationEvidenceId.trim().length > 0,
+        evidenceRef: authorizationContext.voiceAuthorizationEvidenceId ?? null,
+      } : null;
+      project.provenance.voiceRoute = { capabilities: plan.voiceCapabilities, metadata: plan.voiceMetadata,
+        authorization: voiceAuthorization };
+      if (voiceAuthorization) recordContribution(project, { type: 'voice_direction', source: 'user',
+        description: voiceAuthorization.subject === 'own' ? 'Own-voice declaration' : 'Target-voice permission declaration' });
       const textRights = providerAssetRights(this.textProvider, { generationMode: 'ai_generation' });
       project.provenance.generationRightsReview = { songSpec: textRights.verification };
+      if (requirement.voiceIntent === 'reusable_identity') {
+        const review = providerAssetRights(plan.music, { generationMode: 'voice_conditioned_generation',
+          voiceMode: plan.permissionRequired ? 'third_party' : null, voiceAuthorization });
+        project.provenance.generationRightsReview.conditionedVoice = review.verification;
+        if (review.verification.status === 'blocked') throw new MediaFailure('voice_rights_incompatible', 'preflight', 409);
+      }
       if (plan.voice) {
-        const voiceReview = providerAssetRights(plan.voice, { generationMode: 'voice_conversion', voiceMode: requirement.voiceIntent });
+        const voiceReview = providerAssetRights(plan.voice, { generationMode: 'voice_conversion', voiceMode: requirement.voiceIntent, voiceAuthorization });
         project.provenance.generationRightsReview.voice = voiceReview.verification;
         if (voiceReview.verification.status === 'blocked') throw new MediaFailure('voice_rights_incompatible', 'preflight', 409);
       }
@@ -46,20 +65,34 @@ export class SongWorkflow {
       // Persist intent before calling the billable provider. Unknown outcomes stop,
       // rather than automatically issuing another charged request after restart.
       let audioRights = providerAssetRights(plan.music, {
-        generationMode: 'ai_generation', sourceAssetIds: [lyricsArtifact.id],
+        generationMode: requirement.voiceIntent === 'reusable_identity' ? 'voice_conditioned_generation' : 'ai_generation',
+        voiceMode: requirement.voiceIntent === 'reusable_identity' && plan.permissionRequired ? 'third_party' : null,
+        voiceAuthorization: plan.voice ? null : voiceAuthorization, sourceAssetIds: [lyricsArtifact.id],
         userSupplied: requirement.userFinalLyrics !== null });
       project.provenance.generationRightsReview.music = audioRights.verification;
       project.status = 'generating'; this.store.save(project);
       let song = await plan.music.generateSong(spec, project.artist, requirement);
       if (plan.voice) {
+        const vocalSource = plan.voice.capabilities.conversionInput === 'vocal_stem' ? song.vocalSource : song;
+        if (!vocalSource?.bytes?.length) throw new MediaFailure('vocal_source_unavailable', 'voice_conversion', 409);
         const source = recordAsset(project, { id: randomUUID(), kind: 'audio',
           sha256: createHash('sha256').update(song.bytes).digest('hex') }, audioRights);
+        const conversionSource = vocalSource === song ? source : recordAsset(project, {
+          id: randomUUID(), kind: 'vocal_source', sha256: createHash('sha256').update(vocalSource.bytes).digest('hex'),
+        }, assetRights({ ...audioRights, sourceAssetIds: [source.id] }));
+        const profileRights = providerAssetRights(plan.voice, { generationMode: 'voice_model',
+          voiceMode: requirement.voiceIntent, voiceAuthorization });
+        project.provenance.generationRightsReview.voiceProfile = profileRights.verification;
+        this.store.save(project);
+        const voiceRequest = { ...requirement, artist: project.artist };
+        const profile = await plan.voice.createVoiceProfile(voiceRequest);
+        const profileRecord = recordAsset(project, { id: randomUUID(), kind: 'voice_profile' }, profileRights);
         audioRights = providerAssetRights(plan.voice, {
-          generationMode: 'voice_conversion', sourceAssetIds: [source.id],
+          generationMode: 'voice_conversion', sourceAssetIds: [conversionSource.id, profileRecord.id], voiceAuthorization,
           userSupplied: true, permissionsDeclared: requirement.voicePermissionConfirmed, voiceMode: requirement.voiceIntent });
         project.provenance.generationRightsReview.voice = audioRights.verification;
         this.store.save(project); // Retain generation evidence before an optional paid voice stage.
-        song = await plan.voice.convertOrClone(song, { ...requirement, artist: project.artist });
+        song = await plan.voice.convertVoice(vocalSource, profile, voiceRequest);
       }
       this.store.write(project, 'song.mp3', song.bytes);
       project.providerMetadata = song.metadata;

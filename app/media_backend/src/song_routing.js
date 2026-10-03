@@ -5,6 +5,22 @@ export const VoiceIntent = Object.freeze({
   ownVoiceClone: 'own_voice_clone', customLockedVoice: 'custom_locked_voice',
 });
 
+// Capabilities describe operations, not user intent or a likeness guarantee.
+export const VoiceCapability = Object.freeze({
+  generated: 'GENERATED_VOICE', conditioned: 'VOICE_CONDITIONED_GENERATION',
+  clone: 'TRUE_VOICE_CLONE', conversion: 'VOICE_CONVERSION',
+});
+const fidelityOrder = ['unspecified', 'character_consistency', 'approximate_identity', 'high_fidelity_identity'];
+export function voiceCapabilityMetadata(provider) {
+  const c = provider.capabilities ?? {};
+  const operations = (c.voiceCapabilities ?? []).filter(v => Object.values(VoiceCapability).includes(v));
+  // Legacy reusable singer support means conditioning only, NEVER cloning.
+  if (c.reusableSingerIdentity === true && !operations.includes(VoiceCapability.conditioned)) operations.push(VoiceCapability.conditioned);
+  return { operations, billingUnit: c.billingUnit ?? 'unspecified', estimatedCostClass: c.estimatedCostClass ?? 'unspecified',
+    exportQuotaLimited: c.exportQuotaLimited === true, conversionRequired: operations.includes(VoiceCapability.conversion),
+    identityFidelityClass: fidelityOrder.includes(c.identityFidelityClass) ? c.identityFidelityClass : 'unspecified' };
+}
+
 // Persisted in the existing project JSON, not a new schema/table. Old jobs have
 // the same generated-voice / no-subtitle behavior they had before this contract.
 export function songPreferences(value = {}) {
@@ -46,21 +62,33 @@ export function planSongRoute(requirement, candidates, voiceCandidates = []) {
   const music = ranked(candidates).find(c => {
     const p = c.provider, caps = p.capabilities ?? {};
     return p.supportsLanguage(r.language) &&
-      (r.voiceIntent !== VoiceIntent.reusableIdentity || caps.reusableSingerIdentity === true) &&
+      (r.voiceIntent !== VoiceIntent.reusableIdentity || voiceCapabilityMetadata(p).operations.includes(VoiceCapability.conditioned)) &&
       (r.userFinalLyrics === null || caps.customLyrics === true) &&
       (caps.maxLyricsCharacters === undefined || (r.userFinalLyrics?.length ?? 0) <= caps.maxLyricsCharacters);
   })?.provider;
-  const voice = requiresVoice ? ranked(voiceCandidates).find(c =>
-    c.provider.supportsVoiceMode(r.voiceIntent) &&
-    c.provider.capabilities.languages.includes(r.language))?.provider : undefined;
+  const voices = requiresVoice ? ranked(voiceCandidates).filter(c => {
+    const p = c.provider, caps = p.capabilities ?? {}, ops = voiceCapabilityMetadata(p).operations;
+    return ops.includes(VoiceCapability.clone) && ops.includes(VoiceCapability.conversion) &&
+      typeof p.createVoiceProfile === 'function' && typeof p.convertVoice === 'function' &&
+      p.supportsVoiceMode(r.voiceIntent) && caps.languages?.includes(r.language) &&
+      caps.returnsFinalMix === true && (caps.conversionInput === 'complete_song' ||
+        (caps.conversionInput === 'vocal_stem' && music?.capabilities?.vocalStemOutput === true));
+  }).sort((a, b) => fidelityOrder.indexOf(voiceCapabilityMetadata(b.provider).identityFidelityClass) -
+    fidelityOrder.indexOf(voiceCapabilityMetadata(a.provider).identityFidelityClass)) : [];
+  const voice = requiresVoice ? voices[0]?.provider : undefined;
+  const conditioned = r.voiceIntent === VoiceIntent.reusableIdentity;
+  const permissionRequired = requiresVoice || (conditioned && music?.capabilities?.referenceVoiceUsesRealPerson !== false);
   const missing = [];
   if (!music) missing.push(r.voiceIntent === VoiceIntent.reusableIdentity ? 'reusable_voice_unavailable' : 'song_route_unavailable');
-  if (requiresVoice && !r.voicePermissionConfirmed) missing.push('voice_permission_required');
+  if (permissionRequired && !r.voicePermissionConfirmed) missing.push('voice_permission_required');
   if (requiresVoice && !voice) missing.push('singing_voice_unavailable');
   // Alignment/burn-in is deliberately not implemented in this foundation.
   if (r.subtitles === 'requested') missing.push('subtitles_unavailable');
-  return { requirement: r, music, voice, missing,
-    stages: ['song_spec', 'song_generation', ...(requiresVoice ? ['singing_voice'] : []),
+  return { requirement: r, music, voice, missing, permissionRequired,
+    voiceMetadata: voiceCapabilityMetadata(voice ?? music ?? {}),
+    voiceCapabilities: requiresVoice ? [VoiceCapability.clone, VoiceCapability.conversion] :
+      [conditioned ? VoiceCapability.conditioned : VoiceCapability.generated],
+    stages: ['song_spec', 'song_generation', ...(requiresVoice ? ['voice_profile', 'voice_conversion'] : []),
       ...(r.subtitles === 'requested' ? ['subtitle_alignment'] : []), 'media_render'] };
 }
 
@@ -72,7 +100,10 @@ export class SingingVoiceProvider {
   get providerId() { throw new Error('abstract'); }
   get capabilities() { throw new Error('abstract'); }
   supportsVoiceMode(mode) { return this.capabilities.voiceModes.includes(mode); }
-  async convertOrClone(_audio, _request) { throw new Error('abstract'); }
+  async createVoiceProfile(_request) { throw new Error('abstract'); }
+  // Consumes existing audio/stem and a separately created authorized profile;
+  // adapter owns any required stem isolation/mixing and returns final song audio.
+  async convertVoice(_audio, _profile, _request) { throw new Error('abstract'); }
 }
 
 // No ASR input: final lyrics stay authoritative in every language. Never trim,

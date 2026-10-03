@@ -29,6 +29,22 @@ function output(p, status = 'allowed', sourceAssetIds = []) {
   p.artifacts.push(a); selectVersions(p, [a.id]);
 }
 
+test('voice permission is separate from provider commercial terms; other identity needs evidence', () => {
+  for (const [authorization, ready] of [
+    [{ subject: 'own', declared: false }, false],
+    [{ subject: 'own', declared: true }, true],
+    [{ subject: 'other', declared: true, verified: false }, false],
+    [{ subject: 'other', declared: true, verified: true }, false],
+    [{ subject: 'other', declared: true, verified: true, evidenceRef: 'operator-reviewed-consent' }, true],
+  ]) {
+    const p = project(); output(p);
+    p.provenance.assets.find(a => a.id === 'output').rights.voiceAuthorization = authorization;
+    approveFinal(p, ['output']);
+    assert.equal(commercialReadiness(p).status === 'COMMERCIAL_READY', ready);
+    assert.doesNotMatch(JSON.stringify(publicProvenanceSummary(p)), /suno|operator-reviewed-consent|TRUE_VOICE_CLONE/);
+  }
+});
+
 test('user lyrics, AI revision, user edit and final selection remain distinct facts', () => {
   const p = project('  User final lyrics\nOriginal line  ');
   const original = structuredClone(p.provenance.lyricVersions[0]);

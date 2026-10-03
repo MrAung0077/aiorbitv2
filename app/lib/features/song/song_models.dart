@@ -1,5 +1,6 @@
 import '../chat/models/artifact.dart';
 
+// Persisted outcome keys stay stable; they are not provider capabilities.
 enum VoiceIntent {
   generated('generated'),
   reusableIdentity('reusable_identity'),
@@ -22,8 +23,8 @@ enum VoiceIntent {
           : 'Reuse the same singer across songs',
     ownVoiceClone =>
       burmese
-          ? 'ကိုယ့်အသံကို အခြေခံ၍ ဖန်တီးမည်'
-          : 'Use a clone of my own voice',
+          ? 'ကိုယ့်အသံနဲ့ တကယ်တူအောင် ဖန်တီးမည်'
+          : 'Make the singing sound like my own voice',
     customLockedVoice =>
       burmese
           ? 'အသုံးပြုခွင့်ရှိသော အသံတစ်သံကို သတ်မှတ်မည်'

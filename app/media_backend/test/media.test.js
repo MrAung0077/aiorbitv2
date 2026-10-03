@@ -182,18 +182,21 @@ for (const voiceIntent of ['generated', 'reusable_identity', 'own_voice_clone', 
     const preferences = { voiceIntent, context: 'album', style: 'slow rock', voicePermissionConfirmed: true,
       userFinalLyrics: '  Final user lyrics\nKeep them exactly  ' };
     const request = { ...input(), preferences }, project = store.create(owner, request);
-    let musicCalls = 0, voiceCalls = 0;
+    let musicCalls = 0, voiceCalls = 0, profileCalls = 0;
     const { workflow } = fakes(store, {
-      musicProvider: { providerId: 'mock-music', capabilities: { reusableSingerIdentity: true, customLyrics: true },
+      musicProvider: { providerId: 'mock-music', capabilities: { reusableSingerIdentity: true, referenceVoiceUsesRealPerson: false, customLyrics: true },
         supportsLanguage: () => true, async generateSong(value, artist, requirement) {
           musicCalls++; assert.equal(value.lyrics, preferences.userFinalLyrics); assert.equal(value.genre, preferences.style);
           assert.equal(requirement.voiceIntent, voiceIntent); assert.equal(requirement.context, 'album');
           assert.equal(artist.artistName, 'Ari');
           return { bytes: Buffer.alloc(256, 1), metadata: { provider: 'mock-music' } };
         } },
-      voiceCandidates: [{ provider: { providerId: 'mock-voice', capabilities: { languages: ['en', 'my'] },
+      voiceCandidates: [{ provider: { providerId: 'mock-voice', capabilities: { languages: ['en', 'my'],
+        voiceCapabilities: ['TRUE_VOICE_CLONE', 'VOICE_CONVERSION'], conversionInput: 'complete_song', returnsFinalMix: true },
         supportsVoiceMode: mode => ['own_voice_clone', 'custom_locked_voice'].includes(mode),
-        async convertOrClone(audio, requirement) {
+        async createVoiceProfile(requirement) { profileCalls++; assert.equal(requirement.voicePermissionConfirmed, true); return { id: 'synthetic-profile' }; },
+        async convertVoice(audio, profile, requirement) {
+          assert.equal(profile.id, 'synthetic-profile'); assert.deepEqual(audio.bytes, Buffer.alloc(256, 1));
           voiceCalls++; assert.equal(requirement.voiceIntent, voiceIntent); assert.equal(requirement.artist.artistName, 'Ari');
           return audio;
         } } }],
@@ -201,6 +204,13 @@ for (const voiceIntent of ['generated', 'reusable_identity', 'own_voice_clone', 
     await workflow.run(project); await workflow.run(project);
     assert.equal(project.status, 'completed'); assert.equal(musicCalls, 1);
     assert.equal(voiceCalls, ['own_voice_clone', 'custom_locked_voice'].includes(voiceIntent) ? 1 : 0);
+    assert.equal(profileCalls, voiceCalls);
+    if (voiceCalls) {
+      assert.equal(project.manifest.voiceRoute.authorization.declared, true);
+      assert.equal(project.manifest.voiceRoute.authorization.subject, voiceIntent === 'own_voice_clone' ? 'own' : 'other');
+      assert.equal(project.manifest.voiceRoute.authorization.verified, false);
+      assert.ok(project.manifest.assets.some(a => a.kind === 'voice_profile'));
+    }
     assert.equal(project.lyrics, preferences.userFinalLyrics);
     assert.equal(store.create(owner, request).projectId, project.projectId);
     assert.throws(() => store.create(owner, { ...request, preferences: { ...preferences, subtitles: 'requested' } }), /idempotency_conflict/);
@@ -208,6 +218,31 @@ for (const voiceIntent of ['generated', 'reusable_identity', 'own_voice_clone', 
     assert.equal(reopened.get(owner, project.projectId).preferences.voiceIntent, voiceIntent); reopened.close();
   });
 }
+
+for (const hasStem of [true, false]) test(`conversion consumes generated vocal stem, missing source fails closed: ${hasStem}`, async t => {
+  const store = fixture(t), project = store.create(owner, { ...input(),
+    preferences: { voiceIntent: 'own_voice_clone', voicePermissionConfirmed: true } });
+  const stem = { bytes: Buffer.alloc(128, 7), mimeType: 'audio/wav' };
+  let profiles = 0, conversions = 0;
+  const { workflow } = fakes(store, {
+    musicProvider: { providerId: 'mock-music', supportsLanguage: () => true,
+      capabilities: { vocalStemOutput: true }, async generateSong() {
+        return { bytes: Buffer.alloc(256, 1), ...(hasStem ? { vocalSource: stem } : {}) };
+      } },
+    voiceCandidates: [{ provider: { providerId: 'mock-voice', supportsVoiceMode: () => true,
+      capabilities: { languages: ['en'], voiceCapabilities: ['TRUE_VOICE_CLONE', 'VOICE_CONVERSION'],
+        conversionInput: 'vocal_stem', returnsFinalMix: true },
+      async createVoiceProfile() { profiles++; return 'synthetic-profile'; },
+      async convertVoice(audio, profile) { conversions++; assert.equal(audio, stem); assert.equal(profile, 'synthetic-profile');
+        return { bytes: Buffer.alloc(256, 2) }; },
+    } }],
+  });
+  await workflow.run(project);
+  assert.equal(profiles, hasStem ? 1 : 0); assert.equal(conversions, hasStem ? 1 : 0);
+  assert.equal(project.status, hasStem ? 'completed' : 'failed');
+  if (hasStem) assert.ok(project.manifest.assets.some(a => a.kind === 'vocal_source' && a.sha256?.length === 64));
+  if (!hasStem) assert.equal(project.failure.code, 'vocal_source_unavailable');
+});
 
 test('old persisted projects without preferences retain original defaults and idempotency', t => {
   const store = fixture(t), request = input(), project = store.create(owner, request);
@@ -245,10 +280,12 @@ for (const voiceIntent of ['own_voice_clone', 'custom_locked_voice']) {
     const store = fixture(t), project = store.create(owner, { ...input(), commercialUseRequested: true,
       preferences: { voiceIntent, voicePermissionConfirmed: true } });
     let voiceCalls = 0;
-    const voice = { providerId: 'suno', capabilities: { languages: ['en'] }, supportsVoiceMode: () => true,
+    const voice = { providerId: 'suno', capabilities: { languages: ['en'],
+      voiceCapabilities: ['TRUE_VOICE_CLONE', 'VOICE_CONVERSION'], conversionInput: 'complete_song', returnsFinalMix: true }, supportsVoiceMode: () => true,
       rightsContext: { product: 'music_service', plan: 'pro', generationMode: 'voice_model_output',
         subscribedAtGeneration: true, downloadedThroughApprovedChannel: true },
-      async convertOrClone(audio) { voiceCalls++; return audio; } };
+      async createVoiceProfile() { return { id: 'synthetic-profile' }; },
+      async convertVoice(audio) { voiceCalls++; return audio; } };
     const { workflow, calls } = fakes(store, { voiceCandidates: [{ provider: voice }] });
     await workflow.run(project);
     if (voiceIntent === 'custom_locked_voice') {
