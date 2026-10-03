@@ -1,4 +1,5 @@
 import { MediaFailure, requireValue } from './contracts.js';
+import { rankEvaluatedCandidates } from './provider_evaluation_registry.js';
 
 export const VoiceIntent = Object.freeze({
   generated: 'generated', reusableIdentity: 'reusable_identity',
@@ -56,24 +57,37 @@ function ranked(candidates) {
     (a.costRank ?? 0) - (b.costRank ?? 0));
 }
 
-export function planSongRoute(requirement, candidates, voiceCandidates = []) {
+export function planSongRoute(requirement, candidates, voiceCandidates = [], evidence = null) {
   const r = routingRequirement(requirement.language, requirement);
   const requiresVoice = [VoiceIntent.ownVoiceClone, VoiceIntent.customLockedVoice].includes(r.voiceIntent);
-  const music = ranked(candidates).find(c => {
+  // Opt-in trusted planning input only. No registry in a client request, and no
+  // observations can invent adapter operations or bypass existing voice gates.
+  const musicEvidence = evidence ? rankEvaluatedCandidates(candidates, {
+    ...evidence.musicRequest, language: r.language,
+    capability: r.userFinalLyrics !== null ? 'lyrics_conditioned_song_generation' : 'full_song_generation',
+    requiredVoiceCapabilities: r.voiceIntent === VoiceIntent.reusableIdentity ? [VoiceCapability.conditioned] : [],
+    permissionConfirmed: r.voicePermissionConfirmed,
+  }, evidence.registry) : null;
+  const music = (musicEvidence?.candidates ?? ranked(candidates)).find(c => {
     const p = c.provider, caps = p.capabilities ?? {};
     return p.supportsLanguage(r.language) &&
       (r.voiceIntent !== VoiceIntent.reusableIdentity || voiceCapabilityMetadata(p).operations.includes(VoiceCapability.conditioned)) &&
       (r.userFinalLyrics === null || caps.customLyrics === true) &&
       (caps.maxLyricsCharacters === undefined || (r.userFinalLyrics?.length ?? 0) <= caps.maxLyricsCharacters);
   })?.provider;
-  const voices = requiresVoice ? ranked(voiceCandidates).filter(c => {
+  const voiceEvidence = requiresVoice && evidence ? rankEvaluatedCandidates(voiceCandidates, {
+    ...evidence.voiceRequest, language: r.language, capability: 'singing_voice_conversion',
+    requiredVoiceCapabilities: [VoiceCapability.clone, VoiceCapability.conversion],
+    desiredIdentityFidelity: 'high_fidelity_identity', permissionConfirmed: r.voicePermissionConfirmed, voiceMode: r.voiceIntent,
+  }, evidence.registry) : null;
+  const voices = requiresVoice ? (voiceEvidence?.candidates ?? ranked(voiceCandidates)).filter(c => {
     const p = c.provider, caps = p.capabilities ?? {}, ops = voiceCapabilityMetadata(p).operations;
     return ops.includes(VoiceCapability.clone) && ops.includes(VoiceCapability.conversion) &&
       typeof p.createVoiceProfile === 'function' && typeof p.convertVoice === 'function' &&
       p.supportsVoiceMode(r.voiceIntent) && caps.languages?.includes(r.language) &&
       caps.returnsFinalMix === true && (caps.conversionInput === 'complete_song' ||
         (caps.conversionInput === 'vocal_stem' && music?.capabilities?.vocalStemOutput === true));
-  }).sort((a, b) => fidelityOrder.indexOf(voiceCapabilityMetadata(b.provider).identityFidelityClass) -
+  }).sort((a, b) => voiceEvidence ? 0 : fidelityOrder.indexOf(voiceCapabilityMetadata(b.provider).identityFidelityClass) -
     fidelityOrder.indexOf(voiceCapabilityMetadata(a.provider).identityFidelityClass)) : [];
   const voice = requiresVoice ? voices[0]?.provider : undefined;
   const conditioned = r.voiceIntent === VoiceIntent.reusableIdentity;
@@ -85,6 +99,8 @@ export function planSongRoute(requirement, candidates, voiceCandidates = []) {
   // Alignment/burn-in is deliberately not implemented in this foundation.
   if (r.subtitles === 'requested') missing.push('subtitles_unavailable');
   return { requirement: r, music, voice, missing, permissionRequired,
+    evaluationDecision: evidence ? { music: musicEvidence?.decisions ?? [], voice: voiceEvidence?.decisions ?? [],
+      selectedMusicId: music?.providerId ?? null, selectedVoiceId: voice?.providerId ?? null } : null,
     voiceMetadata: voiceCapabilityMetadata(voice ?? music ?? {}),
     voiceCapabilities: requiresVoice ? [VoiceCapability.clone, VoiceCapability.conversion] :
       [conditioned ? VoiceCapability.conditioned : VoiceCapability.generated],

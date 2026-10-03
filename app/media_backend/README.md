@@ -80,6 +80,57 @@ The workflow records a rights review before each paid stage and snapshots the re
 
 Initial `reviewAfter` is **2026-11-02 UTC**, a 30-day Ovexiq review policy, not legal expiry of acquired rights. New resolutions after that boundary require review. Current-readiness checks detect missing, changed, inactive, stale or incompatible evidence while leaving asset records and the historical manifest unchanged. Registry updates require manual official-source review and a new dated rule/version; there is no runtime fetch or automatic update. Adding evidence later must be an explicit review action, not a silent historical rewrite. An operator entitlement/approved-download evidence workflow is still needed before real outputs can qualify.
 
+## Provider capability and evaluation registry (operator-only)
+
+`src/provider_evaluation_registry.js` keeps capability profiles separate from dated observations. There are **no prefilled real-provider profiles/ratings** and no network discovery. Supporting a language or voice operation does not establish good pronunciation or likeness. Unknown fields use `null`/`unknown`, not an inferred capability, price or unlimited quota.
+
+Use `tools/provider-registry.js` with a private operator-owned directory outside Git/project artifact storage. Protect it with OS permissions; never put credentials, private prompts/audio, signed URLs or passwords in records. Strict schemas reject extra fields and common credential patterns; the command never echoes records. This is defense in depth, not a guarantee that arbitrary notes are secret-free. Storage is append-only UTF-8 JSONL with unique IDs and a single-writer lock. `readProviderRegistry(directory)` loads validated profiles/evaluations for trusted callers. No endpoint/admin UI is added.
+
+```powershell
+# From app/media_backend; variables refer to operator-owned paths, not secrets.
+node tools/provider-registry.js $registryDirectory profile $profileJsonPath
+node tools/provider-registry.js $registryDirectory evaluation $evaluationJsonPath
+```
+
+**Synthetic schema examples only**, not provider evidence. Replace with actual independently verified facts/observations before recording; sample IDs reference separately retained safe evidence:
+
+```json
+{
+  "profileId": "example-profile-1", "providerId": "example-provider",
+  "capability": "full_song_generation", "supportedLanguages": null,
+  "voiceCapabilities": null, "inputTypes": null, "outputTypes": null,
+  "maxDuration": null, "billingUnit": null, "quotaLimited": null,
+  "commercialRightsRuleIds": [], "apiAvailability": "unknown",
+  "verifiedAt": "2026-10-03T00:00:00Z",
+  "evidenceSource": {"type": "operator_verified", "reference": "replace-with-evidence-reference"},
+  "active": false
+}
+```
+
+```json
+{
+  "evaluationId": "example-evaluation-1", "providerId": "example-provider",
+  "capability": "full_song_generation", "testedAt": "2026-10-03T00:00:00Z",
+  "language": "my", "style": null, "sourceType": "manual_test",
+  "quality": "unknown", "identityLikeness": "unknown", "pronunciation": "unknown",
+  "artifacts": "unknown", "latencyMs": null, "workflowFriction": "unknown",
+  "quotaCostObservation": {"quotaType": null, "quotaRemaining": null, "quotaWindow": null,
+    "billingUnit": null, "observedEffectiveCost": null, "costEvidenceDate": null},
+  "sampleReferenceIds": [], "operatorNotes": "Replace with factual test notes only.",
+  "confidence": "single_test", "repeatCount": 1, "active": false
+}
+```
+
+Quality uses unknown/poor/acceptable/good/excellent; likeness uses not_applicable/unknown/weak/moderate/strong; pronunciation uses unknown/problematic/mixed/good; friction uses unknown/low/medium/high. Confidence is single_test/repeated_observation/well_established; repeated labels require more than one test. Observed costs use `{amount,currency}` plus cost evidence date and billing unit, not a current quote. No numeric quality scores are accepted.
+
+For a provider/capability, the newest dated profile controls availability; inactive/ambiguous profiles fail closed. A newer inactive evaluation retires earlier matching provider/capability/language/style observations without deleting them. Ranking chooses higher-confidence task-matching evidence before recency, then compares quality/pronunciation (identity likeness first for high-likeness tasks). Confidence/reliability and finally cost break ties. No global winner exists. Operators must review dates and retire obsolete observations; automatic freshness checks are not implemented.
+
+`planSongRoute(requirement, candidates, voiceCandidates, evidence)` optionally accepts `{registry,musicRequest,voiceRequest}`. The registry combines loaded records with trusted current `constraints` keyed by provider. Requests provide approved stage budget `{amount,currency}`, commercial requirement, desired fidelity, optional duration/style and real-voice context. The planner supplies actual language, task capability and permission declaration; adapter gates still run. Existing APIs do not accept these internal evidence/budget fields from clients.
+
+Constraints require available status, finite `quotaRemaining`, positive `requiredUnits`, matching `billingUnit`, future `validUntil`, bounded `estimatedCost` and currency. Reliability may be unknown/unreliable/mixed/reliable. Unknown/exhausted/expired quota or unapproved cost excludes a route; historical export-minute observations never authorize new usage. Profile rights-rule IDs do not grant rights: commercial requests use the existing resolver; real-person requests retain permission/evidence gates.
+
+Internal decisions retain copied evidence, IDs, requirements, reasons, cost/quota bounds and rights verification. Ordinary UX receives only a fixed neutral availability code, never provider names/notes. This optional path is **not wired into live execution**: current quotas/providers/spend authority are unchanged. Before enabling it, trusted orchestration must supply current bounds, reserve combined multi-stage spend/quota, persist the selected decision, and validate entitlements. Existing routing is unchanged when no evidence context is supplied.
+
 ## Server rendering and artifacts
 
 Four supplied artist stills, slow zoom/crop and short crossfades. Full-song MP4 is 16:9, 1920x1080 when every image's smaller dimension is at least 1080, otherwise 1280x720. Portrait teaser is 1080x1920 or 720x1280, 30 seconds. H.264/yuv420p + AAC stereo 44.1 kHz, faststart, fade out. FFprobe plus full decode validates duration/codecs/dimensions; missing FFmpeg fails preflight before paid work.
