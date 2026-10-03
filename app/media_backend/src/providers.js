@@ -34,15 +34,18 @@ export class SongSpecProvider {
   constructor({ apiKey, fetcher = fetch, model = 'openai/gpt-6-astra' }) {
     this.#key = apiKey; this.fetcher = fetcher; this.model = model;
   }
-  async create(goal, language, artist) {
+  async create(goal, language, artist, preferences = {}) {
     const result = await callJson(this.fetcher, 'https://openrouter.ai/api/v1/chat/completions', this.#key, {
       model: this.model, max_tokens: 4096,
-      messages: [{ role: 'system', content: songSpecInstruction(language, artist) }, { role: 'user', content: goal }],
+      messages: [{ role: 'system', content: songSpecInstruction(language, artist) +
+        (preferences.userFinalLyrics != null ? '\nThe user supplied final lyrics. Preserve them verbatim; do not rewrite them. Supply the other specification fields around them.' : '') },
+        { role: 'user', content: preferences.userFinalLyrics != null || preferences.style
+          ? JSON.stringify({ goal, style: preferences.style, finalLyrics: preferences.userFinalLyrics }) : goal }],
       response_format: { type: 'json_object' },
     }, 'song_spec', 128 * 1024, 180000);
     try {
       if (result.choices?.[0]?.finish_reason !== 'stop') throw new Error();
-      return validateSpec(JSON.parse(result.choices[0].message.content), language);
+      return validateSpec(JSON.parse(result.choices[0].message.content), language, preferences.userFinalLyrics ?? null);
     } catch (error) {
       if (error instanceof MediaFailure) throw error;
       throw new MediaFailure('invalid_song_spec', 'song_spec');

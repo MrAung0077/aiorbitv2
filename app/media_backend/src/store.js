@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { MediaFailure, defaultArtist, requireValue } from './contracts.js';
+import { songPreferences } from './song_routing.js';
 
 export class MediaStore {
   constructor(root) {
@@ -30,6 +31,7 @@ export class MediaStore {
   get(owner, id) { const row = this.db.prepare('SELECT payload FROM projects WHERE id=? AND owner=?').get(id, owner); return row ? JSON.parse(row.payload) : null; }
   save(project) { this.db.prepare('UPDATE projects SET payload=? WHERE id=? AND owner=?').run(JSON.stringify(project), project.projectId, project.owner); }
   create(owner, input) {
+    const preferences = songPreferences(input.preferences);
     requireValue(typeof input.requestId === 'string' && /^[a-f0-9-]{36}$/.test(input.requestId));
     requireValue(['en', 'my'].includes(input.language));
     requireValue(typeof input.goal === 'string' && input.goal.trim().length >= 8 && input.goal.length <= 4000);
@@ -37,6 +39,7 @@ export class MediaStore {
     if (duplicate) {
       const project = JSON.parse(duplicate.payload);
       requireValue(project.goal === input.goal.trim() && project.language === input.language, 'idempotency_conflict');
+      requireValue(JSON.stringify(songPreferences(project.preferences)) === JSON.stringify(preferences), 'idempotency_conflict');
       return project;
     }
     // Separate personal-media admission guard; existing Chat quotas are untouched.
@@ -47,7 +50,7 @@ export class MediaStore {
     const artist = this.artist(owner);
     requireValue(artist.visualReferenceIds.length === 4, 'four_artist_visuals_required');
     const project = { projectId: randomUUID(), owner, requestId: input.requestId, goal: input.goal.trim(), language: input.language,
-      artist, title: '', genre: '', mood: '', tempoDirection: '', theme: '', lyrics: '', musicPrompt: '',
+      artist, preferences, title: '', genre: '', mood: '', tempoDirection: '', theme: '', lyrics: '', musicPrompt: '',
       audioArtifact: null, videoArtifacts: [], artifacts: [], status: 'queued', createdAt: new Date().toISOString(), failure: null };
     this.db.prepare('INSERT INTO projects VALUES (?,?,?,?)').run(project.projectId, owner, input.requestId, JSON.stringify(project));
     return project;

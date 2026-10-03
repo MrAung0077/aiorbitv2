@@ -1,5 +1,88 @@
 import '../chat/models/artifact.dart';
 
+enum VoiceIntent {
+  generated('generated'),
+  reusableIdentity('reusable_identity'),
+  ownVoiceClone('own_voice_clone'),
+  customLockedVoice('custom_locked_voice');
+
+  const VoiceIntent(this.wireValue);
+  final String wireValue;
+  bool get needsPermission =>
+      this == ownVoiceClone || this == customLockedVoice;
+
+  String label(bool burmese) => switch (this) {
+    generated =>
+      burmese
+          ? 'ဖန်တီးပေးသော အဆိုသံကို သုံးမည်'
+          : 'Use the generated singing voice',
+    reusableIdentity =>
+      burmese
+          ? 'သီချင်းများတွင် အဆိုတော်အသံတစ်သံတည်း ပြန်သုံးမည်'
+          : 'Reuse the same singer across songs',
+    ownVoiceClone =>
+      burmese
+          ? 'ကိုယ့်အသံကို အခြေခံ၍ ဖန်တီးမည်'
+          : 'Use a clone of my own voice',
+    customLockedVoice =>
+      burmese
+          ? 'အသုံးပြုခွင့်ရှိသော အသံတစ်သံကို သတ်မှတ်မည်'
+          : 'Use a specific voice I have permission to use',
+  };
+}
+
+enum SubtitlePreference { off, requested }
+
+enum SongContext {
+  singleSong('single_song'),
+  reusableArtist('reusable_artist'),
+  album('album');
+
+  const SongContext(this.wireValue);
+  final String wireValue;
+}
+
+class SongPreferences {
+  const SongPreferences({
+    this.voiceIntent = VoiceIntent.generated,
+    this.subtitles = SubtitlePreference.off,
+    this.context = SongContext.singleSong,
+    this.style = '',
+    this.userFinalLyrics,
+    this.voicePermissionConfirmed = false,
+  });
+  factory SongPreferences.fromJson(Map<String, dynamic> json) =>
+      SongPreferences(
+        voiceIntent: VoiceIntent.values.firstWhere(
+          (v) => v.wireValue == (json['voiceIntent'] ?? 'generated'),
+        ),
+        subtitles: SubtitlePreference.values.byName(
+          json['subtitles'] as String? ?? 'off',
+        ),
+        context: SongContext.values.firstWhere(
+          (v) => v.wireValue == (json['context'] ?? 'single_song'),
+        ),
+        style: json['style'] as String? ?? '',
+        userFinalLyrics: json['userFinalLyrics'] as String?,
+        voicePermissionConfirmed:
+            json['voicePermissionConfirmed'] as bool? ?? false,
+      );
+  final VoiceIntent voiceIntent;
+  final SubtitlePreference subtitles;
+  final SongContext context;
+  final String style;
+  final String? userFinalLyrics;
+  final bool voicePermissionConfirmed;
+  Map<String, Object?> toJson() => {
+    'voiceIntent': voiceIntent.wireValue,
+    'subtitles': subtitles.name,
+    'context': context.wireValue,
+    'style': style.trim(),
+    'userFinalLyrics': userFinalLyrics,
+    'voicePermissionConfirmed': voicePermissionConfirmed,
+  };
+}
+
 class SongArtifact {
   SongArtifact.fromJson(Map<String, dynamic> json)
     : id = json['id'] as String,
@@ -37,6 +120,10 @@ class SongProject {
       language = json['language'] as String,
       status = json['status'] as String,
       lyrics = json['lyrics'] as String,
+      preferences = SongPreferences.fromJson(
+        Map<String, dynamic>.from(json['preferences'] as Map? ?? {}),
+      ),
+      failureCode = (json['failure'] as Map?)?['code'] as String?,
       createdAt = DateTime.parse(json['createdAt'] as String),
       artifacts = (json['artifacts'] as List)
           .map(
@@ -66,6 +153,8 @@ class SongProject {
     }
   }
   final String projectId, title, language, status, lyrics;
+  final SongPreferences preferences;
+  final String? failureCode;
   final DateTime createdAt;
   final List<SongArtifact> artifacts;
   bool get isActive =>

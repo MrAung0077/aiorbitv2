@@ -133,12 +133,14 @@ class SongApi {
   Future<SongProject> create(
     String goal,
     String language,
-    String requestId,
-  ) async => SongProject.fromJson(
+    String requestId, {
+    SongPreferences? preferences,
+  }) async => SongProject.fromJson(
     await request('POST', 'projects', {
       'goal': goal,
       'language': language,
       'requestId': requestId,
+      if (preferences != null) 'preferences': preferences.toJson(),
     }),
   );
 

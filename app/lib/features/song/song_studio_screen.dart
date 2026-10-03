@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -21,6 +22,11 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
     text: widget.initialGoal,
   );
   final _artistName = TextEditingController(text: 'Ari');
+  final _style = TextEditingController();
+  final _finalLyrics = TextEditingController();
+  VoiceIntent? _voiceIntent;
+  SongContext _songContext = SongContext.singleSong;
+  bool _subtitles = false, _voicePermission = false;
   late String _language =
       responseLanguageFor(widget.initialGoal) == ResponseLanguage.burmese
       ? 'my'
@@ -41,6 +47,8 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
     _poll?.cancel();
     _goal.dispose();
     _artistName.dispose();
+    _style.dispose();
+    _finalLyrics.dispose();
     super.dispose();
   }
 
@@ -123,6 +131,37 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
       return;
     }
     final goal = _goal.text.trim();
+    if (_voiceIntent == null) {
+      _notice(
+        tr(
+          'How would you like the singing voice?',
+          'အဆိုတော်အသံကို ဘယ်လိုထားချင်လဲ?',
+        ),
+      );
+      return;
+    }
+    if (_voiceIntent!.needsPermission && !_voicePermission) {
+      _notice(
+        tr(
+          'Please confirm permission to use this voice.',
+          'ဒီအသံကို အသုံးပြုခွင့်ရှိကြောင်း အတည်ပြုပေးပါ။',
+        ),
+      );
+      return;
+    }
+    final language = _language;
+    final preferences = SongPreferences(
+      voiceIntent: _voiceIntent!,
+      subtitles: _subtitles
+          ? SubtitlePreference.requested
+          : SubtitlePreference.off,
+      context: _songContext,
+      style: _style.text,
+      userFinalLyrics: _finalLyrics.text.trim().isEmpty
+          ? null
+          : _finalLyrics.text,
+      voicePermissionConfirmed: _voicePermission,
+    );
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -152,13 +191,15 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
     });
     // Retain the id across transport failures. Explicit retries cannot submit a
     // second paid job for the same in-screen request.
-    final fingerprint = '$_language:$goal';
+    final fingerprint = jsonEncode([language, goal, preferences.toJson()]);
     if (_pendingGoal != fingerprint) {
       _requestId = newSongRequestId();
       _pendingGoal = fingerprint;
     }
     try {
-      await ref.read(songApiProvider).create(goal, _language, _requestId!);
+      await ref
+          .read(songApiProvider)
+          .create(goal, language, _requestId!, preferences: preferences);
       await _load();
     } catch (_) {
       if (mounted) {
@@ -215,17 +256,33 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
     }
   }
 
-  String _status(SongProject p) => switch (p.status) {
-    'completed' => tr('Files ready', 'ဖိုင်များ အဆင်သင့်ဖြစ်ပါပြီ'),
-    'failed' || 'interrupted' => tr(
-      'Not completed — saved outputs below. No automatic retry.',
-      'မပြီးသေးပါ။ သိမ်းထားသော ရလဒ်များကို အောက်တွင် ကြည့်နိုင်ပါသည်။ အလိုအလျောက် ထပ်မလုပ်ပါ။',
-    ),
-    'queued' => tr('Waiting to start', 'စတင်ရန် စောင့်နေပါသည်'),
-    'specifying' => tr('Writing your song', 'သီချင်းရေးနေပါသည်'),
-    'generating' => tr('Creating song audio', 'သီချင်းအသံ ဖန်တီးနေပါသည်'),
-    _ => tr('Preparing videos', 'ဗီဒီယိုများ ပြင်ဆင်နေပါသည်'),
-  };
+  String _status(SongProject p) {
+    if (p.status == 'failed' &&
+        [
+          'reusable_voice_unavailable',
+          'singing_voice_unavailable',
+          'voice_permission_required',
+          'subtitles_unavailable',
+          'song_route_unavailable',
+        ].contains(p.failureCode)) {
+      return tr(
+        'This song needs a capability that is not available yet. Generation was not started; no automatic retry.',
+        'ဒီရွေးချယ်မှုအတွက် လိုအပ်သော လုပ်ဆောင်ချက် မရသေးပါ။ သီချင်းဖန်တီးခြင်း မစတင်ခဲ့ပါ။ အလိုအလျောက် ထပ်မလုပ်ပါ။',
+      );
+    }
+    return switch (p.status) {
+      'completed' => tr('Files ready', 'ဖိုင်များ အဆင်သင့်ဖြစ်ပါပြီ'),
+      'failed' || 'interrupted' => tr(
+        'Not completed — saved outputs below. No automatic retry.',
+        'မပြီးသေးပါ။ သိမ်းထားသော ရလဒ်များကို အောက်တွင် ကြည့်နိုင်ပါသည်။ အလိုအလျောက် ထပ်မလုပ်ပါ။',
+      ),
+      'queued' => tr('Waiting to start', 'စတင်ရန် စောင့်နေပါသည်'),
+      'specifying' => tr('Writing your song', 'သီချင်းရေးနေပါသည်'),
+      'generating' => tr('Creating song audio', 'သီချင်းအသံ ဖန်တီးနေပါသည်'),
+      _ => tr('Preparing videos', 'ဗီဒီယိုများ ပြင်ဆင်နေပါသည်'),
+    };
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -268,6 +325,118 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
           onChanged: _busy
               ? null
               : (value) => setState(() => _language = value!),
+        ),
+        Text(
+          tr(
+            'How would you like the singing voice?',
+            'အဆိုတော်အသံကို ဘယ်လိုထားချင်လဲ?',
+          ),
+        ),
+        DropdownButton<VoiceIntent>(
+          key: const Key('song-voice-intent'),
+          isExpanded: true,
+          value: _voiceIntent,
+          hint: Text(
+            tr('Choose the voice outcome', 'လိုချင်သော အဆိုသံကို ရွေးပါ'),
+          ),
+          items: [
+            for (final v in VoiceIntent.values)
+              DropdownMenuItem(
+                value: v,
+                child: Text(v.label(_language == 'my'), maxLines: 2),
+              ),
+          ],
+          onChanged: _busy
+              ? null
+              : (v) => setState(() {
+                  _voiceIntent = v;
+                  _voicePermission = false;
+                }),
+        ),
+        if (_voiceIntent?.needsPermission ?? false)
+          CheckboxListTile(
+            value: _voicePermission,
+            contentPadding: EdgeInsets.zero,
+            onChanged: _busy
+                ? null
+                : (v) => setState(() => _voicePermission = v ?? false),
+            title: Text(
+              tr(
+                'This is my voice, or I have permission to use it.',
+                'ကိုယ့်အသံဖြစ်သည် သို့မဟုတ် အသုံးပြုခွင့် ရှိပါသည်။',
+              ),
+            ),
+          ),
+        DropdownButton<SongContext>(
+          key: const Key('song-context'),
+          value: _songContext,
+          items: [
+            DropdownMenuItem(
+              value: SongContext.singleSong,
+              child: Text(tr('Single song', 'သီချင်းတစ်ပုဒ်')),
+            ),
+            DropdownMenuItem(
+              value: SongContext.reusableArtist,
+              child: Text(tr('Reusable artist', 'အဆိုတော်တစ်ဦး၏ သီချင်းများ')),
+            ),
+            DropdownMenuItem(
+              value: SongContext.album,
+              child: Text(tr('Album context', 'အယ်လ်ဘမ်အတွက် သီချင်း')),
+            ),
+          ],
+          onChanged: _busy ? null : (v) => setState(() => _songContext = v!),
+        ),
+        SwitchListTile(
+          key: const Key('song-subtitles'),
+          value: _subtitles,
+          contentPadding: EdgeInsets.zero,
+          onChanged: _busy ? null : (v) => setState(() => _subtitles = v),
+          title: Text(
+            tr(
+              'Request lyric subtitles',
+              'သီချင်းစာသားကို ဗီဒီယိုတွင် ထည့်ရန်',
+            ),
+          ),
+          subtitle: Text(
+            tr(
+              'Off by default. Requires supported lyric timing.',
+              'မူလအတိုင်းဆိုလျှင် မထည့်ပါ။ စာသားနှင့် အသံအချိန်ညှိနိုင်သော လုပ်ဆောင်ချက် လိုအပ်ပါသည်။',
+            ),
+          ),
+        ),
+        ExpansionTile(
+          title: Text(
+            tr(
+              'Style / final lyrics (optional)',
+              'သီချင်းပုံစံ / အတည်ပြုထားသော စာသား (ရှိလျှင်)',
+            ),
+          ),
+          children: [
+            TextField(
+              controller: _style,
+              enabled: !_busy,
+              maxLength: 300,
+              decoration: InputDecoration(
+                labelText: tr(
+                  'Genre or style',
+                  'သီချင်းအမျိုးအစား သို့မဟုတ် ပုံစံ',
+                ),
+              ),
+            ),
+            TextField(
+              controller: _finalLyrics,
+              enabled: !_busy,
+              maxLength: 10000,
+              minLines: 2,
+              maxLines: 5,
+              decoration: InputDecoration(
+                labelText: tr(
+                  'Final lyrics — kept unchanged',
+                  'အတည်ပြုထားသော စာသား — မပြောင်းလဲဘဲ သုံးမည်',
+                ),
+              ),
+            ),
+          ],
         ),
         TextField(
           controller: _artistName,

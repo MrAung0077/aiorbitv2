@@ -103,6 +103,178 @@ class _NoChatGeneration extends AIChatService {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'song preferences default to generated voice and subtitles off; history preserves intent',
+    () {
+      final legacy = SongProject.fromJson(project());
+      expect(legacy.preferences.voiceIntent, VoiceIntent.generated);
+      expect(legacy.preferences.subtitles, SubtitlePreference.off);
+      for (final intent in VoiceIntent.values) {
+        final preferences = SongPreferences(
+          voiceIntent: intent,
+          subtitles: SubtitlePreference.requested,
+          context: SongContext.album,
+          style: 'slow rock',
+          userFinalLyrics: '  မနက်ခင်း အလင်းရောင်\nနေ့သစ်  ',
+          voicePermissionConfirmed: intent.needsPermission,
+        );
+        final reopened = SongProject.fromJson({
+          ...project(),
+          'preferences': preferences.toJson(),
+        });
+        expect(reopened.preferences.toJson(), preferences.toJson());
+        for (final burmese in [false, true]) {
+          expect(intent.label(burmese), isNot(equals(intent.wireValue)));
+          expect(
+            intent.label(burmese),
+            isNot(
+              matches(
+                RegExp(
+                  r'Suno|Kits|Lyria|ElevenLabs|Gemini|OpenRouter',
+                  caseSensitive: false,
+                ),
+              ),
+            ),
+          );
+        }
+      }
+    },
+  );
+  test(
+    'create sends selected preflight preferences with final lyrics unchanged',
+    () async {
+      const preferences = SongPreferences(
+        voiceIntent: VoiceIntent.customLockedVoice,
+        subtitles: SubtitlePreference.requested,
+        context: SongContext.reusableArtist,
+        style: 'soft rock',
+        userFinalLyrics: '  Final lyrics\nKeep this  ',
+        voicePermissionConfirmed: true,
+      );
+      var calls = 0;
+      final api = apiWith((request) async {
+        calls++;
+        expect(jsonDecode(request.body)['preferences'], preferences.toJson());
+        expect(request.headers['X-Ovexiq-Device-Session'], 'synthetic-session');
+        return http.Response(
+          jsonEncode({...project(), 'preferences': preferences.toJson()}),
+          202,
+        );
+      });
+      addTearDown(api.close);
+      final saved = await api.create(
+        'An original song',
+        'en',
+        projectId,
+        preferences: preferences,
+      );
+      expect(saved.preferences.toJson(), preferences.toJson());
+      expect(calls, 1);
+    },
+  );
+  for (final burmese in [false, true]) {
+    testWidgets(
+      'voice clarification is outcome-only, subtitles off, choices do not execute (${burmese ? 'my' : 'en'})',
+      (tester) async {
+        final api = _HistoryApi(project());
+        addTearDown(api.close);
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [songApiProvider.overrideWithValue(api)],
+            child: MaterialApp(
+              home: SongStudioScreen(
+                initialGoal: burmese
+                    ? 'မြန်မာလို သီချင်းဖန်တီးပေး'
+                    : 'Create a song',
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.text(
+            burmese
+                ? 'အဆိုတော်အသံကို ဘယ်လိုထားချင်လဲ?'
+                : 'How would you like the singing voice?',
+          ),
+          findsOneWidget,
+        );
+        final voices = tester.widget<DropdownButton<VoiceIntent>>(
+          find.byKey(const Key('song-voice-intent')),
+        );
+        expect(voices.items!.map((item) => item.value), VoiceIntent.values);
+        expect(
+          tester
+              .widget<SwitchListTile>(find.byKey(const Key('song-subtitles')))
+              .value,
+          isFalse,
+        );
+        voices.onChanged!(VoiceIntent.ownVoiceClone);
+        await tester.pumpAndSettle();
+        expect(
+          find.text(
+            burmese
+                ? 'ကိုယ့်အသံဖြစ်သည် သို့မဟုတ် အသုံးပြုခွင့် ရှိပါသည်။'
+                : 'This is my voice, or I have permission to use it.',
+          ),
+          findsOneWidget,
+        );
+        tester
+            .widget<SwitchListTile>(find.byKey(const Key('song-subtitles')))
+            .onChanged!(true);
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<SwitchListTile>(find.byKey(const Key('song-subtitles')))
+              .value,
+          isTrue,
+        );
+        tester
+            .widget<DropdownButton<VoiceIntent>>(
+              find.byKey(const Key('song-voice-intent')),
+            )
+            .onChanged!(VoiceIntent.generated);
+        await tester.pumpAndSettle();
+        expect(
+          find.text(
+            burmese
+                ? 'ကိုယ့်အသံဖြစ်သည် သို့မဟုတ် အသုံးပြုခွင့် ရှိပါသည်။'
+                : 'This is my voice, or I have permission to use it.',
+          ),
+          findsNothing,
+        );
+        expect(api.methods, ['GET', 'GET']);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
+  testWidgets('unavailable capability history is truthful and passive', (
+    tester,
+  ) async {
+    final api = _HistoryApi({
+      ...project(status: 'failed'),
+      'artifacts': [],
+      'failure': {'code': 'subtitles_unavailable', 'stage': 'preflight'},
+    });
+    addTearDown(api.close);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [songApiProvider.overrideWithValue(api)],
+        child: const MaterialApp(home: SongStudioScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.textContaining('Generation was not started'),
+      350,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.textContaining('Generation was not started'), findsOneWidget);
+    expect(find.text('Files ready'), findsNothing);
+    expect(api.methods, ['GET', 'GET']);
+    await tester.pumpWidget(const SizedBox());
+  });
   for (final home in [true, false]) {
     testWidgets(
       '${home ? 'Home' : 'Chat'} song goal opens preparation without text execution or duplicate bubbles',

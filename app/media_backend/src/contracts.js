@@ -22,20 +22,21 @@ export class MusicGenerationProvider {
   get providerId() { throw new Error('abstract'); }
   get capabilities() { throw new Error('abstract'); }
   supportsLanguage(language) { return this.capabilities.languages.includes(language); }
-  async generateSong(_spec, _artist) { throw new Error('abstract'); }
+  async generateSong(_spec, _artist, _requirement) { throw new Error('abstract'); }
 }
 
-export function validateSpec(value, language) {
+export function validateSpec(value, language, userFinalLyrics = null) {
   requireValue(value && typeof value === 'object', 'invalid_song_spec', 'song_spec');
   const fields = ['title', 'theme', 'genre', 'mood', 'tempoDirection', 'instrumentation', 'vocalCharacteristics', 'structure', 'lyrics'];
+  if (userFinalLyrics !== null) value = { ...value, lyrics: userFinalLyrics };
   for (const key of fields) {
     requireValue(typeof value[key] === 'string' && value[key].trim().length > 0 && value[key].length <= (key === 'lyrics' ? 10000 : 1500), 'invalid_song_spec', 'song_spec');
   }
-  requireValue(/\[Verse(?: 1)?\]/i.test(value.lyrics) && /\[Chorus\]/i.test(value.lyrics), 'invalid_song_structure', 'song_spec');
+  if (userFinalLyrics === null) requireValue(/\[Verse(?: 1)?\]/i.test(value.lyrics) && /\[Chorus\]/i.test(value.lyrics), 'invalid_song_structure', 'song_spec');
   requireValue(language !== 'my' || /[\u1000-\u109f]/.test(value.lyrics), 'invalid_lyric_language', 'song_spec');
   requireValue(Number.isFinite(value.chorusStartSeconds) && value.chorusStartSeconds >= 0 && value.chorusStartSeconds <= 180, 'invalid_chorus_time', 'song_spec');
   // Copy only approved fields; never persist arbitrary provider response objects.
-  return Object.fromEntries([...fields.map(key => [key, value[key].trim()]), ['language', language], ['chorusStartSeconds', value.chorusStartSeconds]]);
+  return Object.fromEntries([...fields.map(key => [key, key === 'lyrics' && userFinalLyrics !== null ? userFinalLyrics : value[key].trim()]), ['language', language], ['chorusStartSeconds', value.chorusStartSeconds]]);
 }
 
 export function musicPrompt(spec, artist) {

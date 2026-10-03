@@ -12,7 +12,7 @@ The media service needs **one replica, one process, an exclusive durable volume,
 
 ## Contracts and separation
 
-- `MusicGenerationProvider`: `generateSong(spec, artist)`, `supportsLanguage(language)`, `capabilities`, `providerId`.
+- `MusicGenerationProvider`: `generateSong(spec, artist, requirement)`, `supportsLanguage(language)`, `capabilities`, `providerId`.
 - First adapter: official Gemini `lyria-3.5:generateContent`, custom lyrics/style/language as documented text input, MP3 inline data. No unofficial API or scraping. Reference: https://ai.google.dev/gemini-api/docs/generate-content/music-generation
 - Song specification: one existing-model OpenRouter `openai/gpt-6-astra` request, JSON, maximum 4096 output tokens; separate English/Burmese lyric instructions. This new capability does not modify existing Chat model routing.
 - Stable fictional artist: name, ID, male vocal register/timbre/delivery/range, genre family, four owner-scoped visual IDs, supported request languages. Each project snapshots the profile. Voice direction is **not** a guaranteed cloned voice; actual consistency and Burmese singing require listening review. The provider interface permits a later audio transformation stage without changing client artifacts; voice conversion is not implemented.
@@ -28,7 +28,7 @@ All client requests use the existing beta token and opaque device-session header
 | `GET /v1/media/artist` | Saved reusable profile |
 | `POST /v1/media/visuals` | JSON `{mimeType,data}`; base64 JPEG/PNG, maximum 8 MiB; server validates/normalizes image |
 | `PUT /v1/media/artist` | `{artistName,visualReferenceIds}`; exactly four distinct owned images |
-| `POST /v1/media/projects` | `{requestId,goal,language}`; UUID idempotency key; `language` is `en` or `my`; returns persisted job, not a long-held generation request |
+| `POST /v1/media/projects` | `{requestId,goal,language,preferences?}`; UUID idempotency key; `language` is `en` or `my`; returns persisted job, not a long-held generation request |
 | `GET /v1/media/projects` | Newest 100 owned projects; never executes/retries |
 | `GET /v1/media/projects/{id}` | Status and artifacts |
 | `GET /v1/media/projects/{id}/artifacts/{artifactId}` | Private authenticated bytes; MIME, length, SHA-256; no external URL handoff |
@@ -36,6 +36,16 @@ All client requests use the existing beta token and opaque device-session header
 Same request ID and payload return the existing project. A changed payload with that ID fails. One active project per account; maximum two new projects/account/UTC day; one globally executing job in this service. Existing text/image/speech quotas and limits are unchanged. This is a separately operator-enabled personal capability, **not** access to paid media for every beta token holder.
 
 States: `queued -> specifying -> generating -> rendering -> completed`, or `failed`/`interrupted`. Persist the stage before a paid request. A restart marks in-flight jobs interrupted and does not replay a paid stage. Pending jobs can start; history reads cannot start new jobs. There are no automatic provider retries/fallbacks. An uncertain request outcome requires operator review before any new paid job; do not press Create again with a new id to try to recover it. Server failures preserve already validated outputs.
+
+### Song routing foundation
+
+`preferences` lives in the existing project JSON (no SQL migration): `voiceIntent` (`generated`, `reusable_identity`, `own_voice_clone`, `custom_locked_voice`), `subtitles` (`off` / `requested`), `context` (`single_song`, `reusable_artist`, `album`), optional `style` / `userFinalLyrics`, and `voicePermissionConfirmed`. Old jobs default to generated voice, single-song context and no subtitles. Preferences are part of idempotency matching. Clients choose outcomes, not providers.
+
+`song_routing.js` filters server-registered candidates by language, availability, voice capability and supplied lyric limits, then prefers operator-reviewed quality, reliability, latency and cost, in that order. No dynamic quality scoring or live capability discovery is claimed. Generated voices bypass conversion; reusable voices require explicit identity support, not merely a vocal direction prompt. Own/custom voices require permission and an injected `SingingVoiceProvider`. The original artist snapshot and routing requirement reach the selected adapter.
+
+No real voice-conversion adapter or subtitle alignment renderer is included. The current music adapter does **not** advertise reusable singer identity. These unavailable requests stop in preflight before paid stages, rather than silently degrading. Subtitles remain off for both videos. `subtitleWork` prepares an alignment requirement only when explicitly requested: user final lyrics, otherwise generated final lyrics, verbatim; ASR is never canonical text. Future alignment/voice adapters need their own bounded execution, consent/input validation and spend approval before enabling them.
+
+`songRecoveryDecision` is policy only, not an automatic retry executor. It can offer one capable alternate (or a manual retry) only for an allowlisted typed execution failure, explicit approval and a known unbilled outcome. Cancellation, aesthetic rejection, unknown billing and an exhausted attempt budget stop recovery. It never invokes a provider or changes the current no-replay behavior.
 
 ## Server rendering and artifacts
 

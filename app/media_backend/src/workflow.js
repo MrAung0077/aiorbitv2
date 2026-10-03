@@ -1,24 +1,34 @@
 import { join } from 'node:path';
 import { MediaFailure, musicPrompt } from './contracts.js';
+import { routingRequirement, planSongRoute, assertSongRouteReady } from './song_routing.js';
 
 export class SongWorkflow {
-  constructor({ store, textProvider, musicProvider, renderer }) { Object.assign(this, { store, textProvider, musicProvider, renderer }); }
+  constructor({ store, textProvider, musicProvider, renderer, musicCandidates, voiceCandidates = [] }) {
+    Object.assign(this, { store, textProvider, renderer, musicCandidates: musicCandidates ?? [{ provider: musicProvider }], voiceCandidates });
+  }
   async run(project) {
     if (project.status !== 'queued') return; // Never replay a paid/in-flight stage.
     try {
       await this.renderer.preflight();
       const visuals = project.artist.visualReferenceIds.map(id => this.store.visual(project.owner, id));
       if (visuals.length !== 4 || visuals.some(v => !v)) throw new MediaFailure('four_artist_visuals_required', 'preflight');
-      if (!this.musicProvider.supportsLanguage(project.language)) throw new MediaFailure('unsupported_language', 'preflight');
+      const requirement = routingRequirement(project.language, project.preferences);
+      const plan = planSongRoute(requirement, this.musicCandidates, this.voiceCandidates);
+      assertSongRouteReady(plan); // All missing capabilities fail before any paid stage.
       project.status = 'specifying'; this.store.save(project);
-      const spec = await this.textProvider.create(project.goal, project.language, project.artist);
+      const spec = await this.textProvider.create(project.goal, project.language, project.artist, requirement);
+      if (requirement.userFinalLyrics !== null) spec.lyrics = requirement.userFinalLyrics;
+      if (requirement.style) spec.genre = requirement.style;
       Object.assign(project, spec, { musicPrompt: musicPrompt(spec, project.artist) });
       this.store.write(project, 'lyrics.txt', `${spec.title}\n\n${spec.lyrics}\n`);
       this.store.artifact(project, 'lyrics.txt', 'text/plain');
       // Persist intent before calling the billable provider. Unknown outcomes stop,
       // rather than automatically issuing another charged request after restart.
       project.status = 'generating'; this.store.save(project);
-      const song = await this.musicProvider.generateSong(spec, project.artist);
+      let song = await plan.music.generateSong(spec, project.artist, requirement);
+      if (plan.voice) {
+        song = await plan.voice.convertOrClone(song, { ...requirement, artist: project.artist });
+      }
       this.store.write(project, 'song.mp3', song.bytes);
       project.providerMetadata = song.metadata;
       this.store.save(project);

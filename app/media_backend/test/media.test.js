@@ -144,6 +144,71 @@ test('song spec has separate lyric quality rules and no arbitrary response field
   assert.equal((await provider.create('synthetic goal', 'en', defaultArtist)).unexpected, undefined);
 });
 
+test('final user lyrics are kept verbatim even when generated specification rewrites them', async () => {
+  const lyrics = '  မနက်ခင်း အလင်းရောင်\nနေ့သစ်ကို ကြိုဆိုမယ်  ';
+  const provider = new SongSpecProvider({ apiKey: 'mock', fetcher: async (_url, init) => {
+    const request = JSON.parse(init.body);
+    assert.equal(JSON.parse(request.messages[1].content).finalLyrics, lyrics);
+    assert.match(request.messages[0].content, /Preserve them verbatim/);
+    return Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(spec('my')) } }] });
+  } });
+  const result = await provider.create('synthetic goal', 'my', defaultArtist, { userFinalLyrics: lyrics, style: 'slow rock' });
+  assert.equal(result.lyrics, lyrics);
+});
+
+for (const preferences of [
+  { voiceIntent: 'reusable_identity' },
+  { voiceIntent: 'own_voice_clone', voicePermissionConfirmed: true },
+  { voiceIntent: 'custom_locked_voice', voicePermissionConfirmed: true },
+  { subtitles: 'requested' },
+]) test(`unavailable ${JSON.stringify(preferences)} stops before any paid stage, without replay`, async t => {
+  const store = fixture(t), project = store.create(owner, { ...input(), preferences });
+  const { workflow, calls } = fakes(store);
+  await workflow.run(project); await workflow.run(project);
+  assert.equal(project.status, 'failed'); assert.equal(project.failure.stage, 'preflight');
+  assert.equal(calls.text, 0); assert.equal(calls.music, 0); assert.equal(calls.renders.length, 0);
+  assert.equal(project.artifacts.length, 0);
+});
+
+for (const voiceIntent of ['generated', 'reusable_identity', 'own_voice_clone', 'custom_locked_voice']) {
+  test(`mock ${voiceIntent} workflow passes full intent and invokes optional voice only as requested`, async t => {
+    const store = fixture(t);
+    const preferences = { voiceIntent, context: 'album', style: 'slow rock', voicePermissionConfirmed: true,
+      userFinalLyrics: '  Final user lyrics\nKeep them exactly  ' };
+    const request = { ...input(), preferences }, project = store.create(owner, request);
+    let musicCalls = 0, voiceCalls = 0;
+    const { workflow } = fakes(store, {
+      musicProvider: { providerId: 'mock-music', capabilities: { reusableSingerIdentity: true, customLyrics: true },
+        supportsLanguage: () => true, async generateSong(value, artist, requirement) {
+          musicCalls++; assert.equal(value.lyrics, preferences.userFinalLyrics); assert.equal(value.genre, preferences.style);
+          assert.equal(requirement.voiceIntent, voiceIntent); assert.equal(requirement.context, 'album');
+          assert.equal(artist.artistName, 'Ari');
+          return { bytes: Buffer.alloc(256, 1), metadata: { provider: 'mock-music' } };
+        } },
+      voiceCandidates: [{ provider: { providerId: 'mock-voice', capabilities: { languages: ['en', 'my'] },
+        supportsVoiceMode: mode => ['own_voice_clone', 'custom_locked_voice'].includes(mode),
+        async convertOrClone(audio, requirement) {
+          voiceCalls++; assert.equal(requirement.voiceIntent, voiceIntent); assert.equal(requirement.artist.artistName, 'Ari');
+          return audio;
+        } } }],
+    });
+    await workflow.run(project); await workflow.run(project);
+    assert.equal(project.status, 'completed'); assert.equal(musicCalls, 1);
+    assert.equal(voiceCalls, ['own_voice_clone', 'custom_locked_voice'].includes(voiceIntent) ? 1 : 0);
+    assert.equal(project.lyrics, preferences.userFinalLyrics);
+    assert.equal(store.create(owner, request).projectId, project.projectId);
+    assert.throws(() => store.create(owner, { ...request, preferences: { ...preferences, subtitles: 'requested' } }), /idempotency_conflict/);
+    const reopened = new MediaStore(store.root);
+    assert.equal(reopened.get(owner, project.projectId).preferences.voiceIntent, voiceIntent); reopened.close();
+  });
+}
+
+test('old persisted projects without preferences retain original defaults and idempotency', t => {
+  const store = fixture(t), request = input(), project = store.create(owner, request);
+  delete project.preferences; store.save(project);
+  assert.equal(store.create(owner, request).projectId, project.projectId);
+});
+
 test('missing provider keys fail at their stage before any network call', async () => {
   let calls = 0;
   const fetcher = async () => { calls++; assert.fail('provider must not be called'); };
