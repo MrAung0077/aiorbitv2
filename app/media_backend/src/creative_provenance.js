@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { requireValue } from './contracts.js';
+import { resolveCommercialRights, reviewRightsVerification } from './provider_rights_registry.js';
 
 const contributionTypes = new Set(['concept', 'lyrics', 'lyric_edit', 'title', 'structure', 'hook',
   'arrangement_direction', 'visual_direction', 'voice_direction', 'selection', 'revision_request', 'final_approval']);
-const statuses = new Set(['allowed', 'nonCommercial', 'unknown', 'blocked']);
+const statuses = new Set(['allowed', 'nonCommercial', 'conditional', 'unknown', 'blocked']);
 const now = () => new Date().toISOString();
 
 // These are factual records, not authorship/copyright determinations. Append
@@ -21,13 +22,29 @@ export function recordContribution(project, { type, source, description = '', re
 // response's proposed license. No plan or commercial permission is inferred.
 export function assetRights({ providerId = null, generationMode, commercialUseStatus = 'unknown',
   termsReference = null, accountPlanClass = null, sourceAssetIds = [],
-  userSupplied = false, permissionsDeclared = false, generatedAt = now() }) {
+  userSupplied = false, permissionsDeclared = false, generatedAt = now(), verification = null }) {
   requireValue(statuses.has(commercialUseStatus), 'invalid_rights_status');
   requireValue(Array.isArray(sourceAssetIds) && sourceAssetIds.every(id => typeof id === 'string'), 'invalid_source_assets');
   const hasTerms = typeof termsReference === 'string' && termsReference.trim().length > 0;
   return { providerId, generationMode,
     commercialUseStatus: commercialUseStatus === 'allowed' && !hasTerms ? 'unknown' : commercialUseStatus,
-    termsReference, generatedAt, accountPlanClass, sourceAssetIds: [...sourceAssetIds], userSupplied, permissionsDeclared };
+    termsReference, generatedAt, accountPlanClass, sourceAssetIds: [...sourceAssetIds], userSupplied, permissionsDeclared,
+    matchingRuleId: verification?.matchingRuleId ?? null, verification: structuredClone(verification) };
+}
+
+// Only trusted adapter/operator context enters this boundary. Do not copy
+// commercialRights declarations or license assertions from generated responses.
+export function providerAssetRights(provider, { generationMode, generatedAt = now(), voiceMode = null,
+  sourceAssetIds = [], userSupplied = false, permissionsDeclared = false }, reviewOptions = {}) {
+  const context = provider.rightsContext ?? {};
+  const verification = resolveCommercialRights({ providerId: provider.providerId ?? null,
+    product: context.product, plan: context.plan, generationMode: context.generationMode ?? generationMode,
+    generatedAt, subscribedAtGeneration: context.subscribedAtGeneration,
+    downloadedThroughApprovedChannel: context.downloadedThroughApprovedChannel, voiceMode }, reviewOptions);
+  const primary = verification.evidence.rules.find(s => s.rule.id === verification.matchingRuleId)?.rule;
+  return assetRights({ providerId: provider.providerId ?? null, generationMode: verification.evidence.facts.generationMode,
+    generatedAt, sourceAssetIds, userSupplied, permissionsDeclared, accountPlanClass: verification.evidence.facts.plan,
+    commercialUseStatus: verification.status, termsReference: primary?.sourceUrl ?? null, verification });
 }
 
 export function recordAsset(project, asset, rights) {
@@ -41,7 +58,7 @@ export function recordAsset(project, asset, rights) {
 export function assembledRights(project, sourceAssetIds) {
   const sources = sourceAssetIds.map(id => project.provenance.assets.find(a => a.id === id));
   const states = sources.map(a => a?.rights.commercialUseStatus ?? 'unknown');
-  const commercialUseStatus = ['blocked', 'nonCommercial', 'unknown'].find(s => states.includes(s)) ?? 'allowed';
+  const commercialUseStatus = ['blocked', 'nonCommercial', 'unknown', 'conditional'].find(s => states.includes(s)) ?? 'allowed';
   return assetRights({ generationMode: 'local_assembly', commercialUseStatus,
     termsReference: 'derived:source-asset-records', sourceAssetIds,
     userSupplied: sources.some(a => a?.rights.userSupplied),
@@ -112,7 +129,7 @@ function requiredAssetIds(project) {
   return ids;
 }
 
-export function commercialReadiness(project) {
+export function commercialReadiness(project, reviewOptions = {}) {
   if (!project.commercialUseRequested) return { status: 'NOT_REQUESTED', reasons: [] };
   const reasons = [];
   const assets = project.provenance?.assets ?? [];
@@ -120,6 +137,12 @@ export function commercialReadiness(project) {
   for (const a of assets.filter(a => required.has(a.id))) {
     if (a.rights.commercialUseStatus !== 'allowed') reasons.push({ assetId: a.id, kind: a.kind,
       code: a.rights.commercialUseStatus === 'unknown' ? 'rights_unconfirmed' : a.rights.commercialUseStatus });
+    if (a.rights.providerId && a.rights.commercialUseStatus === 'allowed' &&
+        (a.rights.verification?.evidence?.facts?.providerId !== a.rights.providerId ||
+         a.rights.verification?.evidence?.facts?.generatedAt !== a.rights.generatedAt ||
+         reviewRightsVerification(a.rights.verification, reviewOptions).requiresReview)) {
+      reasons.push({ assetId: a.id, kind: a.kind, code: 'rights_confirmation_required' });
+    }
     for (const id of a.rights.sourceAssetIds) {
       if (!assets.some(source => source.id === id)) reasons.push({ assetId: a.id, kind: a.kind, code: 'source_rights_missing' });
     }
@@ -134,7 +157,7 @@ export function commercialReadiness(project) {
   return { status: 'COMMERCIAL_READY', reasons: [] };
 }
 
-export function buildManifest(project) {
+export function buildManifest(project, reviewOptions = {}) {
   const p = project.provenance;
   const required = requiredAssetIds(project);
   const finalLyrics = p.lyricVersions.find(v => v.id === p.finalLyricsVersionId);
@@ -150,10 +173,10 @@ export function buildManifest(project) {
     contributions: structuredClone(p.contributions), assets: p.assets.map(a => ({ ...structuredClone(a), required: required.has(a.id) })),
     finalSelectedVersions: structuredClone(p.selectedVersions),
     voiceIntent: project.preferences?.voiceIntent ?? 'generated', subtitles: project.preferences?.subtitles ?? 'off',
-    finalApproval: structuredClone(p.finalApproval), commercialReadiness: commercialReadiness(project) };
+    finalApproval: structuredClone(p.finalApproval), commercialReadiness: commercialReadiness(project, reviewOptions) };
 }
 
-export function approveFinal(project, ids) {
+export function approveFinal(project, ids, reviewOptions = {}) {
   requireValue(project.status === 'completed' && project.provenance, 'final_output_not_ready');
   const expected = project.artifacts.map(a => a.id);
   requireValue(Array.isArray(ids) && ids.length === expected.length && new Set(ids).size === expected.length &&
@@ -164,7 +187,7 @@ export function approveFinal(project, ids) {
   selectVersions(project, ids, 'user');
   const approval = recordContribution(project, { type: 'final_approval', source: 'user', revisionRef: [...ids] });
   project.provenance.finalApproval = { state: 'approved', timestamp: approval.timestamp, contributionId: approval.id };
-  project.manifest = buildManifest(project);
+  project.manifest = buildManifest(project, reviewOptions);
 }
 
 // Deliberately omit adapter identities, terms/account detail and raw creative

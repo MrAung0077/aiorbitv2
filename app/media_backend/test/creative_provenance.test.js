@@ -1,8 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { initializeProvenance, recordContribution, recordLyricsVersion, recordAsset, assetRights,
-  assembledRights, selectVersions, approveFinal, commercialReadiness, buildManifest,
+  assembledRights, selectVersions, approveFinal as approve, commercialReadiness as readiness, buildManifest as manifest,
   publicProvenanceSummary } from '../src/creative_provenance.js';
+import { resolveCommercialRights } from '../src/provider_rights_registry.js';
+
+const reviewOptions = { now: '2026-10-03T12:00:00Z' };
+const commercialReadiness = p => readiness(p, reviewOptions);
+const approveFinal = (p, ids) => approve(p, ids, reviewOptions);
+const buildManifest = p => manifest(p, reviewOptions);
 
 function project(lyrics = null) {
   const p = { projectId: 'synthetic-project', title: 'Synthetic title', goal: 'A hopeful original song',
@@ -12,9 +18,11 @@ function project(lyrics = null) {
   initializeProvenance(p, { commercialUseRequested: true, preferences: p.preferences });
   return p;
 }
-const rights = (status = 'allowed', extra = {}) => assetRights({ providerId: 'synthetic-internal-provider',
-  generationMode: 'ai_generation', commercialUseStatus: status,
-  termsReference: 'https://terms.example.test/verified-test-plan-v1', accountPlanClass: 'synthetic-plan', ...extra });
+const rights = (status = 'allowed', extra = {}) => assetRights({ providerId: 'suno',
+  generationMode: 'original_song', commercialUseStatus: status, generatedAt: '2026-10-03T01:00:00Z',
+  termsReference: 'https://suno.com/terms/', accountPlanClass: 'pro',
+  verification: resolveCommercialRights({ providerId: 'suno', plan: 'pro', generationMode: 'original_song',
+    generatedAt: '2026-10-03T01:00:00Z', subscribedAtGeneration: true, downloadedThroughApprovedChannel: true }, reviewOptions), ...extra });
 function output(p, status = 'allowed', sourceAssetIds = []) {
   const a = { id: 'output', kind: 'audio', sha256: 'a'.repeat(64) };
   recordAsset(p, a, rights(status, { sourceAssetIds }));
@@ -122,9 +130,9 @@ test('manifest is factual; public summary contains no internal provider/plan or 
   assert.equal(manifest.projectId, p.projectId);
   assert.equal(manifest.voiceIntent, 'generated'); assert.equal(manifest.subtitles, 'off');
   assert.equal(manifest.finalApproval.state, 'approved');
-  assert.equal(manifest.assets.find(a => a.id === 'output').rights.providerId, 'synthetic-internal-provider');
+  assert.equal(manifest.assets.find(a => a.id === 'output').rights.providerId, 'suno');
   const summary = JSON.stringify(publicProvenanceSummary(p));
-  assert.doesNotMatch(summary, /synthetic-internal-provider|synthetic-plan|terms\.example/);
+  assert.doesNotMatch(summary, /suno|terms\/|matchingRuleId|sourceUrl/);
   assert.doesNotMatch(summary + JSON.stringify(manifest), /copyright guaranteed|100% owned|fully copyrighted|copyright-safe/i);
   assert.throws(() => recordContribution(p, { type: 'legal_ownership', source: 'user' }), /invalid_contribution/);
 });

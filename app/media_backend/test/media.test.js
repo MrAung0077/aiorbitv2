@@ -239,6 +239,34 @@ test('commercial project input cannot forge rights, provenance, approval or idem
   assert.throws(() => store.approve(`acct_${randomUUID()}`, project.projectId, { action: 'approve_final' }), /not_found/);
 });
 
+for (const voiceIntent of ['own_voice_clone', 'custom_locked_voice']) {
+  test(`verified voice terms apply before generation: ${voiceIntent}`, async t => {
+    t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-03T12:00:00Z') });
+    const store = fixture(t), project = store.create(owner, { ...input(), commercialUseRequested: true,
+      preferences: { voiceIntent, voicePermissionConfirmed: true } });
+    let voiceCalls = 0;
+    const voice = { providerId: 'suno', capabilities: { languages: ['en'] }, supportsVoiceMode: () => true,
+      rightsContext: { product: 'music_service', plan: 'pro', generationMode: 'voice_model_output',
+        subscribedAtGeneration: true, downloadedThroughApprovedChannel: true },
+      async convertOrClone(audio) { voiceCalls++; return audio; } };
+    const { workflow, calls } = fakes(store, { voiceCandidates: [{ provider: voice }] });
+    await workflow.run(project);
+    if (voiceIntent === 'custom_locked_voice') {
+      assert.equal(project.status, 'failed'); assert.equal(project.failure.code, 'voice_rights_incompatible');
+      assert.equal(calls.text, 0); assert.equal(calls.music, 0); assert.equal(voiceCalls, 0);
+    } else {
+      assert.equal(project.status, 'completed'); assert.equal(voiceCalls, 1);
+      const audio = project.manifest.assets.find(a => a.id === project.audioArtifact.id);
+      assert.equal(audio.rights.matchingRuleId, 'suno-paid-output-20260903');
+      assert.equal(audio.rights.verification.evidence.rules.length, 2);
+      const saved = JSON.stringify(store.get(owner, project.projectId).manifest);
+      voice.rightsContext.plan = 'basic';
+      assert.equal(JSON.stringify(store.get(owner, project.projectId).manifest), saved);
+      assert.equal(project.manifest.commercialReadiness.status, 'COMMERCIAL_REVIEW_REQUIRED'); // Other sources remain unknown.
+    }
+  });
+}
+
 test('missing provider keys fail at their stage before any network call', async () => {
   let calls = 0;
   const fetcher = async () => { calls++; assert.fail('provider must not be called'); };

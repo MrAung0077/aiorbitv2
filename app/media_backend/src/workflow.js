@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { MediaFailure, musicPrompt } from './contracts.js';
 import { routingRequirement, planSongRoute, assertSongRouteReady } from './song_routing.js';
 import { initializeProvenance, recordContribution, recordLyricsVersion, recordAsset,
-  assetRights, assembledRights, selectVersions, buildManifest } from './creative_provenance.js';
+  assetRights, providerAssetRights, assembledRights, selectVersions, buildManifest } from './creative_provenance.js';
 
 export class SongWorkflow {
   constructor({ store, textProvider, musicProvider, renderer, musicCandidates, voiceCandidates = [] }) {
@@ -19,13 +19,18 @@ export class SongWorkflow {
       const plan = planSongRoute(requirement, this.musicCandidates, this.voiceCandidates);
       assertSongRouteReady(plan); // All missing capabilities fail before any paid stage.
       if (!project.provenance) initializeProvenance(project, {}); // Older queued jobs; do not infer historical rights.
+      const textRights = providerAssetRights(this.textProvider, { generationMode: 'ai_generation' });
+      project.provenance.generationRightsReview = { songSpec: textRights.verification };
+      if (plan.voice) {
+        const voiceReview = providerAssetRights(plan.voice, { generationMode: 'voice_conversion', voiceMode: requirement.voiceIntent });
+        project.provenance.generationRightsReview.voice = voiceReview.verification;
+        if (voiceReview.verification.status === 'blocked') throw new MediaFailure('voice_rights_incompatible', 'preflight', 409);
+      }
       project.status = 'specifying'; this.store.save(project);
       const spec = await this.textProvider.create(project.goal, project.language, project.artist, requirement);
       if (requirement.userFinalLyrics !== null) spec.lyrics = requirement.userFinalLyrics;
       if (requirement.style) spec.genre = requirement.style;
       Object.assign(project, spec, { musicPrompt: musicPrompt(spec, project.artist) });
-      const textRights = assetRights({ ...this.textProvider.commercialRights,
-        providerId: this.textProvider.providerId ?? null, generationMode: 'ai_generation' });
       if (requirement.userFinalLyrics === null) {
         const lyrics = recordLyricsVersion(project, spec.lyrics, 'generated', { rights: textRights });
         project.provenance.finalLyricsVersionId = lyrics.id;
@@ -40,19 +45,21 @@ export class SongWorkflow {
         sourceAssetIds: [project.provenance.finalLyricsVersionId] }));
       // Persist intent before calling the billable provider. Unknown outcomes stop,
       // rather than automatically issuing another charged request after restart.
-      project.status = 'generating'; this.store.save(project);
-      let song = await plan.music.generateSong(spec, project.artist, requirement);
-      let audioRights = assetRights({ ...plan.music.commercialRights, providerId: plan.music.providerId ?? null,
+      let audioRights = providerAssetRights(plan.music, {
         generationMode: 'ai_generation', sourceAssetIds: [lyricsArtifact.id],
         userSupplied: requirement.userFinalLyrics !== null });
+      project.provenance.generationRightsReview.music = audioRights.verification;
+      project.status = 'generating'; this.store.save(project);
+      let song = await plan.music.generateSong(spec, project.artist, requirement);
       if (plan.voice) {
         const source = recordAsset(project, { id: randomUUID(), kind: 'audio',
           sha256: createHash('sha256').update(song.bytes).digest('hex') }, audioRights);
+        audioRights = providerAssetRights(plan.voice, {
+          generationMode: 'voice_conversion', sourceAssetIds: [source.id],
+          userSupplied: true, permissionsDeclared: requirement.voicePermissionConfirmed, voiceMode: requirement.voiceIntent });
+        project.provenance.generationRightsReview.voice = audioRights.verification;
         this.store.save(project); // Retain generation evidence before an optional paid voice stage.
         song = await plan.voice.convertOrClone(song, { ...requirement, artist: project.artist });
-        audioRights = assetRights({ ...plan.voice.commercialRights, providerId: plan.voice.providerId,
-          generationMode: 'voice_conversion', sourceAssetIds: [source.id],
-          userSupplied: true, permissionsDeclared: requirement.voicePermissionConfirmed });
       }
       this.store.write(project, 'song.mp3', song.bytes);
       project.providerMetadata = song.metadata;
