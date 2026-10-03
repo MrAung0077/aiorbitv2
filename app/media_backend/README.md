@@ -31,6 +31,7 @@ All client requests use the existing beta token and opaque device-session header
 | `POST /v1/media/projects` | `{requestId,goal,language,preferences?}`; UUID idempotency key; `language` is `en` or `my`; returns persisted job, not a long-held generation request |
 | `GET /v1/media/projects` | Newest 100 owned projects; never executes/retries |
 | `GET /v1/media/projects/{id}` | Status and artifacts |
+| `PUT /v1/media/projects/{id}` | `{action:"approve_final",selectedArtifactIds:[...]}`; owner-scoped, completed outputs only; idempotent creative approval, never a grant of commercial rights |
 | `GET /v1/media/projects/{id}/artifacts/{artifactId}` | Private authenticated bytes; MIME, length, SHA-256; no external URL handoff |
 
 Same request ID and payload return the existing project. A changed payload with that ID fails. One active project per account; maximum two new projects/account/UTC day; one globally executing job in this service. Existing text/image/speech quotas and limits are unchanged. This is a separately operator-enabled personal capability, **not** access to paid media for every beta token holder.
@@ -46,6 +47,16 @@ States: `queued -> specifying -> generating -> rendering -> completed`, or `fail
 No real voice-conversion adapter or subtitle alignment renderer is included. The current music adapter does **not** advertise reusable singer identity. These unavailable requests stop in preflight before paid stages, rather than silently degrading. Subtitles remain off for both videos. `subtitleWork` prepares an alignment requirement only when explicitly requested: user final lyrics, otherwise generated final lyrics, verbatim; ASR is never canonical text. Future alignment/voice adapters need their own bounded execution, consent/input validation and spend approval before enabling them.
 
 `songRecoveryDecision` is policy only, not an automatic retry executor. It can offer one capable alternate (or a manual retry) only for an allowlisted typed execution failure, explicit approval and a known unbilled outcome. Cancellation, aesthetic rejection, unknown billing and an exhausted attempt budget stop recovery. It never invokes a provider or changes the current no-replay behavior.
+
+### Creative provenance and commercial-use review
+
+Creation accepts optional `commercialUseRequested` (default false), captured by the Song screen, and `imagePermissionsDeclared` for the current image-use confirmation. Upload-time confirmation is also retained as `permissionsDeclared` in the artist snapshot. Neither declaration grants or verifies commercial rights. No license/plan is assumed for the current providers or user inputs: rights default to `unknown`.
+
+The existing project JSON holds append-only contribution records (type/source/time/reference and user/generated flags), exact lyric-version snapshots, asset-rights records and a final `manifest`. No table migration, file-layout change or provider call is involved. Initial goal, supplied lyrics/style, chosen voice/images, generated lyrics/title/structure/chorus suggestion and assembled versions are recorded at their existing workflow boundaries. A generated chorus suggestion is not recorded as a user-selected hook. Revisions retain their parent/source; the helper supports edits/revision notes, but no new natural-language revision parser or song editor is introduced. UI final approval explicitly records user selection plus approval; generation success/history reads are never approval.
+
+The internal manifest contains project identity/title/time, final lyrics source/hash, contribution summary and records, asset rights and dependencies, selected version IDs/hashes, voice/subtitle preferences, final approval and commercial readiness. Provider/plan/terms detail stays internal; ordinary clients receive only `provenanceSummary` and fixed factual review reasons. No copyright ownership or copyrightability determination is made. Human direction is recorded, not legally scored.
+
+For commercial projects, final outputs and their transitive source dependencies must all have documented `allowed` status. `nonCommercial`, `blocked`, missing records or `unknown` require `COMMERCIAL_REVIEW_REQUIRED`; nothing is deleted and completed files remain usable. Rejected/unreferenced draft takes do not block selected outputs. Final creative approval is additionally required, and cannot override rights. Local render rights derive from the source records, not from the fact rendering succeeded. Future reviewed adapter/operator metadata can supply `commercialRights`; raw model/provider responses and client-supplied status/manifest fields cannot grant eligibility. An admin rights-verification/update workflow and verified provider plan/terms remain future work; this foundation deliberately does not assert that existing media is monetization-ready.
 
 ## Server rendering and artifacts
 

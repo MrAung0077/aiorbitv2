@@ -59,6 +59,12 @@ for (const language of ['en', 'my']) test(`${language}: persisted complete proje
   assert.ok(saved.artifacts.every(a => /^[a-f0-9]{64}$/.test(a.sha256) && a.byteSize > 0));
   assert.equal(store.get(`acct_${randomUUID()}`, project.projectId), null);
   assert.equal(publicProject(saved).owner, undefined); assert.equal(publicProject(saved).providerMetadata, undefined);
+  assert.equal(saved.manifest.finalApproval.state, 'pending');
+  assert.equal(saved.manifest.finalLyricsSource.source, 'generated');
+  assert.equal(saved.manifest.finalSelectedVersions.length, 4);
+  assert.equal(saved.manifest.assets.filter(a => a.kind === 'video').length, 2);
+  assert.equal(publicProject(saved).manifest, undefined);
+  assert.equal(publicProject(saved).provenance, undefined);
   assert.doesNotMatch(JSON.stringify(publicProject(saved)), /"path":|file:\/\/|[A-Z]:\\/);
   assert.doesNotMatch(JSON.stringify(publicProject(saved)), /continue this in|open Kits|https:\/\//i);
   const again = store.create(owner, input(language));
@@ -209,6 +215,30 @@ test('old persisted projects without preferences retain original defaults and id
   assert.equal(store.create(owner, request).projectId, project.projectId);
 });
 
+test('commercial project input cannot forge rights, provenance, approval or idempotency', async t => {
+  const store = fixture(t), request = { ...input(), commercialUseRequested: true,
+    preferences: { userFinalLyrics: '[Verse]\nUser lyrics\n[Chorus]\nUser chorus' },
+    provenance: { assets: [{ rights: { commercialUseStatus: 'allowed' } }], finalApproval: { state: 'approved' } },
+    manifest: { commercialReadiness: { status: 'COMMERCIAL_READY' } } };
+  const project = store.create(owner, request);
+  const { workflow, calls } = fakes(store, { musicProvider: { capabilities: { customLyrics: true }, supportsLanguage: () => true,
+    async generateSong() { return { bytes: Buffer.alloc(256, 1), metadata: { commercialUseStatus: 'allowed' } }; } } });
+  await workflow.run(project);
+  const saved = store.get(owner, project.projectId);
+  assert.equal(saved.manifest.commercialReadiness.status, 'COMMERCIAL_REVIEW_REQUIRED');
+  assert.equal(saved.manifest.finalLyricsSource.source, 'user');
+  assert.equal(saved.manifest.finalApproval.state, 'pending');
+  assert.equal(calls.text, 1);
+  assert.throws(() => store.create(owner, { ...request, commercialUseRequested: false }), /idempotency_conflict/);
+  const approved = store.approve(owner, project.projectId, { action: 'approve_final', selectedArtifactIds: saved.artifacts.map(a => a.id),
+    commercialUseStatus: 'allowed' });
+  assert.equal(approved.manifest.finalApproval.state, 'approved');
+  assert.equal(approved.manifest.commercialReadiness.status, 'COMMERCIAL_REVIEW_REQUIRED');
+  const reopened = new MediaStore(store.root);
+  assert.deepEqual(reopened.get(owner, project.projectId).manifest, approved.manifest); reopened.close();
+  assert.throws(() => store.approve(`acct_${randomUUID()}`, project.projectId, { action: 'approve_final' }), /not_found/);
+});
+
 test('missing provider keys fail at their stage before any network call', async () => {
   let calls = 0;
   const fetcher = async () => { calls++; assert.fail('provider must not be called'); };
@@ -255,4 +285,12 @@ test('shared HTTP job/history/artifact contract is authenticated and owner-scope
   assert.equal(file.status, 200); assert.equal(file.headers.get('x-artifact-sha256'), artifact.sha256);
   assert.match(await file.text(), /\[Chorus\]/);
   assert.equal((await fetch(url, { headers: { ...headers, 'X-Ovexiq-Account': `acct_${randomUUID()}` } })).status, 404);
+  const approvalUrl = `${base}/projects/${created.projectId}`;
+  const approvalBody = JSON.stringify({ action: 'approve_final', selectedArtifactIds: history.projects[0].artifacts.map(a => a.id) });
+  assert.equal((await fetch(approvalUrl, { method: 'PUT', body: approvalBody, headers: {
+    ...headers, 'X-Ovexiq-Account': `acct_${randomUUID()}` } })).status, 404);
+  const approved = await (await fetch(approvalUrl, { method: 'PUT', headers, body: approvalBody })).json();
+  assert.equal(approved.provenanceSummary.finalApproval, 'approved');
+  assert.equal(approved.manifest, undefined); assert.equal(approved.provenance, undefined);
+  assert.equal(store.list(owner).length, 1);
 });

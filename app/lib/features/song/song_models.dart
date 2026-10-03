@@ -124,6 +124,9 @@ class SongProject {
         Map<String, dynamic>.from(json['preferences'] as Map? ?? {}),
       ),
       failureCode = (json['failure'] as Map?)?['code'] as String?,
+      provenanceSummary = json['provenanceSummary'] is Map
+          ? Map<String, dynamic>.from(json['provenanceSummary'] as Map)
+          : null,
       createdAt = DateTime.parse(json['createdAt'] as String),
       artifacts = (json['artifacts'] as List)
           .map(
@@ -155,6 +158,12 @@ class SongProject {
   final String projectId, title, language, status, lyrics;
   final SongPreferences preferences;
   final String? failureCode;
+  final Map<String, dynamic>? provenanceSummary;
+  bool get hasProvenance => provenanceSummary?['available'] == true;
+  bool get finalApproved => provenanceSummary?['finalApproval'] == 'approved';
+  bool get commercialReviewRequired =>
+      (provenanceSummary?['readiness'] as Map?)?['status'] ==
+      'COMMERCIAL_REVIEW_REQUIRED';
   final DateTime createdAt;
   final List<SongArtifact> artifacts;
   bool get isActive =>

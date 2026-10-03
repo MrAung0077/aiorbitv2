@@ -112,10 +112,15 @@ class SongApi {
           .map((p) => SongProject.fromJson(Map<String, dynamic>.from(p as Map)))
           .toList();
   Future<Map<String, dynamic>> artist() => request('GET', 'artist');
-  Future<void> saveArtist(String name, List<String> ids) async {
+  Future<void> saveArtist(
+    String name,
+    List<String> ids, {
+    bool permissionsDeclared = false,
+  }) async {
     await request('PUT', 'artist', {
       'artistName': name,
       'visualReferenceIds': ids,
+      'permissionsDeclared': permissionsDeclared,
     });
   }
 
@@ -135,14 +140,26 @@ class SongApi {
     String language,
     String requestId, {
     SongPreferences? preferences,
+    bool commercialUseRequested = false,
+    bool imagePermissionsDeclared = false,
   }) async => SongProject.fromJson(
     await request('POST', 'projects', {
       'goal': goal,
       'language': language,
       'requestId': requestId,
       if (preferences != null) 'preferences': preferences.toJson(),
+      if (commercialUseRequested) 'commercialUseRequested': true,
+      if (imagePermissionsDeclared) 'imagePermissionsDeclared': true,
     }),
   );
+
+  Future<SongProject> approveFinal(SongProject project) async =>
+      SongProject.fromJson(
+        await request('PUT', 'projects/${project.projectId}', {
+          'action': 'approve_final',
+          'selectedArtifactIds': project.artifacts.map((a) => a.id).toList(),
+        }),
+      );
 
   Future<String> download(SongProject project, SongArtifact artifact) async {
     File? partial;

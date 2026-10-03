@@ -90,6 +90,34 @@ class _EmptyConversations extends ConversationRepository {
   }
 }
 
+class _ApprovalApi extends _HistoryApi {
+  _ApprovalApi()
+    : super({
+        ...project(),
+        'provenanceSummary': {
+          'available': true,
+          'commercialUseRequested': true,
+          'readiness': {'status': 'COMMERCIAL_REVIEW_REQUIRED', 'reasons': []},
+          'finalApproval': 'pending',
+          'contributionCount': 5,
+        },
+      });
+  int approvals = 0;
+  @override
+  Future<SongProject> approveFinal(SongProject value) async {
+    approvals++;
+    expect(value.projectId, projectId);
+    expect(value.artifacts.length, 4);
+    return SongProject.fromJson({
+      ...saved,
+      'provenanceSummary': {
+        ...saved['provenanceSummary']! as Map,
+        'finalApproval': 'approved',
+      },
+    });
+  }
+}
+
 class _NoChatGeneration extends AIChatService {
   int calls = 0;
   @override
@@ -103,6 +131,111 @@ class _NoChatGeneration extends AIChatService {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'commercial intent and final selection travel without client-granted rights',
+    () async {
+      final methods = <String>[];
+      final api = apiWith((request) async {
+        methods.add(request.method);
+        final body = jsonDecode(request.body) as Map;
+        if (request.method == 'POST') {
+          expect(body['commercialUseRequested'], true);
+          expect(body['imagePermissionsDeclared'], true);
+          expect(body.containsKey('provenance'), isFalse);
+        } else {
+          expect(request.url.path, '/v1/media/projects/$projectId');
+          expect(body.keys.toSet(), {'action', 'selectedArtifactIds'});
+          expect(body['action'], 'approve_final');
+          expect(
+            body['selectedArtifactIds'],
+            SongProject.fromJson(project()).artifacts.map((a) => a.id).toList(),
+          );
+        }
+        return http.Response(jsonEncode(project()), 200);
+      });
+      addTearDown(api.close);
+      await api.create(
+        'Original song',
+        'en',
+        projectId,
+        commercialUseRequested: true,
+        imagePermissionsDeclared: true,
+      );
+      await api.approveFinal(SongProject.fromJson(project()));
+      expect(methods, ['POST', 'PUT']);
+    },
+  );
+  test(
+    'image permission declaration is transmitted separately from commercial rights',
+    () async {
+      final api = apiWith((request) async {
+        final body = jsonDecode(request.body) as Map;
+        expect(body['permissionsDeclared'], true);
+        expect(body.containsKey('commercialUseStatus'), isFalse);
+        return http.Response('{}', 200);
+      });
+      addTearDown(api.close);
+      await api.saveArtist('Ari', [
+        '1',
+        '2',
+        '3',
+        '4',
+      ], permissionsDeclared: true);
+    },
+  );
+  testWidgets(
+    'history does not approve; explicit creative approval leaves rights review visible',
+    (tester) async {
+      final api = _ApprovalApi();
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [songApiProvider.overrideWithValue(api)],
+          child: const MaterialApp(home: SongStudioScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<SwitchListTile>(
+              find.byKey(const Key('song-commercial-use')),
+            )
+            .value,
+        isFalse,
+      );
+      await tester.scrollUntilVisible(
+        find.text('Approve this final selection'),
+        350,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(api.approvals, 0);
+      expect(
+        find.text('Rights confirmation required before commercial use.'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining(
+          RegExp(
+            r'copyright guaranteed|100% owned|fully copyrighted|copyright-safe',
+            caseSensitive: false,
+          ),
+        ),
+        findsNothing,
+      );
+      await tester.ensureVisible(find.text('Approve this final selection'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Approve this final selection'));
+      await tester.pumpAndSettle();
+      expect(api.approvals, 1);
+      expect(find.text('Final creative selection approved'), findsOneWidget);
+      expect(
+        find.text('Rights confirmation required before commercial use.'),
+        findsOneWidget,
+      );
+      expect(api.methods, ['GET', 'GET']);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
   test(
     'song preferences default to generated voice and subtitles off; history preserves intent',
     () {

@@ -27,6 +27,7 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
   VoiceIntent? _voiceIntent;
   SongContext _songContext = SongContext.singleSong;
   bool _subtitles = false, _voicePermission = false;
+  bool _commercialUseRequested = false;
   late String _language =
       responseLanguageFor(widget.initialGoal) == ResponseLanguage.burmese
       ? 'my'
@@ -107,7 +108,11 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
           ),
         );
       }
-      await api.saveArtist(_artistName.text.trim(), ids);
+      await api.saveArtist(
+        _artistName.text.trim(),
+        ids,
+        permissionsDeclared: _rightsConfirmed,
+      );
       if (mounted) setState(() => _visualIds = ids);
     } catch (_) {
       if (mounted) {
@@ -150,6 +155,7 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
       return;
     }
     final language = _language;
+    final commercialUseRequested = _commercialUseRequested;
     final preferences = SongPreferences(
       voiceIntent: _voiceIntent!,
       subtitles: _subtitles
@@ -191,7 +197,12 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
     });
     // Retain the id across transport failures. Explicit retries cannot submit a
     // second paid job for the same in-screen request.
-    final fingerprint = jsonEncode([language, goal, preferences.toJson()]);
+    final fingerprint = jsonEncode([
+      language,
+      goal,
+      preferences.toJson(),
+      commercialUseRequested,
+    ]);
     if (_pendingGoal != fingerprint) {
       _requestId = newSongRequestId();
       _pendingGoal = fingerprint;
@@ -199,7 +210,14 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
     try {
       await ref
           .read(songApiProvider)
-          .create(goal, language, _requestId!, preferences: preferences);
+          .create(
+            goal,
+            language,
+            _requestId!,
+            preferences: preferences,
+            commercialUseRequested: commercialUseRequested,
+            imagePermissionsDeclared: _rightsConfirmed,
+          );
       await _load();
     } catch (_) {
       if (mounted) {
@@ -217,6 +235,34 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
 
   void _notice(String text) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+
+  Future<void> _approveFinal(SongProject project) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final approved = await ref.read(songApiProvider).approveFinal(project);
+      if (mounted) {
+        setState(
+          () => _projects = [
+            for (final p in _projects)
+              if (p.projectId == approved.projectId) approved else p,
+          ],
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        _notice(
+          tr(
+            'Approval was not confirmed. Refresh and try again.',
+            'အတည်ပြုမှု မသေချာသေးပါ။ ပြန်ဖွင့်ကြည့်ပြီး ထပ်စမ်းပေးပါ။',
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _file(
     SongProject project,
     SongArtifact artifact,
@@ -387,6 +433,21 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
           onChanged: _busy ? null : (v) => setState(() => _songContext = v!),
         ),
         SwitchListTile(
+          key: const Key('song-commercial-use'),
+          value: _commercialUseRequested,
+          onChanged: _busy
+              ? null
+              : (v) => setState(() => _commercialUseRequested = v),
+          title: Text(tr('For commercial use', 'စီးပွားဖြစ် အသုံးပြုရန်')),
+          subtitle: Text(
+            tr(
+              'Unconfirmed asset rights require review.',
+              'ဖိုင်များ၏ စီးပွားဖြစ်အသုံးပြုခွင့် မသေချာလျှင် စစ်ဆေးရန် လိုပါမည်။',
+            ),
+          ),
+          contentPadding: EdgeInsets.zero,
+        ),
+        SwitchListTile(
           key: const Key('song-subtitles'),
           value: _subtitles,
           contentPadding: EdgeInsets.zero,
@@ -505,6 +566,40 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   Text(_status(project)),
+                  if (project.hasProvenance) ...[
+                    Text(
+                      tr(
+                        'Generation provenance available',
+                        'ဖန်တီးမှု မှတ်တမ်းရှိပါသည်',
+                      ),
+                    ),
+                    if (project.commercialReviewRequired)
+                      Text(
+                        tr(
+                          'Rights confirmation required before commercial use.',
+                          'စီးပွားဖြစ် မသုံးမီ အသုံးပြုခွင့်များကို အတည်ပြုရန် လိုပါသည်။',
+                        ),
+                      ),
+                    if (project.isComplete)
+                      project.finalApproved
+                          ? Text(
+                              tr(
+                                'Final creative selection approved',
+                                'နောက်ဆုံး ရွေးချယ်ထားသော ရလဒ်ကို အတည်ပြုပြီးပါပြီ',
+                              ),
+                            )
+                          : TextButton(
+                              onPressed: _busy
+                                  ? null
+                                  : () => _approveFinal(project),
+                              child: Text(
+                                tr(
+                                  'Approve this final selection',
+                                  'ဤနောက်ဆုံး ရလဒ်ကို အတည်ပြုမည်',
+                                ),
+                              ),
+                            ),
+                  ],
                   if (project.lyrics.isNotEmpty)
                     ExpansionTile(
                       title: Text(tr('Lyrics', 'သီချင်းစာသား')),

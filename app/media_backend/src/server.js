@@ -63,6 +63,9 @@ export function mediaServer({ store, renderer, serviceKey }) {
         return send(res, 202, publicProject(store.create(owner, await jsonBody(req))));
       }
       const match = path.match(/^\/v1\/media\/projects\/([a-f0-9-]{36})(?:\/artifacts\/([a-f0-9-]{36}))?$/);
+      if (match && !match[2] && req.method === 'PUT') {
+        return send(res, 200, publicProject(store.approve(owner, match[1], await jsonBody(req))));
+      }
       if (match && req.method === 'GET') {
         const project = store.get(owner, match[1]);
         if (!project) throw new MediaFailure('not_found', 'lookup', 404);

@@ -31,6 +31,7 @@ async function callJson(fetcher, url, key, body, stage, maxBytes, timeout) {
 
 export class SongSpecProvider {
   #key;
+  get providerId() { return 'openrouter'; }
   constructor({ apiKey, fetcher = fetch, model = 'openai/gpt-6-astra' }) {
     this.#key = apiKey; this.fetcher = fetcher; this.model = model;
   }
