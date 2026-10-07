@@ -147,6 +147,62 @@ class _NoChatGeneration extends AIChatService {
 
 void main() {
   test(
+    'canonical primary audio coexists with typed lossless production artifacts',
+    () {
+      final preview = {
+        ...artifact('assetpreview.ogg', 'audio/ogg', 2),
+        'role': 'combined_mix',
+        'codec': 'opus',
+      };
+      final stem = {
+        ...artifact('assetstem.flac', 'audio/flac', 5),
+        'role': 'stem',
+        'mediaType': 'audio',
+        'format': 'flac',
+        'codec': 'flac',
+        'technicalMetadata': {'lossless': true, 'sampleRate': 48000},
+        'storageReference': {
+          'projectId': projectId,
+          'artifactId': artifact('x.flac', 'audio/flac', 5)['id'],
+        },
+        'providerExecution': {'externalExecutionId': 'synthetic-execution'},
+        'sourceArtifactIds': <String>[],
+      };
+      final saved = {
+        ...project(),
+        'primaryArtifactId': preview['id'],
+        'artifacts': [
+          artifact('lyrics.txt', 'text/plain', 1),
+          preview,
+          stem,
+          artifact('youtube.mp4', 'video/mp4', 3),
+          artifact('teaser.mp4', 'video/mp4', 4),
+        ],
+      };
+      final value = SongProject.fromJson(saved);
+      expect(value.isComplete, isTrue);
+      expect(value.artifacts.length, 5);
+      expect(value.primaryAudio!.role, 'combined_mix');
+      expect(value.primaryAudio!.mimeType, 'audio/ogg');
+      final production = value.artifacts.singleWhere((a) => a.role == 'stem');
+      expect(production.technicalMetadata['lossless'], isTrue);
+      expect(production.codec, 'flac');
+      expect(
+        production.providerExecution['externalExecutionId'],
+        'synthetic-execution',
+      );
+      expect(production.storageReference['artifactId'], production.id);
+      expect(
+        () => SongProject.fromJson({...saved, 'primaryArtifactId': 'missing'}),
+        throwsFormatException,
+      );
+      expect(
+        () => SongArtifact.fromJson({...stem, 'fileName': '../assetstem.flac'}),
+        throwsFormatException,
+      );
+    },
+  );
+  test(
     'C D: lost acknowledgement survives app restart with identical request and stable project',
     () async {
       final root = await Directory.systemTemp.createTemp(

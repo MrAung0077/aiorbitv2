@@ -186,16 +186,72 @@ export class SongExecution {
     });
     return this.readResult(stage);
   }
+  async captureResult(stage, provider, stored) {
+    const result = stored.value;
+    const attempt = this.jobs.attempt(stage);
+    const externalExecutionId = attempt.externalExecutionId ?? result?.metadata?.responseId ?? null;
+    const descriptors = result?.artifacts;
+    if (descriptors !== undefined && (!Array.isArray(descriptors) || descriptors.some(a => !a ||
+      typeof a.key !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(a.key) ||
+      typeof a.role !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(a.role) ||
+      typeof a.mimeType !== 'string' || !/^(audio|video|image|text|application)\/[a-zA-Z0-9.+-]+$/.test(a.mimeType) ||
+      (a.extension !== undefined && !/^[a-z0-9]{1,10}$/.test(a.extension))) ||
+      new Set(descriptors.map(a => a.key)).size !== descriptors.length)) {
+      throw new ReviewRequired(stage.kind, 'invalid_provider_artifacts');
+    }
+    if (result?.primaryArtifactKey != null && !descriptors?.some(a => a.key === result.primaryArtifactKey)) {
+      throw new ReviewRequired(stage.kind, 'invalid_primary_artifact');
+    }
+    this.jobs.update(this.lease, stage, { status: 'capturing', externalExecutionId,
+      providerStatus: 'completed', providerMetadata: result?.metadata ?? null, resultSha256: stored.sha256 });
+    const artifacts = [];
+    for (const descriptor of descriptors ?? []) {
+      const { bytes: inlineBytes, ...captureInput } = descriptor;
+      // Inline bytes already live in the immutable result spool; do not duplicate them in SQLite snapshots.
+      if (inlineBytes && !captureInput.sha256) captureInput.sha256 = hash(inlineBytes);
+      // Adapter keys identify outputs, not file paths or semantic roles (several stems may share a role).
+      const captureKind = `capture:${stage.id}:${descriptor.key}`;
+      const fileName = `asset${hash(`${stage.id}:${descriptor.key}`).slice(0, 32)}.${descriptor.extension ?? 'bin'}`;
+      const artifact = await this.artifact(captureKind, fileName, descriptor.mimeType,
+        { sourceArtifactIds: descriptor.sourceArtifactIds ?? attempt.inputSnapshot.sourceArtifactIds ?? [],
+          sourceStageId: stage.id, sourceAttemptId: attempt.id, descriptor: captureInput },
+        async (path, input) => {
+          const output = input.descriptor;
+          let bytes = inlineBytes;
+          if (!bytes && provider?.durableExecution?.captureArtifact) {
+            bytes = await provider.durableExecution.captureArtifact({ externalExecutionId, artifact: output });
+          }
+          // A provider URL/locator alone is never a durable captured artifact.
+          if (!(Buffer.isBuffer(bytes) || bytes instanceof Uint8Array) || !bytes.length) {
+            throw new MediaFailure('provider_artifact_not_captured', captureKind);
+          }
+          if (bytes.length > 256 * 1024 * 1024) throw new MediaFailure('invalid_artifact_size', captureKind);
+          if (input.descriptor.sha256 && hash(bytes) !== input.descriptor.sha256) {
+            throw new MediaFailure('provider_artifact_hash_mismatch', captureKind);
+          }
+          writeFileSync(path, bytes, { flag: 'wx', mode: 0o600 });
+          return {};
+        }, { role: descriptor.role, mediaType: descriptor.mediaType ?? descriptor.mimeType.split('/')[0],
+          format: descriptor.format ?? null, codec: descriptor.codec ?? null,
+          technicalMetadata: descriptor.technicalMetadata ?? {}, required: descriptor.required !== false,
+          providerArtifactKey: descriptor.key,
+          providerExecution: { providerId: attempt.providerId, externalExecutionId, stageId: stage.id, attemptId: attempt.id } });
+      artifacts.push(artifact);
+      this.linkOutput(stage.kind, artifact);
+      await this.hook('artifact_captured', { stage, artifact });
+    }
+    this.activeStage = stage;
+    this.jobs.update(this.lease, stage, { status: 'completed', completedAt: attempt.completedAt ?? this.jobs.timestamp(), uncertainty: null });
+    return descriptors === undefined ? result : { ...result, durableArtifacts: artifacts,
+      primaryArtifactId: artifacts.find(a => a.providerArtifactKey === result.primaryArtifactKey)?.id ?? null };
+  }
   async provider(kind, provider, input, invoke) {
     const stage = this.jobs.stage(this.lease, kind, input, this.route(provider, { decision: this.done('route') }));
     this.activeStage = stage;
     let attempt = this.jobs.attempt(stage);
     const stored = this.readResult(stage);
     if (stored) {
-      this.jobs.update(this.lease, stage, { status: 'completed', completedAt: attempt.completedAt ?? this.jobs.timestamp(),
-        resultSha256: stored.sha256, uncertainty: null, providerStatus: 'completed', providerMetadata: stored.value?.metadata ?? null,
-        externalExecutionId: attempt.externalExecutionId ?? stored.value?.metadata?.responseId ?? null });
-      return stored.value;
+      return this.captureResult(stage, provider, stored);
     }
     if (attempt.status === 'completed') throw new ReviewRequired(kind, 'stored_result_missing');
     if (['uncertain', 'failed'].includes(attempt.status)) throw new ReviewRequired(kind);
@@ -223,12 +279,8 @@ export class SongExecution {
         this.jobs.update(this.lease, stage, { status: 'dispatching', billing: 'unknown', uncertainty: 'acceptance_unknown', startedAt: this.jobs.timestamp() });
         result = await invoke(attempt.inputSnapshot);
       }
-      const saved = this.persistResult(stage, result);
+      this.persistResult(stage, result);
       await this.hook('result_persisted', { stage });
-      this.jobs.update(this.lease, stage, { status: 'completed', completedAt: this.jobs.timestamp(), uncertainty: null,
-        externalExecutionId: attempt.externalExecutionId ?? result?.metadata?.responseId ?? null,
-        providerStatus: 'completed', providerMetadata: result?.metadata ?? null, resultSha256: saved.sha256 });
-      return saved.value;
     } catch (error) {
       if (error instanceof PendingExecution || error instanceof LeaseLost || error?.simulatedCrash) throw error;
       const failure = error instanceof MediaFailure ? error : new ReviewRequired(kind);
@@ -237,6 +289,8 @@ export class SongExecution {
         failure: failure.toJSON(), completedAt: this.jobs.timestamp() });
       throw failure;
     }
+    // Capture errors belong to local recovery, not another provider generation attempt.
+    return this.captureResult(stage, provider, this.readResult(stage));
   }
   async artifact(kind, fileName, mimeType, input, produce, extra = {}) {
     const stage = this.jobs.stage(this.lease, kind, input, { providerId: 'local', workflowVersion: 'song-durable-v1' });
@@ -259,6 +313,7 @@ export class SongExecution {
       if (!bytes.length || bytes.length > 256 * 1024 * 1024) throw new MediaFailure('invalid_artifact_size', kind);
       const fd = openSync(temp, 'r+'); try { fsyncSync(fd); } finally { closeSync(fd); }
       receipt = { ...extra, ...details, id: stage.artifactId, versionId: stage.artifactVersionId, producingStageId: stage.id,
+        producingAttemptId: stage.attemptId, storageReference: { projectId: this.project.projectId, artifactId: stage.artifactId },
         fileName, mimeType, byteSize: bytes.length, sha256: hash(bytes), sourceArtifactIds: input.sourceArtifactIds ?? [],
         ...(input.sourceAttemptId ? { sourceAttemptId: input.sourceAttemptId, sourceStageId: input.sourceStageId } : {}) };
       const receiptTemp = `${receiptPath}.${this.lease.token}.tmp`;

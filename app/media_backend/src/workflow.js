@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, readFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { MediaFailure, musicPrompt, songSpecInstruction } from './contracts.js';
 import { routingRequirement, planSongRoute, assertSongRouteReady } from './song_routing.js';
@@ -149,6 +149,16 @@ export class SongWorkflow {
       let song = await x.provider('music', music, { spec, artist: project.artist, requirement,
         prompt: project.musicPrompt, rights: audioRights, sourceArtifactIds: audioRights.sourceAssetIds },
       input => music.generateSong(input.spec, input.artist, input.requirement));
+      const retain = (result, rights) => {
+        for (const artifact of result.durableArtifacts ?? []) {
+          if (!project.artifacts.some(a => a.id === artifact.id)) project.artifacts.push(artifact);
+          if (!project.provenance.assets.some(a => a.id === artifact.id)) recordAsset(project, { ...artifact, kind: artifact.mediaType }, rights);
+        }
+        // Selection is explicit; retaining stems/components does not schedule mixing or mastering.
+        const primary = result.durableArtifacts?.find(a => a.id === result.primaryArtifactId);
+        return primary ? { ...result, bytes: readFileSync(join(this.store.directory(project), primary.fileName)) } : result;
+      };
+      song = retain(song, audioRights);
       if (route.voice) {
         checkRoute(voice, route.voice);
         const vocalSource = voice.capabilities.conversionInput === 'vocal_stem' ? song.vocalSource : song;
@@ -175,14 +185,21 @@ export class SongWorkflow {
         audioRights = x.done('voiceRights');
         song = await x.provider('voice_conversion', voice, { voiceRequest, sourceStage: 'music', profile, rights: audioRights },
           input => voice.convertVoice(vocalSource, input.profile, input.voiceRequest));
+        song = retain(song, audioRights);
       }
-      const audio = await x.artifact('audio_publication', 'song.mp3', 'audio/mpeg', {
+      let audio;
+      if (song.durableArtifacts) {
+        const primary = song.durableArtifacts.find(a => a.id === song.primaryArtifactId);
+        if (!primary || primary.mediaType !== 'audio') throw new MediaFailure('primary_audio_required', 'audio_publication');
+        audio = { ...primary, durationSeconds: await this.renderer.validateAudio(join(this.store.directory(project), primary.fileName)) };
+      } else audio = await x.artifact('audio_publication', 'song.mp3', 'audio/mpeg', {
         sourceArtifactIds: audioRights.sourceAssetIds, ...x.source(route.voice ? 'voice_conversion' : 'music'),
       },
         async path => { writeFileSync(path, song.bytes, { flag: 'wx', mode: 0o600 }); return { durationSeconds: await this.renderer.validateAudio(path) }; });
-      project.providerMetadata = song.metadata; project.audioArtifact = audio; project.artifacts.push(audio);
+      project.providerMetadata = song.metadata; project.audioArtifact = audio; project.primaryArtifactId = audio.id;
+      project.artifacts = [...project.artifacts.filter(a => a.id !== audio.id), audio];
       x.linkOutput(route.voice ? 'voice_conversion' : 'music', audio);
-      recordAsset(project, { ...audio, kind: 'audio' }, audioRights);
+      if (!project.provenance.assets.some(a => a.id === audio.id)) recordAsset(project, { ...audio, kind: 'audio' }, audioRights);
       project.status = 'rendering'; x.checkpoint('audio');
     }
     const duration = project.audioArtifact.durationSeconds;
@@ -193,7 +210,7 @@ export class SongWorkflow {
       const fileName = vertical ? 'teaser.mp4' : 'youtube.mp4';
       const clipDuration = vertical ? Math.min(30, duration) : duration;
       const size = hd ? [1920, 1080] : [1280, 720];
-      const input = { images: visuals.map(v => v.path), audio: join(this.store.directory(project), 'song.mp3'),
+      const input = { images: visuals.map(v => v.path), audio: join(this.store.directory(project), project.audioArtifact.fileName),
         duration: clipDuration, start: vertical ? Math.min(spec.chorusStartSeconds, duration - clipDuration) : 0,
         width: vertical ? size[1] : size[0], height: vertical ? size[0] : size[1],
         sourceArtifactIds: [project.audioArtifact.id, ...project.artist.visualReferenceIds] };

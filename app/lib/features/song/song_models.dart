@@ -90,13 +90,33 @@ class SongArtifact {
       versionId = json['versionId'] as String?,
       fileName = json['fileName'] as String,
       mimeType = json['mimeType'] as String,
+      role = json['role'] as String?,
+      mediaType = json['mediaType'] as String?,
+      format = json['format'] as String?,
+      codec = json['codec'] as String?,
+      technicalMetadata = Map<String, dynamic>.from(
+        json['technicalMetadata'] as Map? ?? {},
+      ),
+      storageReference = Map<String, dynamic>.from(
+        json['storageReference'] as Map? ?? {},
+      ),
+      providerExecution = Map<String, dynamic>.from(
+        json['providerExecution'] as Map? ?? {},
+      ),
+      producingStageId = json['producingStageId'] as String?,
+      producingAttemptId = json['producingAttemptId'] as String?,
+      sourceArtifactIds = List<String>.from(
+        json['sourceArtifactIds'] as List? ?? [],
+      ),
       byteSize = json['byteSize'] as int,
       sha256 = json['sha256'] as String {
     if (!RegExp(r'^[a-f0-9-]{36}$').hasMatch(id) ||
         (versionId != null &&
             !RegExp(r'^[a-f0-9-]{36}$').hasMatch(versionId!)) ||
-        !RegExp(r'^[a-z]+\.(mp3|mp4|txt)$').hasMatch(fileName) ||
-        !['audio/mpeg', 'video/mp4', 'text/plain'].contains(mimeType) ||
+        !RegExp(r'^[a-zA-Z0-9_-]{1,100}\.[a-z0-9]{1,10}$').hasMatch(fileName) ||
+        !RegExp(
+          r'^(audio|video|image|text|application)/[a-zA-Z0-9.+-]+$',
+        ).hasMatch(mimeType) ||
         byteSize <= 0 ||
         byteSize > 256 * 1024 * 1024 ||
         !RegExp(r'^[a-f0-9]{64}$').hasMatch(sha256)) {
@@ -105,6 +125,16 @@ class SongArtifact {
   }
   final String id, fileName, mimeType, sha256;
   final String? versionId;
+  final String? role,
+      mediaType,
+      format,
+      codec,
+      producingStageId,
+      producingAttemptId;
+  final Map<String, dynamic> technicalMetadata,
+      storageReference,
+      providerExecution;
+  final List<String> sourceArtifactIds;
   final int byteSize;
   ArtifactVersion version(String path, DateTime createdAt) => ArtifactVersion(
     id: versionId ?? 'legacy-song-version-$id',
@@ -130,6 +160,7 @@ class SongProject {
       ),
       failureCode = (json['failure'] as Map?)?['code'] as String?,
       reviewRequired = json['reviewRequired'] == true,
+      primaryArtifactId = json['primaryArtifactId'] as String?,
       provenanceSummary = json['provenanceSummary'] is Map
           ? Map<String, dynamic>.from(json['provenanceSummary'] as Map)
           : null,
@@ -150,14 +181,16 @@ class SongProject {
           'failed',
           'interrupted',
         ].contains(status) ||
+        artifacts.map((a) => a.id).toSet().length != artifacts.length ||
+        (primaryArtifactId != null && primaryAudio == null) ||
         (status == 'completed' &&
-            artifacts.map((a) => a.fileName).toSet().intersection({
-                  'lyrics.txt',
-                  'song.mp3',
-                  'youtube.mp4',
-                  'teaser.mp4',
-                }).length !=
-                4)) {
+            (primaryAudio == null ||
+                artifacts.map((a) => a.fileName).toSet().intersection({
+                      'lyrics.txt',
+                      'youtube.mp4',
+                      'teaser.mp4',
+                    }).length !=
+                    3))) {
       throw const FormatException('Invalid project');
     }
   }
@@ -165,6 +198,7 @@ class SongProject {
   final SongPreferences preferences;
   final String? failureCode;
   final bool reviewRequired;
+  final String? primaryArtifactId;
   final Map<String, dynamic>? provenanceSummary;
   bool get hasProvenance => provenanceSummary?['available'] == true;
   bool get finalApproved => provenanceSummary?['finalApproval'] == 'approved';
@@ -175,7 +209,19 @@ class SongProject {
   final List<SongArtifact> artifacts;
   bool get isActive =>
       ['queued', 'specifying', 'generating', 'rendering'].contains(status);
-  bool get isComplete => status == 'completed' && artifacts.length == 4;
+  SongArtifact? get primaryAudio {
+    for (final artifact in artifacts) {
+      if ((primaryArtifactId == null
+              ? artifact.fileName == 'song.mp3'
+              : artifact.id == primaryArtifactId) &&
+          artifact.mimeType.startsWith('audio/')) {
+        return artifact;
+      }
+    }
+    return null;
+  }
+
+  bool get isComplete => status == 'completed';
 }
 
 bool isOriginalSongRequest(String text) {

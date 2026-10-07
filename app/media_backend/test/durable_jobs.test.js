@@ -52,6 +52,115 @@ function call(server, method, path, body, headers) {
   });
 }
 
+const productionOutputs = () => [
+  { key: 'preview', role: 'combined_mix', mimeType: 'audio/ogg', extension: 'ogg', format: 'ogg', codec: 'opus', bytes: Buffer.alloc(300, 11), technicalMetadata: { lossless: false } },
+  { key: 'vocal', role: 'converted_vocal', mimeType: 'audio/flac', extension: 'flac', format: 'flac', codec: 'flac', bytes: Buffer.alloc(400, 12), technicalMetadata: { lossless: true, sampleRate: 48000, channels: 1 } },
+  { key: 'drums', role: 'stem', mimeType: 'audio/wav', extension: 'wav', format: 'wav', codec: 'pcm_s24le', bytes: Buffer.alloc(500, 13), technicalMetadata: { lossless: true, sampleRate: 48000, bitDepth: 24 } },
+  { key: 'bass', role: 'stem', mimeType: 'audio/flac', extension: 'flac', format: 'flac', codec: 'flac', bytes: Buffer.alloc(600, 14), technicalMetadata: { lossless: true } },
+];
+
+for (const point of ['artifact_published', 'artifact_captured']) test(`multi-artifact ${point}: restart retains preview and every production output`, async t => {
+  const f = fixture(t); f.provider.delayMs = 0;
+  f.provider.artifacts = productionOutputs(); f.provider.primaryArtifactKey = 'preview';
+  let published;
+  await assert.rejects(f.workflow({ hook: async (event, details) => {
+    if (event === point && details.artifact?.providerArtifactKey === 'vocal') {
+      published = details.artifact; throw simulatedCrash();
+    }
+  } }).run(f.project), e => e.simulatedCrash);
+  const attempts = () => f.store.db.prepare('SELECT payload FROM media_attempts').all().map(r => JSON.parse(r.payload));
+  assert.equal(attempts().find(a => a.stageType === 'music').status, 'capturing');
+  assert.notEqual(f.store.getById(f.project.projectId).status, 'completed');
+  assert.equal(f.store.jobs.events().length, 0);
+  f.reopen();
+  const saved = await f.finish(); assert.equal(saved.status, 'completed', JSON.stringify(saved.failure));
+  const outputs = saved.artifacts.filter(a => a.providerArtifactKey);
+  assert.equal(outputs.length, 4); assert.equal(f.provider.count(), 1);
+  assert.deepEqual(outputs.find(a => a.id === published.id), published);
+  assert.deepEqual(outputs.map(a => a.role).sort(), ['combined_mix', 'converted_vocal', 'stem', 'stem']);
+  assert.equal(saved.audioArtifact.role, 'combined_mix'); assert.equal(saved.audioArtifact.mimeType, 'audio/ogg');
+  assert.equal(saved.primaryArtifactId, outputs.find(a => a.providerArtifactKey === 'preview').id);
+  assert.equal(outputs.filter(a => a.technicalMetadata.lossless).length, 3);
+  assert.ok(outputs.every(a => a.storageReference.artifactId === a.id && a.storageReference.projectId === saved.projectId));
+  const music = attempts().find(a => a.stageType === 'music');
+  assert.equal(music.status, 'completed');
+  assert.deepEqual(new Set(music.artifactIds), new Set(outputs.map(a => a.id)));
+  assert.ok(outputs.every(a => a.providerExecution.attemptId === music.id && a.providerExecution.externalExecutionId === music.externalExecutionId));
+  assert.ok(outputs.every(a => a.producingStageId && a.producingAttemptId && a.sourceAttemptId === music.id));
+  assert.ok(!attempts().some(a => /mix|master/.test(a.stageType)));
+  const stable = outputs.map(a => [a.id, a.sha256]);
+  const registered = f.store.db.prepare('SELECT COUNT(*) AS n FROM media_artifacts').get().n;
+  // Repeated reconciliation reuses owned bytes even after every temporary provider output expires.
+  f.provider.db.exec('DELETE FROM outputs');
+  f.reopen();
+  f.store.jobs.transaction(() => {
+    f.store.db.prepare("UPDATE media_jobs SET status='queued' WHERE project_id=?").run(saved.projectId);
+  });
+  const lease = f.store.jobs.claim('repeat-capture');
+  const x = new SongExecution(f.store, lease);
+  const replay = await x.provider('music', f.provider, music.inputSnapshot, () => { throw new Error('must not redispatch'); });
+  assert.deepEqual(new Set(replay.durableArtifacts.map(a => a.id)), new Set(outputs.map(a => a.id)));
+  f.store.jobs.release(lease);
+  await f.finish();
+  const recovered = f.store.getById(saved.projectId);
+  assert.deepEqual(recovered.artifacts.filter(a => a.providerArtifactKey).map(a => [a.id, a.sha256]), stable);
+  assert.equal(f.store.db.prepare('SELECT COUNT(*) AS n FROM media_artifacts').get().n, registered);
+  assert.equal(f.provider.count(), 1); assert.equal(f.store.jobs.events().length, 1);
+  // Canonical reconnect and authenticated retrieval include non-primary production artifacts.
+  const serviceKey = randomUUID();
+  const server = mediaServer({ store: f.store, renderer: f.renderer, serviceKey });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const headers = { authorization: `Bearer ${serviceKey}`, 'x-ovexiq-account': f.owner };
+  const response = await call(server, 'GET', `/v1/media/projects/${saved.projectId}`, null, headers);
+  const canonical = JSON.parse(response.bytes); assert.equal(canonical.primaryArtifactId, saved.primaryArtifactId);
+  assert.equal(canonical.artifacts.length, 7);
+  for (const item of canonical.artifacts.filter(a => a.providerArtifactKey)) {
+    assert.equal(item.temporaryUrl, undefined);
+    const download = await call(server, 'GET', `/v1/media/projects/${saved.projectId}/artifacts/${item.id}`, null, headers);
+    assert.equal(download.status, 200); assert.equal(download.headers['content-type'], item.mimeType);
+    assert.equal(createHash('sha256').update(download.bytes).digest('hex'), item.sha256);
+  }
+});
+
+test('required temporary output prevents completion until captured; no repeat generation', async t => {
+  const f = fixture(t); f.provider.delayMs = 0;
+  f.provider.artifacts = productionOutputs(); f.provider.primaryArtifactKey = 'preview';
+  const capture = f.provider.durableExecution.captureArtifact;
+  f.provider.durableExecution.captureArtifact = args => args.artifact.key === 'bass' ? undefined : capture(args);
+  await f.workflow().run(f.project);
+  assert.notEqual(f.project.status, 'completed'); assert.equal(f.store.jobs.events().length, 0);
+  const attempt = JSON.parse(f.store.db.prepare("SELECT payload FROM media_attempts WHERE json_extract(payload,'$.stageType')='music'").get().payload);
+  assert.equal(attempt.status, 'capturing'); assert.equal(attempt.artifactIds.length, 3);
+  f.reopen();
+  assert.equal((await f.finish()).status, 'completed'); assert.equal(f.provider.count(), 1);
+});
+
+for (const count of [0, 1]) test(`provider execution accepts ${count} typed artifacts without mandatory downstream assembly`, async t => {
+  const f = fixture(t); f.provider.delayMs = 0;
+  f.provider.artifacts = productionOutputs().slice(1, 1 + count);
+  f.provider.primaryArtifactKey = count ? 'vocal' : undefined;
+  const lease = f.store.jobs.claim('collection-test');
+  const x = new SongExecution(f.store, lease);
+  const invoke = () => { throw new Error('must use existing synthetic lifecycle'); };
+  const result = await x.provider('collection', f.provider, {}, invoke);
+  assert.equal(result.durableArtifacts.length, count);
+  assert.equal(result.primaryArtifactId, count ? result.durableArtifacts[0].id : null);
+  f.provider.db.exec('DELETE FROM outputs');
+  const again = await x.provider('collection', f.provider, {}, invoke);
+  assert.deepEqual(again.durableArtifacts, result.durableArtifacts); assert.equal(f.provider.count(), 1);
+  assert.equal(f.store.db.prepare('SELECT COUNT(*) AS n FROM media_artifacts').get().n, count);
+});
+
+test('inline collection captures arbitrary roles and format without provider URLs or a primary', async t => {
+  const f = fixture(t), x = new SongExecution(f.store, f.store.jobs.claim('inline'));
+  const result = await x.provider('inline', { providerId: 'synthetic-inline' }, {}, async () => ({
+    artifacts: [{ key: 'take', role: 'master', mimeType: 'audio/flac', extension: 'flac', bytes: Buffer.alloc(200, 3) }],
+  }));
+  assert.equal(result.primaryArtifactId, null); assert.equal(result.durableArtifacts[0].role, 'master');
+  assert.equal(readFileSync(join(f.store.directory(f.project), result.durableArtifacts[0].fileName)).length, 200);
+});
+
 test('A B C N R: acknowledgement, lost client, same-key recovery, passive history and download', async t => {
   const f = fixture(t, { create: false }), serviceKey = 'synthetic-local-service-key-with-no-real-access';
   const server = mediaServer({ store: f.store, renderer: f.renderer, serviceKey });
