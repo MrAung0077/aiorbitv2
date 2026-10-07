@@ -87,11 +87,14 @@ class SongPreferences {
 class SongArtifact {
   SongArtifact.fromJson(Map<String, dynamic> json)
     : id = json['id'] as String,
+      versionId = json['versionId'] as String?,
       fileName = json['fileName'] as String,
       mimeType = json['mimeType'] as String,
       byteSize = json['byteSize'] as int,
       sha256 = json['sha256'] as String {
     if (!RegExp(r'^[a-f0-9-]{36}$').hasMatch(id) ||
+        (versionId != null &&
+            !RegExp(r'^[a-f0-9-]{36}$').hasMatch(versionId!)) ||
         !RegExp(r'^[a-z]+\.(mp3|mp4|txt)$').hasMatch(fileName) ||
         !['audio/mpeg', 'video/mp4', 'text/plain'].contains(mimeType) ||
         byteSize <= 0 ||
@@ -101,9 +104,10 @@ class SongArtifact {
     }
   }
   final String id, fileName, mimeType, sha256;
+  final String? versionId;
   final int byteSize;
   ArtifactVersion version(String path, DateTime createdAt) => ArtifactVersion(
-    id: id,
+    id: versionId ?? 'legacy-song-version-$id',
     artifactId: id,
     mimeType: mimeType,
     localPath: path,
@@ -125,6 +129,7 @@ class SongProject {
         Map<String, dynamic>.from(json['preferences'] as Map? ?? {}),
       ),
       failureCode = (json['failure'] as Map?)?['code'] as String?,
+      reviewRequired = json['reviewRequired'] == true,
       provenanceSummary = json['provenanceSummary'] is Map
           ? Map<String, dynamic>.from(json['provenanceSummary'] as Map)
           : null,
@@ -159,6 +164,7 @@ class SongProject {
   final String projectId, title, language, status, lyrics;
   final SongPreferences preferences;
   final String? failureCode;
+  final bool reviewRequired;
   final Map<String, dynamic>? provenanceSummary;
   bool get hasProvenance => provenanceSummary?['available'] == true;
   bool get finalApproved => provenanceSummary?['finalApproval'] == 'approved';

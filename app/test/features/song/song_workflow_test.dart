@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -11,6 +12,7 @@ import 'package:aiorbit/features/home/home_screen.dart';
 import 'package:aiorbit/features/song/song_api.dart';
 import 'package:aiorbit/features/song/song_models.dart';
 import 'package:aiorbit/features/song/song_studio_screen.dart';
+import 'package:aiorbit/features/song/song_submission_store.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -52,7 +54,19 @@ SongApi apiWith(
   session: () => 'synthetic-session',
   invalidateSession: invalidate ?? () async {},
   client: MockClient(handler),
+  submissionStore: _MemorySubmissions(),
+  submissionScope: () => 'synthetic-account',
 );
+
+class _MemorySubmissions implements SongSubmissionStore {
+  final values = <String, SongSubmission>{};
+  @override
+  Future<SongSubmission?> load(String scope) async => values[scope];
+  @override
+  Future<void> save(SongSubmission value) async {
+    values[value.scope] = value;
+  }
+}
 
 class _HistoryApi extends SongApi {
   _HistoryApi(this.saved)
@@ -67,6 +81,8 @@ class _HistoryApi extends SongApi {
       );
   final Map<String, Object?> saved;
   final methods = <String>[];
+  @override
+  Future<SongProject?> recoverSubmission() async => null;
   @override
   Future<Map<String, dynamic>> artist() async {
     methods.add('GET');
@@ -130,6 +146,192 @@ class _NoChatGeneration extends AIChatService {
 }
 
 void main() {
+  test(
+    'C D: lost acknowledgement survives app restart with identical request and stable project',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'song-submission-restart-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      var posts = 0;
+      String? original;
+      SongApi client() => SongApi(
+        baseUrl: 'https://api.example.test',
+        token: 'synthetic',
+        session: () => 'synthetic-session',
+        invalidateSession: () async {},
+        submissionScope: () => 'test-account',
+        submissionStore: FileSongSubmissionStore(
+          directoryProvider: () async => root,
+        ),
+        client: MockClient((request) async {
+          if (request.method == 'GET') {
+            return http.Response(jsonEncode(project()), 200);
+          }
+          posts++;
+          final persisted = await FileSongSubmissionStore(
+            directoryProvider: () async => root,
+          ).load('test-account');
+          expect(
+            persisted!.requestJson,
+            request.body,
+          ); // Persisted before the HTTP side effect.
+          original ??= request.body;
+          expect(request.body, original);
+          if (posts == 1) {
+            throw TimeoutException('response lost after acceptance');
+          }
+          return http.Response(jsonEncode(project()), 202);
+        }),
+      );
+      final first = client();
+      await expectLater(
+        first.create('Create an original song', 'en', projectId),
+        throwsA(isA<SongFailure>()),
+      );
+      first.close();
+      final reopened = client();
+      addTearDown(reopened.close);
+      expect((await reopened.recoverSubmission())!.projectId, projectId);
+      final saved = await FileSongSubmissionStore(
+        directoryProvider: () async => root,
+      ).load('test-account');
+      expect(saved!.acknowledged, true);
+      expect(saved.projectId, projectId);
+      expect(saved.requestId, projectId);
+      expect((await reopened.recoverSubmission())!.projectId, projectId);
+      expect(posts, 2);
+    },
+  );
+
+  test(
+    'pending submission cannot be replaced with a fresh key or edited snapshot',
+    () async {
+      final saved = _MemorySubmissions();
+      var calls = 0;
+      final api = SongApi(
+        baseUrl: 'https://api.example.test',
+        token: 'synthetic',
+        session: () => 'synthetic-session',
+        invalidateSession: () async {},
+        submissionStore: saved,
+        submissionScope: () => 'account',
+        client: MockClient((_) async {
+          calls++;
+          throw const SocketException('offline');
+        }),
+      );
+      addTearDown(api.close);
+      await expectLater(
+        api.create('Create the first song', 'en', projectId),
+        throwsA(isA<SongFailure>()),
+      );
+      await expectLater(
+        api.create('Create a different song', 'en', newSongRequestId()),
+        throwsA(
+          isA<SongFailure>().having(
+            (e) => e.code,
+            'code',
+            'pending_submission',
+          ),
+        ),
+      );
+      expect(calls, 1);
+      expect((await saved.load('account'))!.requestId, projectId);
+    },
+  );
+
+  test(
+    'submission persistence failure prevents POST and account changes cannot replay another account',
+    () async {
+      var scope = 'first';
+      var calls = 0;
+      final saved = _MemorySubmissions();
+      final api = SongApi(
+        baseUrl: 'https://api.example.test',
+        token: 'synthetic',
+        session: () => 'synthetic-session',
+        invalidateSession: () async {},
+        submissionStore: saved,
+        submissionScope: () => scope,
+        client: MockClient((_) async {
+          calls++;
+          throw const SocketException('offline');
+        }),
+      );
+      addTearDown(api.close);
+      await expectLater(
+        api.create('Create an original song', 'en', projectId),
+        throwsA(isA<SongFailure>()),
+      );
+      scope = 'second';
+      expect(await api.recoverSubmission(), isNull);
+      expect(calls, 1);
+      final broken = SongApi(
+        baseUrl: 'https://api.example.test',
+        token: 'synthetic',
+        session: () => 'synthetic-session',
+        invalidateSession: () async {},
+        submissionScope: () => scope,
+        submissionStore: FileSongSubmissionStore(
+          directoryProvider: () async =>
+              throw const FileSystemException('unavailable'),
+        ),
+        client: MockClient((_) async {
+          calls++;
+          return http.Response('{}', 202);
+        }),
+      );
+      addTearDown(broken.close);
+      await expectLater(
+        broken.create('Create an original song', 'en', projectId),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(calls, 1);
+    },
+  );
+
+  testWidgets(
+    'resuming Song Studio refreshes canonical state without generating',
+    (tester) async {
+      final api = _HistoryApi(project());
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [songApiProvider.overrideWithValue(api)],
+          child: const MaterialApp(home: SongStudioScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(api.methods, ['GET', 'GET', 'GET', 'GET']);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  test(
+    'artifact identity and version identity are independent, including legacy read compatibility',
+    () {
+      final value = SongArtifact.fromJson({
+        ...artifact('song.mp3', 'audio/mpeg', 2),
+        'versionId': '00000000-0000-4000-8000-000000000099',
+      });
+      expect(
+        value.version('/private/song.mp3', DateTime(2026)).id,
+        value.versionId,
+      );
+      expect(value.versionId, isNot(value.id));
+      final legacy = SongArtifact.fromJson(
+        artifact('song.mp3', 'audio/mpeg', 2),
+      );
+      expect(
+        legacy.version('/private/song.mp3', DateTime(2026)).id,
+        isNot(legacy.id),
+      );
+    },
+  );
   test(
     'voice choices describe outcomes, not providers or cloning guarantees',
     () {

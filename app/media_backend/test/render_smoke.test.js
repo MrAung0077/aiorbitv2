@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { FfmpegRenderer, runProcess } from '../src/render.js';
 import { MediaStore, publicProject } from '../src/store.js';
 import { SongWorkflow } from '../src/workflow.js';
+import { SyntheticMediaProvider, simulatedCrash } from './fixtures/synthetic_media_provider.js';
 
 function getLocal(port, path, headers) {
   return new Promise((resolve, reject) => {
@@ -29,19 +30,21 @@ test('real render, durable artifacts and keyless service boot', { skip: process.
   const parent = process.env.MEDIA_SMOKE_OUTPUT_DIR ?? tmpdir();
   mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(join(parent, 'ovexiq-render-smoke-'));
-  let openStore, child;
+  let openStore, child, provider;
   t.after(async () => {
     if (child?.pid && child.exitCode === null && child.signalCode === null) {
       const stopped = once(child, 'exit'); child.kill(); await stopped;
     }
     openStore?.close();
+    provider?.close();
     if (!process.env.MEDIA_SMOKE_OUTPUT_DIR) rmSync(root, { recursive: true, force: true });
   });
   const originalFetch = globalThis.fetch;
   let providerCalls = 0;
   globalThis.fetch = async () => { providerCalls++; throw new Error('external_fetch_forbidden'); };
   t.after(() => { globalThis.fetch = originalFetch; });
-  const store = new MediaStore(root); openStore = store;
+  let now = Date.now();
+  let store = new MediaStore(root, { clock: () => now }); openStore = store;
   const owner = `acct_${randomUUID()}`, ids = [];
   for (const [index, color] of ['red', 'green', 'blue', 'gray'].entries()) {
     const file = join(root, `${index}.jpg`), id = randomUUID(); ids.push(id);
@@ -51,18 +54,35 @@ test('real render, durable artifacts and keyless service boot', { skip: process.
   store.saveArtist(owner, { artistName: 'Synthetic Test', visualReferenceIds: ids });
   const source = join(root, 'synthetic.mp3');
   await runProcess('ffmpeg', ['-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=220:sample_rate=44100', '-t', '48', '-c:a', 'libmp3lame', source]);
-  let textCalls = 0, musicCalls = 0;
+  let textCalls = 0;
   const project = store.create(owner, { requestId: randomUUID(), goal: 'Synthetic render validation only', language: 'en' });
-  const workflow = new SongWorkflow({ store, renderer,
+  const providerPath = join(root, 'synthetic-provider.sqlite');
+  provider = new SyntheticMediaProvider(providerPath, { clock: () => now, delayMs: 0, bytes: readFileSync(source) });
+  const makeWorkflow = hook => new SongWorkflow({ store, renderer, hook,
     textProvider: { async create() { textCalls++; return { title: 'Synthetic test', language: 'en', theme: 'test', genre: 'test',
       mood: 'test', tempoDirection: 'test', instrumentation: 'sine', vocalCharacteristics: 'none', structure: 'test',
       lyrics: '[Verse 1]\nSynthetic fixture\n[Chorus]\nNo singing or provider call', chorusStartSeconds: 12 }; } },
-    musicProvider: { supportsLanguage: () => true, async generateSong() {
-      musicCalls++; return { bytes: readFileSync(source), metadata: { provider: 'synthetic-local-fixture' } };
-    } },
+    musicProvider: provider,
   });
-  const started = Date.now(); await workflow.run(project);
+  const restart = () => {
+    store.close(); provider.close(); now += 60000;
+    store = new MediaStore(root, { clock: () => now }); openStore = store;
+    provider = new SyntheticMediaProvider(providerPath, { clock: () => now, delayMs: 0, bytes: readFileSync(source) });
+    store.interruptUncertain();
+  };
+  const started = Date.now();
+  await assert.rejects(makeWorkflow(async (point, { stage }) => {
+    if (point === 'provider_accepted' && stage.kind === 'music') throw simulatedCrash();
+  }).run(project), error => error.simulatedCrash);
+  restart();
+  let rendered;
+  await assert.rejects(makeWorkflow(async (point, { stage, artifact }) => {
+    if (point === 'artifact_published' && stage.kind === 'render_full') { rendered = artifact; throw simulatedCrash(); }
+  }).run(project), error => error.simulatedCrash);
+  restart(); await makeWorkflow().run(project);
   assert.equal(project.status, 'completed', JSON.stringify(project.failure));
+  assert.deepEqual(project.artifacts.find(a => a.fileName === 'youtube.mp4'), rendered);
+  assert.equal(provider.count(), 1); assert.equal(store.jobs.events().length, 1);
   assert.equal(project.artifacts.length, 4);
   const checks = [];
   for (const artifact of project.artifacts) {
@@ -109,10 +129,11 @@ test('real render, durable artifacts and keyless service boot', { skip: process.
   assert.equal(download.status, 200);
   assert.equal(createHash('sha256').update(download.bytes).digest('hex'), artifact.sha256);
   assert.equal(download.headers['x-artifact-sha256'], artifact.sha256);
-  assert.equal(providerCalls, 0); assert.equal(textCalls, 1); assert.equal(musicCalls, 1);
+  assert.equal(providerCalls, 0); assert.equal(textCalls, 1); assert.equal(provider.count(), 1);
   const report = { platform: process.platform, node: process.version,
     ffmpeg: (await runProcess('ffmpeg', ['-version'])).split('\n')[0], elapsedMs: Date.now() - started,
     keylessBoot: 'PASS', persistenceReopen: 'PASS', authenticatedDownload: 'PASS', providerCalls,
+    syntheticExecutionCount: provider.count(), providerAcceptanceRecovery: 'PASS', renderPublicationRecovery: 'PASS', completionEventCount: 1,
     projectId: project.projectId, artifacts: checks };
   writeFileSync(join(root, 'smoke-report.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify({ smokeOutputDirectory: root, ...report }));

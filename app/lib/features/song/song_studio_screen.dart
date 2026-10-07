@@ -17,7 +17,8 @@ class SongStudioScreen extends ConsumerStatefulWidget {
   ConsumerState<SongStudioScreen> createState() => _SongStudioScreenState();
 }
 
-class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
+class _SongStudioScreenState extends ConsumerState<SongStudioScreen>
+    with WidgetsBindingObserver {
   late final TextEditingController _goal = TextEditingController(
     text: widget.initialGoal,
   );
@@ -36,15 +37,18 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
   List<SongProject> _projects = [];
   Timer? _poll;
   bool _busy = false, _loading = true, _rightsConfirmed = false;
+  bool _refreshing = false, _submissionUnresolved = false;
   String? _error, _requestId, _pendingGoal;
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_load());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _poll?.cancel();
     _goal.dispose();
     _artistName.dispose();
@@ -54,21 +58,45 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
   }
 
   String tr(String en, String my) => _language == 'my' ? my : en;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_load());
+  }
+
   Future<void> _load() async {
+    if (_refreshing) return;
+    _refreshing = true;
     _poll?.cancel();
     try {
       final api = ref.read(songApiProvider);
+      SongProject? recovered;
+      var unresolved = false;
+      try {
+        recovered = await api.recoverSubmission();
+      } catch (_) {
+        unresolved = true;
+      }
       final artist = await api.artist();
       final projects = await api.projects();
+      if (recovered != null &&
+          !projects.any((p) => p.projectId == recovered!.projectId)) {
+        projects.insert(0, recovered);
+      }
       if (!mounted) return;
       setState(() {
         _artistName.text = artist['artistName'] as String;
         _visualIds = List<String>.from(artist['visualReferenceIds'] as List);
         _projects = projects;
         _loading = false;
-        _error = null;
+        _submissionUnresolved = unresolved;
+        _error = unresolved
+            ? tr(
+                'Your earlier submission is not yet confirmed. Refresh to recover it before creating another song.',
+                'ယခင်တောင်းဆိုမှုကို အတည်မပြုရသေးပါ။ နောက်သီချင်းမဖန်တီးမီ ပြန်ဖွင့်ကြည့်ပါ။',
+              )
+            : null;
       });
-      if (projects.any((p) => p.isActive)) {
+      if (unresolved || projects.any((p) => p.isActive)) {
         _poll = Timer(const Duration(seconds: 5), () => unawaited(_load()));
       }
     } catch (_) {
@@ -76,11 +104,14 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
         setState(() {
           _loading = false;
           _error = tr(
-            'Song service could not be reached or is not enabled for this account. No job is started by refreshing.',
-            'သီချင်းဝန်ဆောင်မှုကို ဆက်သွယ်၍ မရသေးပါ။ ပြန်ဖွင့်ကြည့်ရုံဖြင့် သီချင်းအသစ် မဖန်တီးပါ။',
+            'Song service could not be reached. Refresh will recover the same saved submission.',
+            'သီချင်းဝန်ဆောင်မှုကို ဆက်သွယ်၍ မရသေးပါ။ ပြန်ဖွင့်ကြည့်လျှင် သိမ်းထားသော တောင်းဆိုမှုကို ပြန်စစ်ပေးပါမည်။',
           );
         });
+        _poll = Timer(const Duration(seconds: 5), () => unawaited(_load()));
       }
+    } finally {
+      _refreshing = false;
     }
   }
 
@@ -130,6 +161,7 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
 
   Future<void> _create() async {
     if (_busy ||
+        _submissionUnresolved ||
         _visualIds.length != 4 ||
         !_rightsConfirmed ||
         _goal.text.trim().length < 8) {
@@ -202,6 +234,7 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
       goal,
       preferences.toJson(),
       commercialUseRequested,
+      _rightsConfirmed,
     ]);
     if (_pendingGoal != fingerprint) {
       _requestId = newSongRequestId();
@@ -303,6 +336,12 @@ class _SongStudioScreenState extends ConsumerState<SongStudioScreen> {
   }
 
   String _status(SongProject p) {
+    if (p.reviewRequired) {
+      return tr(
+        'Generation needs review. It will not be submitted again automatically.',
+        'ဖန်တီးမှုကို စစ်ဆေးရန်လိုပါသည်။ အလိုအလျောက် ထပ်မပို့ပါ။',
+      );
+    }
     if (p.status == 'failed' &&
         [
           'reusable_voice_unavailable',

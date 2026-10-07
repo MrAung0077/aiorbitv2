@@ -100,8 +100,14 @@ test('render failure preserves accepted MP3; preflight failure makes no paid cal
   const { workflow, calls } = fakes(store);
   workflow.renderer.export = async () => { throw new Error('private provider content'); };
   await workflow.run(project);
-  assert.equal(project.status, 'failed'); assert.equal(project.audioArtifact.mimeType, 'audio/mpeg');
+  assert.equal(project.status, 'rendering'); assert.equal(project.audioArtifact.mimeType, 'audio/mpeg');
   assert.doesNotMatch(JSON.stringify(project.failure), /private/);
+  // Exhaust only local retries; the accepted audio and provider call counts stay intact.
+  for (let i = 0; i < 2; i++) {
+    store.db.prepare('UPDATE media_jobs SET ready_at=0 WHERE project_id=?').run(project.projectId);
+    await workflow.run(project);
+  }
+  assert.equal(project.status, 'failed');
   const second = store.create(owner, input());
   workflow.renderer.preflight = async () => { throw new MediaFailure('ffmpeg_unavailable', 'render'); };
   await workflow.run(second); assert.equal(calls.music, 1); assert.equal(calls.text, 1);
@@ -233,7 +239,7 @@ for (const hasStem of [true, false]) test(`conversion consumes generated vocal s
       capabilities: { languages: ['en'], voiceCapabilities: ['TRUE_VOICE_CLONE', 'VOICE_CONVERSION'],
         conversionInput: 'vocal_stem', returnsFinalMix: true },
       async createVoiceProfile() { profiles++; return 'synthetic-profile'; },
-      async convertVoice(audio, profile) { conversions++; assert.equal(audio, stem); assert.equal(profile, 'synthetic-profile');
+      async convertVoice(audio, profile) { conversions++; assert.deepEqual(audio, stem); assert.equal(profile, 'synthetic-profile');
         return { bytes: Buffer.alloc(256, 2) }; },
     } }],
   });

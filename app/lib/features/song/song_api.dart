@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/config/app_config.dart';
 import '../beta_access/providers/beta_access_provider.dart';
 import 'song_models.dart';
+import 'song_submission_store.dart';
 
 class SongFailure implements Exception {
   const SongFailure(this.code);
@@ -38,16 +39,43 @@ class SongApi {
     required this.session,
     required this.invalidateSession,
     http.Client? client,
+    SongSubmissionStore? submissionStore,
+    String? Function()? submissionScope,
   }) : _base = Uri.tryParse(baseUrl),
        // Keep the public named constructor argument and private backing field.
        // ignore: prefer_initializing_formals
        _token = token,
-       _client = client ?? http.Client();
+       _client = client ?? http.Client(),
+       _submissionStore = submissionStore ?? FileSongSubmissionStore(),
+       // Keep this optional testing seam named without exposing the backing field.
+       // ignore: prefer_initializing_formals
+       _submissionScope = submissionScope;
   final Uri? _base;
   final String _token;
   final String? Function() session;
   final Future<void> Function() invalidateSession;
   final http.Client _client;
+  final SongSubmissionStore _submissionStore;
+  final String? Function()? _submissionScope;
+  Future<void> _submissionWork = Future<void>.value();
+  String? get _scope {
+    if (_submissionScope != null) return _submissionScope();
+    final parts = session()?.split('.') ?? [];
+    if (parts.length != 4 || parts.first != 'ovs1' || _base == null) {
+      return null;
+    }
+    return '${_base.origin}|${parts[1]}';
+  }
+
+  Future<T> _serializeSubmission<T>(Future<T> Function() operation) {
+    final result = _submissionWork.then((_) => operation());
+    _submissionWork = result.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {},
+    );
+    return result;
+  }
+
   void close() => _client.close();
   Uri _uri(String path) {
     if (_base?.scheme != 'https' || _base!.host.isEmpty) {
@@ -111,6 +139,31 @@ class SongApi {
       ((await request('GET', 'projects'))['projects'] as List)
           .map((p) => SongProject.fromJson(Map<String, dynamic>.from(p as Map)))
           .toList();
+  Future<SongProject> project(String id) async =>
+      SongProject.fromJson(await request('GET', 'projects/$id'));
+
+  Future<SongProject?> recoverSubmission() => _serializeSubmission(() async {
+    final scope = _scope;
+    if (scope == null) return null;
+    final pending = await _submissionStore.load(scope);
+    if (pending == null) return null;
+    if (_scope != scope) throw const SongFailure('submission_account_changed');
+    return pending.acknowledged
+        ? project(pending.projectId!)
+        : _submitSaved(pending);
+  });
+
+  Future<SongProject> _submitSaved(SongSubmission submission) async {
+    if (_scope != submission.scope) {
+      throw const SongFailure('submission_account_changed');
+    }
+    final result = SongProject.fromJson(
+      await request('POST', 'projects', submission.request),
+    );
+    await _submissionStore.save(submission.acknowledge(result.projectId));
+    return result;
+  }
+
   Future<Map<String, dynamic>> artist() => request('GET', 'artist');
   Future<void> saveArtist(
     String name,
@@ -142,16 +195,36 @@ class SongApi {
     SongPreferences? preferences,
     bool commercialUseRequested = false,
     bool imagePermissionsDeclared = false,
-  }) async => SongProject.fromJson(
-    await request('POST', 'projects', {
+  }) => _serializeSubmission(() async {
+    final scope = _scope;
+    if (scope == null) throw const SongFailure('unauthorized');
+    final body = {
       'goal': goal,
       'language': language,
       'requestId': requestId,
       if (preferences != null) 'preferences': preferences.toJson(),
       if (commercialUseRequested) 'commercialUseRequested': true,
       if (imagePermissionsDeclared) 'imagePermissionsDeclared': true,
-    }),
-  );
+    };
+    final snapshot = jsonEncode(body);
+    final previous = await _submissionStore.load(scope);
+    if (previous != null &&
+        (!previous.acknowledged || previous.requestId == requestId)) {
+      if (previous.requestJson != snapshot) {
+        throw const SongFailure('pending_submission');
+      }
+      return previous.acknowledged
+          ? project(previous.projectId!)
+          : _submitSaved(previous);
+    }
+    final pending = SongSubmission(
+      scope: scope,
+      requestJson: snapshot,
+      createdAt: DateTime.now().toUtc(),
+    );
+    await _submissionStore.save(pending);
+    return _submitSaved(pending);
+  });
 
   Future<SongProject> approveFinal(SongProject project) async =>
       SongProject.fromJson(

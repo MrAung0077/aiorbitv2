@@ -59,8 +59,13 @@ export function mediaServer({ store, renderer, serviceKey }) {
       }
       if (path === '/v1/media/projects' && req.method === 'GET') return send(res, 200, { projects: store.list(owner).map(publicProject) });
       if (path === '/v1/media/projects' && req.method === 'POST') {
+        const input = await jsonBody(req);
+        // Lost acknowledgements can recover even when FFmpeg is temporarily unavailable.
+        if (typeof input?.requestId === 'string' && store.submission(owner, input.requestId)) {
+          return send(res, 202, publicProject(store.create(owner, input)));
+        }
         await renderer.preflight(); // Fail before any paid work if rendering unavailable.
-        return send(res, 202, publicProject(store.create(owner, await jsonBody(req))));
+        return send(res, 202, publicProject(store.create(owner, input)));
       }
       const match = path.match(/^\/v1\/media\/projects\/([a-f0-9-]{36})(?:\/artifacts\/([a-f0-9-]{36}))?$/);
       if (match && !match[2] && req.method === 'PUT') {
@@ -96,18 +101,17 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const renderer = new FfmpegRenderer();
   await renderer.preflight();
   const server = mediaServer({ store, renderer, serviceKey: env.OVEXIQ_MEDIA_SERVICE_KEY });
-  // One service replica with an exclusive persistent volume. Crashes leave a
-  // reviewable terminal state; no automatic replay of paid requests.
+  // Legacy active projects stay non-replayable. Durable jobs recover expired leases.
   store.interruptUncertain();
   const workflow = new SongWorkflow({ store, renderer,
     textProvider: new SongSpecProvider({ apiKey: env.OPENROUTER_API_KEY }),
-    musicProvider: new LyriaMusicProvider({ apiKey: env.GEMINI_API_KEY }) });
+    // Execution provenance only; the existing adapter and route selection are unchanged.
+    musicProvider: Object.assign(new LyriaMusicProvider({ apiKey: env.GEMINI_API_KEY }), { model: 'lyria-3.5', apiVersion: 'v1beta' }) });
   let busy = false;
   setInterval(async () => {
     if (busy) return;
-    const job = store.next(); if (!job) return;
     busy = true;
-    try { await workflow.run(job); }
+    try { await workflow.tick(); }
     catch { /* Do not print private content/errors; recovery marks uncertain jobs. */ }
     finally { busy = false; }
   }, 1000);
