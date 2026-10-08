@@ -32,8 +32,8 @@ function log(event, data = {}) {
   })}\n`);
 }
 
-function integerEnv(name, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
-  const raw = process.env[name];
+function integerEnv(env, name, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const raw = env[name];
   if (raw == null || raw === '') return fallback;
   const value = Number(raw);
   if (!Number.isInteger(value) || value < min || value > max) {
@@ -73,8 +73,8 @@ export async function startAcceptanceServer(env = process.env) {
     throw new Error('Acceptance server requires MEDIA_DATA_DIR and OVEXIQ_MEDIA_SERVICE_KEY (>=32 chars)');
   }
 
-  const port = integerEnv('PORT', 8080, { min: 1, max: 65535 });
-  const delayMs = integerEnv('OVEXIQ_SYNTHETIC_DELAY_MS', 120000, {
+  const port = integerEnv(env, 'PORT', 8080, { min: 1, max: 65535 });
+  const delayMs = integerEnv(env, 'OVEXIQ_SYNTHETIC_DELAY_MS', 120000, {
     min: 1000,
     max: 30 * 60 * 1000,
   });
