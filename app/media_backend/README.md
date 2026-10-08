@@ -216,6 +216,32 @@ Existing beta-token/session/invite/signing/provider configuration and Durable Ob
 
 Android uses its existing production base URL, beta token and secure device-session storage. No new paid-provider key is supplied in Dart defines. HTTPS network only. Do not put service/provider secrets in build arguments, logs, APKs or source.
 
+## Physical Android synthetic acceptance launcher
+
+Use the test-only launcher for device disappearance/reconnect acceptance. It imports only the persistent synthetic media provider plus the normal durable store/workflow/renderer; it does not import live music/text provider adapters.
+
+Required environment:
+
+- `MEDIA_DATA_DIR`: persistent private media volume. Reuse the same directory across launcher restart.
+- `OVEXIQ_MEDIA_SERVICE_KEY`: test gateway/media shared credential, at least 32 characters.
+- `PORT`: optional, defaults to `8080`.
+- `OVEXIQ_SYNTHETIC_DELAY_MS`: optional synthetic provider delay, defaults to `120000` (2 minutes), valid range 1 second to 30 minutes.
+
+From `app/media_backend`:
+
+```powershell
+$env:MEDIA_DATA_DIR="D:\ovexiq-acceptance-data"
+$env:OVEXIQ_MEDIA_SERVICE_KEY=$env:OVEXIQ_TEST_MEDIA_SERVICE_KEY
+$env:OVEXIQ_SYNTHETIC_DELAY_MS="120000"
+npm run start:acceptance
+```
+
+The launcher requires Node 22.16+, FFmpeg and FFprobe. At startup it creates deterministic 48-second MP3, FLAC and Ogg/Opus fixtures under the private media data directory. A synthetic execution returns all three typed artifacts with the MP3 selected as primary so the existing renderer can produce the full-song and teaser MP4s. The provider execution database is stored at `MEDIA_DATA_DIR/synthetic-provider.sqlite`, while project/job/stage/attempt/artifact state remains in the normal media SQLite database. Restarting the launcher with the same `MEDIA_DATA_DIR` therefore preserves both sides of reconciliation.
+
+The launcher emits JSON-lines acceptance evidence containing timestamps and non-secret request/project/job/stage/attempt/execution/artifact IDs and hashes. HTTP logs include method/path/status but never authorization headers, beta tokens, device-session credentials or service keys. It is test-only and intentionally has no live paid-provider import/fallback.
+
+This launcher is not public ingress. For a real phone, place it behind the separately provisioned trusted HTTPS media origin and test gateway described by the deployment boundary. Do not expose the raw service directly to the internet.
+
 ## Validation and container commands
 
 From `app/media_backend`:
