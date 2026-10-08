@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ovexiq-ai-gateway-staging",
+  "main": "src/media_entry.js",
+  "compatibility_date": "2026-08-09",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "vars": {
+    "OVEXIQ_MEDIA_ENABLED": "true"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BETA_DAILY_QUOTA",
+        "class_name": "BetaDailyQuota"
+      },
+      {
+        "name": "BETA_ACCOUNTS",
+        "class_name": "BetaAccount"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["BetaDailyQuota", "BetaAccount"]
+    }
+  ]
+}
