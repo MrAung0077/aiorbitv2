@@ -2,6 +2,7 @@ package com.ovexiq.app
 
 import java.io.File
 import java.security.MessageDigest
+import java.nio.file.Files
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -26,7 +27,7 @@ class SongArtifactValidationTest {
 
     @Test
     fun verifierAcceptsOnlyMatchingNonEmptyFileInsidePrivateArtifactRoot() {
-        val root = createTempDir(prefix = "ovexiq-song-validation-")
+        val root = Files.createTempDirectory("ovexiq-song-validation-").toFile()
         try {
             val allowed = File(root, "app_flutter/song_artifacts/project-1").apply { mkdirs() }
             val file = File(allowed, "asset9.flac").apply { writeBytes(byteArrayOf(1, 2, 3, 4)) }
