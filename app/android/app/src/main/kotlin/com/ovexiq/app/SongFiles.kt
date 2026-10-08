@@ -10,7 +10,6 @@ import android.provider.MediaStore
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
-import java.security.MessageDigest
 
 /** Downloads stay in Ovexiq; no credential-bearing URL or browser handoff. */
 class SongFiles(private val activity: Activity) {
@@ -24,19 +23,21 @@ class SongFiles(private val activity: Activity) {
             val mime = call.argument<String>("mimeType")
             val name = call.argument<String>("fileName")
             val sha = call.argument<String>("sha256")
-            if (path == null || mime !in listOf("audio/mpeg", "video/mp4", "text/plain") ||
-                name == null || !Regex("^[a-z]+\\.(mp3|mp4|txt)$").matches(name) ||
-                sha == null || !Regex("^[a-f0-9]{64}$").matches(sha) || Build.VERSION.SDK_INT < 29) {
+            if (path == null || mime == null || name == null || sha == null ||
+                !isSupportedSongArtifactDescriptor(name, mime) ||
+                !Regex("^[a-f0-9]{64}$").matches(sha) || Build.VERSION.SDK_INT < 29) {
                 result.success(false)
                 return@setMethodCallHandler
             }
             Thread {
                 if (call.method == "verify") {
-                    val valid = try { verified(File(path), sha) } catch (_: Exception) { false }
+                    val valid = try {
+                        verifySongArtifactFile(File(path), sha, File(activity.applicationInfo.dataDir))
+                    } catch (_: Exception) { false }
                     activity.runOnUiThread { result.success(valid) }
                     return@Thread
                 }
-                val uri = try { store(File(path), name, mime!!, sha) } catch (_: Exception) { null }
+                val uri = try { store(File(path), name, mime, sha) } catch (_: Exception) { null }
                 activity.runOnUiThread {
                     if (uri == null) { result.success(false); return@runOnUiThread }
                     try {
@@ -59,20 +60,9 @@ class SongFiles(private val activity: Activity) {
         }
     }
 
-    private fun verified(source: File, sha: String): Boolean {
-        val allowed = File(activity.applicationInfo.dataDir, "app_flutter/song_artifacts").canonicalPath + File.separator
-        if (!source.canonicalPath.startsWith(allowed) || !source.isFile || source.length() > 256L * 1024 * 1024) return false
-        val digest = MessageDigest.getInstance("SHA-256")
-        source.inputStream().use { input ->
-            val buffer = ByteArray(65536)
-            while (true) { val count = input.read(buffer); if (count < 0) break; digest.update(buffer, 0, count) }
-        }
-        val actual = digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
-        return actual == sha
-    }
-
     private fun store(source: File, name: String, mime: String, sha: String): Uri? {
-        if (!verified(source, sha)) return null
+        if (!isSupportedSongArtifactDescriptor(name, mime) ||
+            !verifySongArtifactFile(source, sha, File(activity.applicationInfo.dataDir))) return null
         val prefs = activity.getSharedPreferences("song_downloads", 0)
         val resolver = activity.contentResolver
         val previous = prefs.getString(sha, null)?.let(Uri::parse)
