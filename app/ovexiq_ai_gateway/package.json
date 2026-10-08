@@ -9,7 +9,9 @@
     "test:runtime": "node --test ./test/durable_object_runtime.test.js",
     "dev": "wrangler dev",
     "check": "wrangler deploy --dry-run",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "check:staging": "wrangler deploy --dry-run --config wrangler.staging.jsonc",
+    "deploy:staging": "wrangler deploy --config wrangler.staging.jsonc"
   },
   "devDependencies": {
     "wrangler": "4.120.0"
