@@ -27,7 +27,16 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["BetaDailyQuota", "BetaAccount"]
+      "new_sqlite_classes": [
+        "BetaDailyQuota",
+        "BetaAccount"
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "pattern": "staging-api.ovexiq.com",
+      "custom_domain": true
     }
   ]
 }
