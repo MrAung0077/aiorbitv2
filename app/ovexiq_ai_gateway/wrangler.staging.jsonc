@@ -9,7 +9,8 @@
     "head_sampling_rate": 1
   },
   "vars": {
-    "OVEXIQ_MEDIA_ENABLED": "true"
+    "OVEXIQ_MEDIA_ENABLED": "true",
+    "OVEXIQ_MEDIA_ORIGIN": "https://media-acceptance.ovexiq.com"
   },
   "durable_objects": {
     "bindings": [
