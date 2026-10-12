@@ -25,6 +25,27 @@ test('same contract for Android and web: ownership server-derived, only service 
   }
 });
 
+test('private VPC media binding is preferred over the public HTTPS origin', async () => {
+  let privateCalls = 0;
+  const privateMedia = {
+    fetch: async (url, init) => {
+      privateCalls += 1;
+      assert.equal(new URL(url).href, 'http://localhost:8080/v1/media/projects');
+      assert.equal(init.headers['X-Ovexiq-Account'], accountId);
+      assert.equal(init.headers.Authorization, `Bearer ${env.OVEXIQ_MEDIA_SERVICE_KEY}`);
+      assert.doesNotMatch(JSON.stringify(init.headers), /synthetic-beta|synthetic-session|spoofed/);
+      return Response.json({ projects: [] });
+    },
+  };
+  const response = await proxyMedia(request(), { ...env, OVEXIQ_MEDIA_PRIVATE: privateMedia }, {
+    ...auth,
+    fetcher: async () => { assert.fail('public media origin must not be used when VPC binding exists'); },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(privateCalls, 1);
+  assert.deepEqual(await response.json(), { projects: [] });
+});
+
 for (const [name, changedEnv, changedAuth, status] of [
   ['disabled', { OVEXIQ_MEDIA_ENABLED: 'false' }, {}, 503],
   ['kill switch', { OVEXIQ_BETA_AI_DISABLED: 'yes' }, {}, 503],
