@@ -17,15 +17,28 @@ export async function proxyMedia(request, env, { authenticate, findTester, fetch
     if (!account) return error(401, 'unauthorized');
     const allowed = JSON.parse(env.OVEXIQ_MEDIA_ALLOWED_ACCOUNTS ?? '[]');
     if (!Array.isArray(allowed) || !allowed.includes(account.accountId)) return error(403, 'media_access_not_enabled');
-    const base = new URL(env.OVEXIQ_MEDIA_ORIGIN);
-    if (base.protocol !== 'https:' || base.username || base.password || base.pathname !== '/' || base.search || !env.OVEXIQ_MEDIA_SERVICE_KEY) return error(503, 'media_not_configured');
+    const serviceKey = env.OVEXIQ_MEDIA_SERVICE_KEY;
+    const privateMedia = env.OVEXIQ_MEDIA_PRIVATE;
+    let upstreamFetch = fetcher;
+    let upstreamBase;
+    if (!serviceKey) return error(503, 'media_not_configured');
+    if (privateMedia && typeof privateMedia.fetch === 'function') {
+      // A Workers VPC Service binding fixes the actual tunnel host/port.
+      // The URL here supplies only the HTTP scheme, Host header and path.
+      upstreamFetch = privateMedia.fetch.bind(privateMedia);
+      upstreamBase = new URL('http://localhost:8080/');
+    } else {
+      const base = new URL(env.OVEXIQ_MEDIA_ORIGIN);
+      if (base.protocol !== 'https:' || base.username || base.password || base.pathname !== '/' || base.search) return error(503, 'media_not_configured');
+      upstreamBase = base;
+    }
     const path = new URL(request.url).pathname;
     if (!/^\/v1\/media\/(?:artist|visuals|projects(?:\/[a-f0-9-]{36}(?:\/artifacts\/[a-f0-9-]{36})?)?)$/.test(path)) return error(404, 'not_found');
     if (!['GET', 'POST', 'PUT'].includes(request.method)) return error(405, 'method_not_allowed');
     if (request.method !== 'GET' && (!request.headers.get('content-type')?.startsWith('application/json') || Number(request.headers.get('content-length') ?? 0) > 12 * 1024 * 1024)) return error(413, 'invalid_body');
-    const upstream = await fetcher(new URL(path, base), {
+    const upstream = await upstreamFetch(new URL(path, upstreamBase), {
       method: request.method, body: request.body, redirect: 'error',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.OVEXIQ_MEDIA_SERVICE_KEY}`, 'X-Ovexiq-Account': account.accountId },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${serviceKey}`, 'X-Ovexiq-Account': account.accountId },
     });
     const headers = new Headers(cors);
     for (const name of ['content-type', 'content-length', 'content-disposition', 'x-artifact-sha256']) {
