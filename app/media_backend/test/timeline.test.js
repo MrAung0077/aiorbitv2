@@ -74,6 +74,66 @@ test('master shrink is rejected while scenes overflow it', () => {
   assert.equal(timeline.masters.get('m1').durationSeconds, 120);
 });
 
+test('replacements are validated through the canonical factories', () => {
+  const timeline = new Timeline();
+  const master = timeline.addMaster(masterMedia({ artifactId: 'a1', durationSeconds: 100 }));
+  const cap = timeline.addCaption(caption({ masterId: master.id, startSeconds: 0, endSeconds: 2, text: 'ok' }));
+  // A raw object with an invalid field is rejected by factory validation,
+  // not just by the time-range check.
+  fails(() => timeline.replace('caption', cap.id, { id: cap.id, masterId: master.id, startSeconds: 0, endSeconds: 2, text: '   ' }), 'invalid_caption_text');
+  const take = timeline.addShot(shot({ sceneId: timeline.addScene(scene({ masterId: master.id, index: 0, startSeconds: 0, endSeconds: 50 })).id, index: 0, startSeconds: 0, endSeconds: 10 }));
+  fails(() => timeline.replace('shot', take.id, { ...take, startSeconds: -1 }), 'invalid_time_range');
+  fails(() => timeline.replace('shot', take.id, { ...take, assetIds: 'not-an-array' }), 'invalid_asset_references');
+  // The stored item is untouched after a rejected replacement.
+  assert.equal(timeline.captions.get(cap.id).text, 'ok');
+});
+
+test('master shrink cannot strand transcripts, captions or narrations', () => {
+  for (const kind of ['transcript', 'caption', 'narration']) {
+    const timeline = new Timeline();
+    const master = timeline.addMaster(masterMedia({ artifactId: 'a1', durationSeconds: 100 }));
+    const add = { transcript: () => timeline.addTranscript(transcriptSegment({ masterId: master.id, startSeconds: 90, endSeconds: 95, text: 'words' })),
+      caption: () => timeline.addCaption(caption({ masterId: master.id, startSeconds: 90, endSeconds: 95, text: 'words' })),
+      narration: () => timeline.addNarration(narrationSegment({ masterId: master.id, startSeconds: 90, endSeconds: 95, text: 'words' })) }[kind];
+    add();
+    fails(() => timeline.replace('master', master.id, { ...timeline.masters.get(master.id), durationSeconds: 80 }), 'timeline_master_shrink_conflict');
+    timeline.replace('master', master.id, { ...timeline.masters.get(master.id), durationSeconds: 120 });
+    assert.equal(timeline.masters.get(master.id).durationSeconds, 120);
+  }
+});
+
+test('scene resize cannot strand existing shots outside the new range', () => {
+  const timeline = new Timeline();
+  const master = timeline.addMaster(masterMedia({ artifactId: 'a1', durationSeconds: 100 }));
+  const opening = timeline.addScene(scene({ masterId: master.id, index: 0, startSeconds: 0, endSeconds: 60 }));
+  timeline.addShot(shot({ sceneId: opening.id, index: 0, startSeconds: 50, endSeconds: 60 }));
+  fails(() => timeline.replace('scene', opening.id, { ...timeline.scenes.get(opening.id), startSeconds: 0, endSeconds: 40 }), 'timeline_scene_resize_conflict');
+  fails(() => timeline.replace('scene', opening.id, { ...timeline.scenes.get(opening.id), startSeconds: 55, endSeconds: 60 }), 'timeline_scene_resize_conflict');
+  // A resize that still contains every shot succeeds.
+  timeline.replace('scene', opening.id, { ...timeline.scenes.get(opening.id), startSeconds: 0, endSeconds: 70 });
+  assert.equal(timeline.scenes.get(opening.id).endSeconds, 70);
+});
+
+test('selective replacement cannot silently re-parent an item', () => {
+  const timeline = new Timeline();
+  const first = timeline.addMaster(masterMedia({ id: 'm1', artifactId: 'a1', durationSeconds: 100 }));
+  const second = timeline.addMaster(masterMedia({ id: 'm2', artifactId: 'a2', durationSeconds: 100 }));
+  const opening = timeline.addScene(scene({ masterId: first.id, index: 0, startSeconds: 0, endSeconds: 50 }));
+  const other = timeline.addScene(scene({ masterId: second.id, index: 0, startSeconds: 0, endSeconds: 50 }));
+  fails(() => timeline.replace('scene', opening.id, { ...opening, masterId: second.id }), 'timeline_reparent_forbidden');
+  const take = timeline.addShot(shot({ sceneId: opening.id, index: 0, startSeconds: 0, endSeconds: 10 }));
+  fails(() => timeline.replace('shot', take.id, { ...take, sceneId: other.id }), 'timeline_reparent_forbidden');
+  const cap = timeline.addCaption(caption({ masterId: first.id, startSeconds: 0, endSeconds: 2, text: 'hi' }));
+  fails(() => timeline.replace('caption', cap.id, { ...cap, masterId: second.id }), 'timeline_reparent_forbidden');
+  const line = timeline.addTranscript(transcriptSegment({ masterId: first.id, startSeconds: 0, endSeconds: 2, text: 'hi' }));
+  fails(() => timeline.replace('transcript', line.id, { ...line, masterId: second.id }), 'timeline_reparent_forbidden');
+  const voice = timeline.addNarration(narrationSegment({ masterId: first.id, startSeconds: 0, endSeconds: 2, text: 'hi' }));
+  fails(() => timeline.replace('narration', voice.id, { ...voice, masterId: second.id }), 'timeline_reparent_forbidden');
+  // Parents are unchanged after the rejected attempts.
+  assert.equal(timeline.scenes.get(opening.id).masterId, 'm1');
+  assert.equal(timeline.shots.get(take.id).sceneId, opening.id);
+});
+
 test('timeline round-trips through JSON with stable ids', () => {
   const timeline = new Timeline();
   const master = timeline.addMaster(masterMedia({ artifactId: 'a1', durationSeconds: 90, width: 1920, height: 1080 }));

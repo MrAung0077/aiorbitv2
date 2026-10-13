@@ -159,29 +159,69 @@ export class Timeline {
     this.narrations.set(item.id, structuredClone(item));
     return this.narrations.get(item.id);
   }
-  // Selective repair: swap one segment for a corrected version. Siblings are
-  // untouched; containment against the parent is re-validated.
+  // Selective repair: swap one segment for a corrected version. The
+  // replacement is re-validated through the same canonical factory used for
+  // new objects, so it cannot inject a structurally invalid item. Invariants:
+  // the stable id is preserved, the item is never silently re-parented, the
+  // replacement still fits inside its parent, and resizing a parent never
+  // strands its existing children outside the new bounds.
   replace(kind, id, replacement) {
     const collection = this._collection(kind);
     const current = collection.get(id);
     if (!current) throw new MediaFailure('unknown_timeline_segment', 'timeline_validation', 400);
-    requireValue(replacement && replacement.kind === kind && replacement.id === id, 'timeline_replace_mismatch', 'timeline_validation');
-    if (kind === 'master') {
-      const duration = seconds(replacement.durationSeconds, 'durationSeconds');
-      requireValue(duration > 0 && duration <= MAX_SECONDS, 'invalid_time_range', 'timeline_validation');
-    } else validateTimeRange(replacement.startSeconds, replacement.endSeconds);
-    if (kind === 'scene') this._checkInsideMaster(replacement, replacement.masterId);
-    else if (kind === 'shot') {
-      const parentScene = this.scenes.get(replacement.sceneId);
-      if (!parentScene) throw new MediaFailure('unknown_timeline_parent', 'timeline_validation', 400);
-      requireValue(replacement.startSeconds >= parentScene.startSeconds && replacement.endSeconds <= parentScene.endSeconds,
-        'timeline_segment_out_of_bounds', 'timeline_validation');
-    } else if (kind !== 'master') this._checkInsideMaster(replacement, replacement.masterId);
-    if (kind === 'master') requireValue(replacement.durationSeconds >= current.durationSeconds ||
-      [...this.scenes.values()].every(s => s.masterId !== id || s.endSeconds <= replacement.durationSeconds),
-      'timeline_master_shrink_conflict', 'timeline_validation');
-    collection.set(id, structuredClone(replacement));
+    requireValue(replacement && typeof replacement === 'object', 'timeline_replace_mismatch', 'timeline_validation');
+    const canonical = this._canonicalize(kind, { ...replacement, kind, id });
+    this._assertSameParent(kind, current, canonical);
+    this._checkReplacementBounds(kind, canonical);
+    this._checkChildrenFit(kind, id, canonical);
+    collection.set(id, structuredClone(canonical));
     return collection.get(id);
+  }
+  _canonicalize(kind, fields) {
+    switch (kind) {
+      case 'master': return masterMedia(fields);
+      case 'scene': return scene(fields);
+      case 'shot': return shot(fields);
+      case 'transcript': return transcriptSegment(fields);
+      case 'caption': return caption(fields);
+      case 'narration': return narrationSegment(fields);
+      default: throw new MediaFailure('unknown_timeline_kind', 'timeline_validation', 400);
+    }
+  }
+  _assertSameParent(kind, current, canonical) {
+    const parentKey = { scene: 'masterId', shot: 'sceneId', transcript: 'masterId', caption: 'masterId', narration: 'masterId' }[kind];
+    if (parentKey) requireValue(canonical[parentKey] === current[parentKey], 'timeline_reparent_forbidden', 'timeline_validation');
+  }
+  _checkReplacementBounds(kind, canonical) {
+    if (kind === 'master') return; // Duration validated by the factory.
+    if (kind === 'scene') this._checkInsideMaster(canonical, canonical.masterId);
+    else if (kind === 'shot') {
+      const parentScene = this.scenes.get(canonical.sceneId);
+      if (!parentScene) throw new MediaFailure('unknown_timeline_parent', 'timeline_validation', 400);
+      requireValue(canonical.startSeconds >= parentScene.startSeconds && canonical.endSeconds <= parentScene.endSeconds,
+        'timeline_segment_out_of_bounds', 'timeline_validation');
+    } else this._checkInsideMaster(canonical, canonical.masterId);
+  }
+  _checkChildrenFit(kind, id, canonical) {
+    if (kind === 'master') {
+      // Shrinking a master must not leave ANY direct child outside its bounds.
+      for (const childKind of ['scenes', 'transcripts', 'captions', 'narrations']) {
+        for (const child of this[childKind].values()) {
+          if (child.masterId === id) {
+            requireValue(child.endSeconds <= canonical.durationSeconds,
+              'timeline_master_shrink_conflict', 'timeline_validation');
+          }
+        }
+      }
+    } else if (kind === 'scene') {
+      // Resizing a scene must not strand its existing shots outside the new range.
+      for (const child of this.shots.values()) {
+        if (child.sceneId === id) {
+          requireValue(child.startSeconds >= canonical.startSeconds && child.endSeconds <= canonical.endSeconds,
+            'timeline_scene_resize_conflict', 'timeline_validation');
+        }
+      }
+    }
   }
   ordered(kind) {
     return [...this._collection(kind).values()].sort((a, b) =>
