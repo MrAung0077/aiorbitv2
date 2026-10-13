@@ -84,6 +84,8 @@ test('mux args map video and audio streams with copy', () => {
 });
 
 // ---- Execution against local synthetic fixtures (no network) ----
+// These tests shell out to real ffmpeg/ffprobe, so they stay behind the
+// same opt-in flag as the repo's render smoke test and skip in normal runs.
 
 function fixtures(t) {
   const root = mkdtempSync(join(tmpdir(), 'ovexiq-ffmpeg-ops-'));
@@ -99,7 +101,7 @@ async function makeClip(root, name, { duration = 4, width = 1280, height = 720, 
   return out;
 }
 
-test('trim is deterministic: identical inputs produce identical bytes', async t => {
+test('trim is deterministic: identical inputs produce identical bytes', { skip: process.env.MEDIA_RENDER_SMOKE !== '1' }, async t => {
   const root = fixtures(t);
   const clip = await makeClip(root, 'clip.mp4');
   const ops = new FfmpegOps();
@@ -111,7 +113,7 @@ test('trim is deterministic: identical inputs produce identical bytes', async t 
   assert.ok(Math.abs(Number(info.format.duration) - 2) < 0.3);
 });
 
-test('concat joins clips and reframe converts 16:9 to 9:16', async t => {
+test('concat joins clips and reframe converts 16:9 to 9:16', { skip: process.env.MEDIA_RENDER_SMOKE !== '1' }, async t => {
   const root = fixtures(t);
   const a = await makeClip(root, 'a.mp4', { duration: 2 });
   const b = await makeClip(root, 'b.mp4', { duration: 3 });
@@ -126,7 +128,7 @@ test('concat joins clips and reframe converts 16:9 to 9:16', async t => {
   assert.equal(video.width, 720); assert.equal(video.height, 1280);
 });
 
-test('normalizeAudio and loudness measurement work on synthetic audio', async t => {
+test('normalizeAudio and loudness measurement work on synthetic audio', { skip: process.env.MEDIA_RENDER_SMOKE !== '1' }, async t => {
   const root = fixtures(t);
   const clip = await makeClip(root, 'clip.mp4');
   const ops = new FfmpegOps();
@@ -138,7 +140,7 @@ test('normalizeAudio and loudness measurement work on synthetic audio', async t 
   assert.ok(Math.abs(measured.inputI - -16) < 2.5, `inputI=${measured.inputI}`);
 });
 
-test('subtitle burn-in renders caption text into the frame', async t => {
+test('subtitle burn-in renders caption text into the frame', { skip: process.env.MEDIA_RENDER_SMOKE !== '1' }, async t => {
   const root = fixtures(t);
   const clip = await makeClip(root, 'clip.mp4', { duration: 4 });
   const assPath = join(root, 'caps.ass');
@@ -155,7 +157,7 @@ test('subtitle burn-in renders caption text into the frame', async t => {
   assert.ok(audio, 'audio stream preserved through burn-in');
 });
 
-test('mux combines silent video with narration audio', async t => {
+test('mux combines silent video with narration audio', { skip: process.env.MEDIA_RENDER_SMOKE !== '1' }, async t => {
   const root = fixtures(t);
   const silent = await makeClip(root, 'silent.mp4', { duration: 3, withAudio: false });
   const voice = join(root, 'voice.m4a');

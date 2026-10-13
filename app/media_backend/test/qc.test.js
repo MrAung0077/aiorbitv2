@@ -121,7 +121,7 @@ test('summarizeQc folds checks into a pass/fail report', () => {
   assert.deepEqual(passing.failedChecks, []);
 });
 
-test('qc runs end-to-end on a locally rendered clip (no network)', async t => {
+test('qc runs end-to-end on a locally rendered clip (no network)', { skip: process.env.MEDIA_RENDER_SMOKE !== '1' }, async t => {
   const root = mkdtempSync(join(tmpdir(), 'ovexiq-qc-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const file = join(root, 'clip.mp4');
