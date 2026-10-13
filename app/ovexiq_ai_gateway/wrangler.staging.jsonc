@@ -38,5 +38,11 @@
       "pattern": "staging-api.ovexiq.com",
       "custom_domain": true
     }
+  ],
+  "vpc_services": [
+    {
+      "binding": "OVEXIQ_MEDIA_PRIVATE",
+      "service_id": "01a132e3-deb0-7563-a25b-3b3e564bcd6c"
+    }
   ]
 }
