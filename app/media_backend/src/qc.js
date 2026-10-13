@@ -61,26 +61,42 @@ export function qcAudio({ streams, requireAudio = true, loudness = null, minI = 
 }
 
 // Segment coverage: the planned scenes/shots tile [0, masterDurationSeconds]
-// with no gaps and no overlaps (within tolerance). Reports every gap and
-// overlap so selective repair knows exactly what to fix.
+// with no gaps, no overlaps and no out-of-bounds segments (within
+// tolerance). Reports every gap, overlap and out-of-bounds segment
+// explicitly so selective repair knows exactly what to fix. An
+// out-of-bounds segment is never silently treated as valid coverage.
 export function qcSegmentCoverage({ segments, masterDurationSeconds, toleranceSeconds = 0.05, name = 'segment_coverage' }) {
   requireValue(Array.isArray(segments), 'invalid_qc_segments', 'qc_validation');
-  number(masterDurationSeconds, 'invalid_qc_duration'); number(toleranceSeconds, 'invalid_qc_tolerance');
+  number(masterDurationSeconds, 'invalid_qc_duration');
+  requireValue(masterDurationSeconds > 0, 'invalid_qc_duration', 'qc_validation');
+  number(toleranceSeconds, 'invalid_qc_tolerance');
+  requireValue(toleranceSeconds >= 0, 'invalid_qc_tolerance', 'qc_validation');
   const ranges = segments.map(s => {
     number(s.startSeconds, 'invalid_qc_segment'); number(s.endSeconds, 'invalid_qc_segment');
     requireValue(s.endSeconds > s.startSeconds, 'invalid_qc_segment', 'qc_validation');
     return { id: s.id ?? null, startSeconds: s.startSeconds, endSeconds: s.endSeconds };
   }).sort((a, b) => a.startSeconds - b.startSeconds);
+  const outOfBounds = [];
+  for (const range of ranges) {
+    if (range.startSeconds < -toleranceSeconds) {
+      outOfBounds.push({ id: range.id, startSeconds: range.startSeconds, endSeconds: range.endSeconds, bound: 'start' });
+    } else if (range.endSeconds > masterDurationSeconds + toleranceSeconds) {
+      outOfBounds.push({ id: range.id, startSeconds: range.startSeconds, endSeconds: range.endSeconds, bound: 'end' });
+    }
+  }
   const gaps = [], overlaps = [];
   let cursor = 0;
   for (const range of ranges) {
     if (range.startSeconds - cursor > toleranceSeconds) gaps.push({ from: cursor, to: range.startSeconds, id: range.id });
-    else if (cursor - range.startSeconds > toleranceSeconds) overlaps.push({ at: range.startSeconds, id: range.id });
+    // A segment that starts out of bounds is reported there, not double-counted as an overlap.
+    else if (range.startSeconds >= -toleranceSeconds && cursor - range.startSeconds > toleranceSeconds) {
+      overlaps.push({ at: range.startSeconds, id: range.id });
+    }
     cursor = Math.max(cursor, range.endSeconds);
   }
   if (masterDurationSeconds - cursor > toleranceSeconds) gaps.push({ from: cursor, to: masterDurationSeconds, id: null });
-  const ok = gaps.length === 0 && overlaps.length === 0;
-  return check(name, ok ? 'pass' : 'fail', { segmentCount: ranges.length, gaps, overlaps });
+  const ok = outOfBounds.length === 0 && gaps.length === 0 && overlaps.length === 0;
+  return check(name, ok ? 'pass' : 'fail', { segmentCount: ranges.length, outOfBounds, gaps, overlaps });
 }
 
 // Export completeness: every planned artifact id is present with a hash and

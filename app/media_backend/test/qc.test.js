@@ -57,6 +57,29 @@ test('segment coverage reports gaps and overlaps for selective repair', () => {
   assert.deepEqual(tail.details.gaps, [{ from: 60, to: 65, id: null }]);
 });
 
+test('out-of-bounds segments fail with an explicit outOfBounds detail', () => {
+  // The exact example from review: a segment extending past the master.
+  const pastEnd = qcSegmentCoverage({ segments: [{ id: 's1', startSeconds: 0, endSeconds: 70 }], masterDurationSeconds: 65 });
+  assert.equal(pastEnd.status, 'fail');
+  assert.deepEqual(pastEnd.details.outOfBounds, [{ id: 's1', startSeconds: 0, endSeconds: 70, bound: 'end' }]);
+  const beforeZero = qcSegmentCoverage({ segments: [{ id: 's1', startSeconds: -2, endSeconds: 30 }, { id: 's2', startSeconds: 30, endSeconds: 65 }], masterDurationSeconds: 65 });
+  assert.equal(beforeZero.status, 'fail');
+  assert.deepEqual(beforeZero.details.outOfBounds, [{ id: 's1', startSeconds: -2, endSeconds: 30, bound: 'start' }]);
+  assert.equal(beforeZero.details.overlaps.length, 0); // reported as OOB, not as overlap
+  // Boundary tolerance still applies: a 0.01s overshoot inside tolerance passes.
+  const withinTolerance = qcSegmentCoverage({ segments: [{ id: 's1', startSeconds: 0, endSeconds: 65.01 }], masterDurationSeconds: 65, toleranceSeconds: 0.05 });
+  assert.equal(withinTolerance.status, 'pass');
+  assert.deepEqual(withinTolerance.details.outOfBounds, []);
+});
+
+test('coverage validates its own parameters', () => {
+  const segments = [{ id: 's1', startSeconds: 0, endSeconds: 65 }];
+  assert.throws(() => qcSegmentCoverage({ segments, masterDurationSeconds: 0 }), /invalid_qc_duration/);
+  assert.throws(() => qcSegmentCoverage({ segments, masterDurationSeconds: -5 }), /invalid_qc_duration/);
+  assert.throws(() => qcSegmentCoverage({ segments, masterDurationSeconds: 65, toleranceSeconds: -0.1 }), /invalid_qc_tolerance/);
+  assert.equal(qcSegmentCoverage({ segments, masterDurationSeconds: 65, toleranceSeconds: 0 }).status, 'pass');
+});
+
 test('segment coverage accepts a real timeline export plan', () => {
   const timeline = new Timeline();
   const master = timeline.addMaster(masterMedia({ artifactId: 'a1', durationSeconds: 90 }));
