@@ -63,16 +63,18 @@ export function runProcessCapture(command, args, timeout = 15 * 60 * 1000) {
   });
 }
 
-// Frame-accurate trim. -ss after -i seeks accurately (slower than
-// input seeking, but a narrative cut must land on the timeline point).
-// Re-encode is the default: stream copy can only cut on keyframes.
+// Frame-accurate trim. On the re-encode path -ss comes AFTER -i so the seek
+// lands exactly on the timeline point (slower than input seeking, but a
+// narrative cut must be exact). The stream-copy path keeps fast -ss BEFORE
+// -i and is keyframe-accurate only.
 export function trimArgs({ input, startSeconds, durationSeconds, output, reencode = true }) {
   nonEmptyString(input, 'invalid_trim_input'); nonEmptyString(output, 'invalid_trim_output');
   nonNegative(startSeconds, 'invalid_trim_start'); positive(durationSeconds, 'invalid_trim_duration');
-  const args = [...BASE_FLAGS, '-ss', String(startSeconds), '-i', input, '-t', String(durationSeconds), '-map_metadata', '-1'];
-  if (reencode) args.push(...VIDEO_ENCODE, ...AUDIO_ENCODE, '-movflags', '+faststart');
-  else args.push('-c', 'copy', '-movflags', '+faststart');
-  args.push(output);
+  const args = reencode
+    ? [...BASE_FLAGS, '-i', input, '-ss', String(startSeconds), '-t', String(durationSeconds), '-map_metadata', '-1',
+      ...VIDEO_ENCODE, ...AUDIO_ENCODE, '-movflags', '+faststart', output]
+    : [...BASE_FLAGS, '-ss', String(startSeconds), '-i', input, '-t', String(durationSeconds), '-map_metadata', '-1',
+      '-c', 'copy', '-movflags', '+faststart', output];
   return args;
 }
 

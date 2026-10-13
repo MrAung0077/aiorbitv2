@@ -22,10 +22,14 @@ async function probe(file) {
 
 test('trim args are frame-accurate (-ss after -i) and validated', () => {
   const args = trimArgs({ input: 'in.mp4', startSeconds: 12.5, durationSeconds: 30, output: 'out.mp4' });
-  const inputIndex = args.indexOf('-i');
-  assert.ok(args.indexOf('-ss') < inputIndex); // -ss precedes -i for accuracy
-  assert.deepEqual(args.slice(inputIndex, inputIndex + 4), ['-i', 'in.mp4', '-t', '30']);
+  const inputIndex = args.indexOf('-i'), ssIndex = args.indexOf('-ss');
+  assert.ok(ssIndex > inputIndex, 'frame-accurate trim needs -ss after the input option');
+  assert.deepEqual(args.slice(inputIndex, inputIndex + 6), ['-i', 'in.mp4', '-ss', '12.5', '-t', '30']);
   assert.ok(args.includes('-map_metadata') && args.includes('+faststart'));
+  // Stream-copy path keeps the fast input-seeking order and is keyframe-accurate only.
+  const copyArgs = trimArgs({ input: 'in.mp4', startSeconds: 5, durationSeconds: 10, output: 'o.mp4', reencode: false });
+  assert.ok(copyArgs.indexOf('-ss') < copyArgs.indexOf('-i'));
+  assert.ok(copyArgs.includes('-c') && copyArgs.includes('copy'));
   fails(() => trimArgs({ input: 'in.mp4', startSeconds: -1, durationSeconds: 30, output: 'o' }), 'invalid_trim_start');
   fails(() => trimArgs({ input: 'in.mp4', startSeconds: 0, durationSeconds: 0, output: 'o' }), 'invalid_trim_duration');
 });
