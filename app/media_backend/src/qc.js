@@ -61,8 +61,11 @@ export function qcAudio({ streams, requireAudio = true, loudness = null, minI = 
 }
 
 // Segment coverage: the planned scenes/shots tile [0, masterDurationSeconds]
-// with no gaps, no overlaps and no out-of-bounds segments (within
-// tolerance). Reports every gap, overlap and out-of-bounds segment
+// with no gaps, no overlaps and no out-of-bounds segments. Master bounds are
+// strict: any segment starting before zero or ending past the master duration
+// fails as outOfBounds regardless of tolerance. Tolerance applies only to
+// coverage adjacency (small gaps/overlaps between otherwise in-bounds
+// segments). Reports every gap, overlap and out-of-bounds segment
 // explicitly so selective repair knows exactly what to fix. An
 // out-of-bounds segment is never silently treated as valid coverage.
 export function qcSegmentCoverage({ segments, masterDurationSeconds, toleranceSeconds = 0.05, name = 'segment_coverage' }) {
@@ -78,9 +81,11 @@ export function qcSegmentCoverage({ segments, masterDurationSeconds, toleranceSe
   }).sort((a, b) => a.startSeconds - b.startSeconds);
   const outOfBounds = [];
   for (const range of ranges) {
-    if (range.startSeconds < -toleranceSeconds) {
+    // Master bounds are strict: tolerance never excuses a segment that starts
+    // before zero or ends past the master duration.
+    if (range.startSeconds < 0) {
       outOfBounds.push({ id: range.id, startSeconds: range.startSeconds, endSeconds: range.endSeconds, bound: 'start' });
-    } else if (range.endSeconds > masterDurationSeconds + toleranceSeconds) {
+    } else if (range.endSeconds > masterDurationSeconds) {
       outOfBounds.push({ id: range.id, startSeconds: range.startSeconds, endSeconds: range.endSeconds, bound: 'end' });
     }
   }
@@ -89,7 +94,7 @@ export function qcSegmentCoverage({ segments, masterDurationSeconds, toleranceSe
   for (const range of ranges) {
     if (range.startSeconds - cursor > toleranceSeconds) gaps.push({ from: cursor, to: range.startSeconds, id: range.id });
     // A segment that starts out of bounds is reported there, not double-counted as an overlap.
-    else if (range.startSeconds >= -toleranceSeconds && cursor - range.startSeconds > toleranceSeconds) {
+    else if (range.startSeconds >= 0 && cursor - range.startSeconds > toleranceSeconds) {
       overlaps.push({ at: range.startSeconds, id: range.id });
     }
     cursor = Math.max(cursor, range.endSeconds);

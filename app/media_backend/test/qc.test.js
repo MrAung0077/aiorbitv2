@@ -66,10 +66,17 @@ test('out-of-bounds segments fail with an explicit outOfBounds detail', () => {
   assert.equal(beforeZero.status, 'fail');
   assert.deepEqual(beforeZero.details.outOfBounds, [{ id: 's1', startSeconds: -2, endSeconds: 30, bound: 'start' }]);
   assert.equal(beforeZero.details.overlaps.length, 0); // reported as OOB, not as overlap
-  // Boundary tolerance still applies: a 0.01s overshoot inside tolerance passes.
-  const withinTolerance = qcSegmentCoverage({ segments: [{ id: 's1', startSeconds: 0, endSeconds: 65.01 }], masterDurationSeconds: 65, toleranceSeconds: 0.05 });
-  assert.equal(withinTolerance.status, 'pass');
-  assert.deepEqual(withinTolerance.details.outOfBounds, []);
+  // Master bounds are strict: tolerance never excuses them, even by 0.01s.
+  const tinyStartOob = qcSegmentCoverage({ segments: [{ id: 's1', startSeconds: -0.01, endSeconds: 30 }], masterDurationSeconds: 65, toleranceSeconds: 0.05 });
+  assert.equal(tinyStartOob.status, 'fail');
+  assert.deepEqual(tinyStartOob.details.outOfBounds, [{ id: 's1', startSeconds: -0.01, endSeconds: 30, bound: 'start' }]);
+  const tinyEndOob = qcSegmentCoverage({ segments: [{ id: 's1', startSeconds: 0, endSeconds: 65.01 }], masterDurationSeconds: 65, toleranceSeconds: 0.05 });
+  assert.equal(tinyEndOob.status, 'fail');
+  assert.deepEqual(tinyEndOob.details.outOfBounds, [{ id: 's1', startSeconds: 0, endSeconds: 65.01, bound: 'end' }]);
+  // Tolerance still applies to adjacency: a 0.01s gap between in-bounds segments passes.
+  const tinyGap = qcSegmentCoverage({ segments: [{ id: 's1', startSeconds: 0, endSeconds: 30 }, { id: 's2', startSeconds: 30.01, endSeconds: 65 }], masterDurationSeconds: 65, toleranceSeconds: 0.05 });
+  assert.equal(tinyGap.status, 'pass');
+  assert.deepEqual(tinyGap.details.outOfBounds, []);
 });
 
 test('coverage validates its own parameters', () => {
