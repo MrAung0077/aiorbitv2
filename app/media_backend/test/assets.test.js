@@ -47,6 +47,27 @@ test('supersede creates an explicit new version linked to the old one', () => {
   fails(() => registry.register(createAsset({ id: 'voice-v1', kind: 'voice', label: 'dup', version: 'v1' })), 'duplicate_asset_id');
 });
 
+test('history returns one consistent oldest-to-newest lineage from any member', () => {
+  const registry = new AssetRegistry();
+  registry.register(createAsset({ id: 'voice-v1', kind: 'voice', label: 'Narrator', version: 'v1' }));
+  const v2 = registry.supersede('voice-v1', 'v2');
+  const v3 = registry.supersede(v2.id, 'v3');
+  for (const query of ['voice-v1', v2.id, v3.id]) {
+    const lineage = registry.history(query);
+    assert.deepEqual(lineage.map(a => a.version), ['v1', 'v2', 'v3']);
+    assert.deepEqual(lineage.map(a => a.id), ['voice-v1', v2.id, v3.id]);
+  }
+});
+
+test('a second successor for the same predecessor is rejected as ambiguous', () => {
+  const registry = new AssetRegistry();
+  registry.register(createAsset({ id: 'voice-v1', kind: 'voice', label: 'Narrator', version: 'v1' }));
+  registry.supersede('voice-v1', 'v2');
+  fails(() => registry.register(createAsset({ id: 'voice-v2b', kind: 'voice', label: 'Narrator alt', version: 'v2b', supersedes: 'voice-v1' })), 'ambiguous_asset_lineage');
+  // The legitimate chain is unaffected by the rejected attempt.
+  assert.deepEqual(registry.history('voice-v1').map(a => a.version), ['v1', 'v2']);
+});
+
 test('registry round-trips through JSON preserving versions and history', () => {
   const registry = new AssetRegistry();
   registry.register(createAsset({ id: 'style-v1', kind: 'visual_style', label: 'Warm grade', version: 'v1', payload: { lighting: 'practical' } }));

@@ -11,8 +11,10 @@
 // with them — no claim otherwise is made here or downstream.
 //
 // Versions are explicit: superseding an asset creates a new record with a
-// new id and version string linked via `supersedes`. Pure, deterministic,
-// JSON-serializable, no network.
+// new id and version string linked via `supersedes`. Lineage is linear by
+// rule (one predecessor has at most one successor) and history() always
+// returns the complete chain oldest-to-newest, whichever member is queried.
+// Pure, deterministic, JSON-serializable, no network.
 
 import { randomUUID } from 'node:crypto';
 import { MediaFailure, requireValue } from './contracts.js';
@@ -56,8 +58,14 @@ export class AssetRegistry {
   constructor() { this.assets = new Map(); }
   register(asset = createAsset()) {
     if (this.assets.has(asset.id)) throw new MediaFailure('duplicate_asset_id', 'asset_validation', 400);
-    if (asset.supersedes && !this.assets.has(asset.supersedes)) {
-      throw new MediaFailure('unknown_superseded_asset', 'asset_validation', 400);
+    if (asset.supersedes) {
+      if (!this.assets.has(asset.supersedes)) {
+        throw new MediaFailure('unknown_superseded_asset', 'asset_validation', 400);
+      }
+      // Lineage is linear by rule: one predecessor has at most one
+      // successor, so a version chain can never branch ambiguously.
+      const clash = [...this.assets.values()].some(a => a.supersedes === asset.supersedes);
+      if (clash) throw new MediaFailure('ambiguous_asset_lineage', 'asset_validation', 400);
     }
     this.assets.set(asset.id, structuredClone(asset));
     return this.assets.get(asset.id);
@@ -79,14 +87,27 @@ export class AssetRegistry {
     requireValue(ASSET_KINDS.includes(kind), 'invalid_asset_kind', 'asset_validation');
     return [...this.assets.values()].filter(a => a.kind === kind);
   }
-  // Newest-first history of one asset line, following the supersedes chain.
+  // Complete lineage of one asset line in oldest-to-newest order, no matter
+  // which member is queried: history(v1), history(v2) and history(v3) of a
+  // v1 -> v2 -> v3 chain all return [v1, v2, v3]. The linear registration
+  // rule guarantees this is unambiguous.
   history(id) {
-    const tip = this.get(id);
-    const chain = [tip];
-    const bySuperseded = new Map();
-    for (const asset of this.assets.values()) if (asset.supersedes) bySuperseded.set(asset.supersedes, asset);
-    let next = bySuperseded.get(tip.id);
-    while (next) { chain.push(next); next = bySuperseded.get(next.id); }
+    let oldest = this.get(id);
+    while (oldest.supersedes) {
+      const parent = this.assets.get(oldest.supersedes);
+      if (!parent) break; // Defensive; registration keeps chains well-formed.
+      oldest = parent;
+    }
+    const successorOf = new Map();
+    for (const asset of this.assets.values()) if (asset.supersedes) successorOf.set(asset.supersedes, asset);
+    const chain = [oldest];
+    const seen = new Set([oldest.id]);
+    let next = successorOf.get(oldest.id);
+    while (next && !seen.has(next.id)) {
+      seen.add(next.id);
+      chain.push(next);
+      next = successorOf.get(next.id);
+    }
     return chain;
   }
   // Resolve every asset id a shot references; unknown ids fail loudly so a
