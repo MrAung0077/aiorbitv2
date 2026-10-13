@@ -84,14 +84,22 @@ export class DerivationGraph {
     for (const dependent of stale) this.nodes.get(dependent).state = 'stale';
     return stale;
   }
-  // A derivative was rebuilt from its (now fresh) sources. Clears its own
-  // stale flag; other stale nodes stay stale until they are rebuilt too.
+  // A derivative was rebuilt from its (now fresh) sources. Rebuilding while
+  // any DIRECT source is still stale is rejected deterministically: a
+  // derivative is only as fresh as the sources it was actually built from.
+  // Clears only this node's stale flag; other stale nodes stay stale until
+  // they are rebuilt too. This records freshness only; it does NOT
+  // regenerate anything.
   rebuilt(id, { sha256 = null } = {}) {
     id = artifactId(id);
     const node = this.nodes.get(id);
     if (!node) throw new MediaFailure('unknown_derivation_node', 'derivation_validation', 400);
     requireValue(sha256 === null || (typeof sha256 === 'string' && /^[0-9a-f]{64}$/.test(sha256)),
       'invalid_derivation_hash', 'derivation_validation');
+    const staleSources = this.sources(id).filter(source => this.nodes.get(source).state === 'stale');
+    if (staleSources.length) {
+      throw new MediaFailure('derivation_source_stale', 'derivation_validation', 400);
+    }
     node.sha256 = sha256; node.state = 'fresh';
     return this.dependents(id).filter(dependent => this.nodes.get(dependent).state === 'stale');
   }

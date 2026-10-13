@@ -71,6 +71,30 @@ test('cycles, self-references and unknown nodes are rejected', () => {
   assert.deepEqual(g.dependents('master').sort(), ['captions', 'reel', 'thumbnail']);
 });
 
+test('rebuilt refuses while any direct source is stale', () => {
+  const g = new DerivationGraph();
+  for (const id of ['grand', 'srcA', 'srcB', 'out']) g.addArtifact(id);
+  g.derive('grand', 'srcA'); g.derive('grand', 'srcB');
+  g.derive('srcA', 'out'); g.derive('srcB', 'out');
+  g.sourceChanged('grand', { sha256: sha('g2') });
+  assert.deepEqual(g.staleIds(), ['out', 'srcA', 'srcB']);
+  // Both direct sources stale: derivative rebuild fails deterministically.
+  assert.throws(() => g.rebuilt('out', { sha256: sha('o2') }),
+    error => error instanceof MediaFailure && error.code === 'derivation_source_stale');
+  assert.equal(g.state('out'), 'stale'); // still stale after the refused rebuild
+  // One source rebuilt, the other still stale: still refused.
+  g.rebuilt('srcA', { sha256: sha('a2') });
+  assert.equal(g.state('srcA'), 'fresh');
+  assert.throws(() => g.rebuilt('out', { sha256: sha('o2') }),
+    error => error instanceof MediaFailure && error.code === 'derivation_source_stale');
+  // Once every direct source is fresh, the rebuild succeeds.
+  g.rebuilt('srcB', { sha256: sha('b2') });
+  g.rebuilt('out', { sha256: sha('o2') });
+  assert.equal(g.state('out'), 'fresh');
+  assert.equal(g.nodes.get('out').sha256, sha('o2'));
+  assert.deepEqual(g.staleIds(), []);
+});
+
 test('graph round-trips through JSON with stable states', () => {
   const g = recapGraph();
   g.sourceChanged('master', { sha256: sha('master2') });
